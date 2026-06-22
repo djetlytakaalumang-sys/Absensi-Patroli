@@ -341,6 +341,7 @@ function addUser(data) {
     name: data.name.trim(), position: data.position.trim(), department: data.department.trim(),
     phone: (data.phone || "").trim(), address: (data.address || "").trim(),
     avatarColor: data.avatarColor || randomAvatarColor(),
+    joinDate: todayDateStr(),
   };
   store.users = [...store.users, newUser];
   db.collection(COL.USERS).doc(newUser.id).set(newUser).catch(console.error);
@@ -475,10 +476,15 @@ function getEffectiveRecordsForUserMonth(userId, userName, monthKey) {
   const [y, m] = monthKey.split("-").map(Number);
   const daysInMonth = new Date(y, m, 0).getDate();
   const todayStr = todayDateStr();
+  // Hanya hitung Alpha sejak tanggal bergabung (joinDate) agar karyawan baru
+  // tidak langsung punya puluhan hari Alpha di bulan mereka ditambahkan.
+  const user = getUserById(userId);
+  const joinDate = user && user.joinDate ? user.joinDate : null;
   const synthetic = [];
   for (let day = 1; day <= daysInMonth; day++) {
     const dateStr = `${monthKey}-${String(day).padStart(2, "0")}`;
     if (dateStr >= todayStr) break;
+    if (joinDate && dateStr < joinDate) continue; // sebelum bergabung, lewati
     if (realDates.has(dateStr)) continue;
     const dow = new Date(dateStr + "T00:00:00").getDay();
     if (dow === 0 || dow === 6) continue;
@@ -1276,9 +1282,7 @@ function LoginPage() {
           </form>
 
           <div style={{ marginTop: 28, paddingTop: 24, borderTop: "1px solid var(--line)" }}>
-            <p style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", marginBottom: 8, textTransform: "uppercase", letterSpacing: ".04em" }}>Akun default (pertama kali)</p>
-            <p style={{ fontSize: 12, color: "#64748b" }}>Admin: <b>admin</b> / <b>admin123</b></p>
-            <p style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>Segera ganti password setelah login pertama.</p>
+            <p style={{ fontSize: 12, color: "#94a3b8", textAlign: "center" }}>Hubungi administrator jika lupa kata sandi.</p>
           </div>
         </div>
       </div>
