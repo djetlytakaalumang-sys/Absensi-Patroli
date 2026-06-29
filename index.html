@@ -7,7 +7,7 @@
 <!-- Izin kamera & lokasi untuk WebView Android (WebIntoApp/GoNative) -->
 <meta name="permissions-policy" content="geolocation=*, camera=*" />
 <meta http-equiv="Permissions-Policy" content="geolocation=*, camera=*" />
-<title>Presensi — Sistem Absensi Karyawan</title>
+<title>Presensi — Sistem Presensi Karyawan</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
@@ -551,7 +551,7 @@ function _validateGpsSamples(samples) {
       if (speedKmh > 250)
         throw new Error(
           "⚠️ GPS Palsu Terdeteksi: Perpindahan lokasi tidak masuk akal " +
-          "(~" + Math.round(speedKmh) + " km/jam sejak absen terakhir). " +
+          "(~" + Math.round(speedKmh) + " km/jam sejak presensi terakhir). " +
           "Pastikan GPS aktif dan tidak menggunakan aplikasi fake location."
         );
     }
@@ -672,7 +672,7 @@ function useCamera() {
       setIsActive(true);
     } catch (err) {
       let message = "Tidak dapat mengakses kamera.";
-      if (err.name === "NotAllowedError") message = "Izin kamera ditolak. Aktifkan izin kamera di browser untuk melanjutkan absensi.";
+      if (err.name === "NotAllowedError") message = "Izin kamera ditolak. Aktifkan izin kamera di browser untuk melanjutkan presensi.";
       else if (err.name === "NotFoundError") message = "Kamera tidak ditemukan pada perangkat ini.";
       setError(message);
       setIsActive(false);
@@ -704,7 +704,7 @@ function useCamera() {
 }
 
 /* ======================= EXPORT EXCEL & PDF ======================= */
-function exportToExcel(records, filenamePrefix = "laporan-absensi") {
+function exportToExcel(records, filenamePrefix = "laporan-presensi") {
   const rows = records.map(r => ({
     Tanggal: formatDateShortID(r.date),
     Nama: r.userName,
@@ -719,14 +719,14 @@ function exportToExcel(records, filenamePrefix = "laporan-absensi") {
   const ws = XLSX.utils.json_to_sheet(rows);
   ws["!cols"] = [{ wch: 14 }, { wch: 22 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 36 }, { wch: 36 }, { wch: 12 }, { wch: 12 }];
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Absensi");
+  XLSX.utils.book_append_sheet(wb, ws, "Presensi");
   XLSX.writeFile(wb, `${filenamePrefix}-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
-function exportToPDF(records, filenamePrefix = "laporan-absensi") {
+function exportToPDF(records, filenamePrefix = "laporan-presensi") {
   const doc = new jspdf.jsPDF({ orientation: "landscape" });
   doc.setFontSize(14); doc.setTextColor(15, 27, 51);
-  doc.text("Laporan Absensi Karyawan", 14, 15);
+  doc.text("Laporan Presensi Karyawan", 14, 15);
   doc.setFontSize(9); doc.setTextColor(100, 116, 139);
   doc.text(`Dibuat pada ${new Date().toLocaleString("id-ID")}`, 14, 21);
   const body = records.map(r => [formatDateShortID(r.date), r.userName, formatTimeHM(r.checkInTime), formatTimeHM(r.checkOutTime), r.status, r.checkInAddress || "-"]);
@@ -866,7 +866,7 @@ function exportRekapPDF(user, monthKey, records) {
   doc.save(`rekap-${user.name.replace(/\s+/g, "-")}-${monthKey}.pdf`);
 }
 
-/* ======================= DETEKSI "LUPA ABSEN PULANG" ======================= */
+/* ======================= DETEKSI "LUPA PRESENSI PULANG" ======================= */
 function getLupaAbsenPulang(users, checkOutReminderHour = 17) {
   const today = todayDateStr();
   const nowHour = new Date().getHours();
@@ -952,7 +952,7 @@ function MiniMap({ lat, lng, height = 160, label }) {
   const directLink = `https://www.google.com/maps?q=${lat},${lng}`;
   return (
     <div style={{ height, position: "relative", borderRadius: 12, overflow: "hidden", border: "1px solid var(--line)" }}>
-      <iframe title={label || "Lokasi absensi"} src={src} style={{ width: "100%", height: "100%", border: 0 }} loading="lazy" />
+      <iframe title={label || "Lokasi presensi"} src={src} style={{ width: "100%", height: "100%", border: 0 }} loading="lazy" />
       <a href={directLink} target="_blank" rel="noopener noreferrer"
          style={{ position: "absolute", bottom: 8, right: 8, background: "#fff", color: "var(--navy-900)", fontSize: 11, fontWeight: 600, padding: "6px 10px", borderRadius: 8, boxShadow: "0 1px 3px rgba(0,0,0,.15)", textDecoration: "none" }}>
         Buka di Google Maps
@@ -1106,7 +1106,7 @@ function CameraCaptureModal({ onCapture, onClose, title }) {
           )}
         </div>
         <p style={{ textAlign: "center", color: "rgba(255,255,255,.4)", fontSize: 12, padding: "0 20px 16px" }}>
-          Foto diambil langsung dari kamera. Unggah dari galeri tidak diizinkan untuk menjaga validitas absensi.
+          Foto diambil langsung dari kamera. Unggah dari galeri tidak diizinkan untuk menjaga validitas presensi.
         </p>
       </div>
     </div>
@@ -1147,7 +1147,7 @@ function AttendanceCard({ user, onUpdated }) {
         withinRadius = distance <= settings.radiusMeters;
       }
       if (settings.enforceRadius && !withinRadius) {
-        setError(`Anda berada ${distance.toLocaleString("id-ID")} m dari lokasi kantor terdekat "${nearestLocation.name}" (maks ${settings.radiusMeters} m). Absen hanya dapat dilakukan di dalam radius kantor.`);
+        setError(`Anda berada ${distance.toLocaleString("id-ID")} m dari lokasi kantor terdekat "${nearestLocation.name}" (maks ${settings.radiusMeters} m). Presensi hanya dapat dilakukan di dalam radius kantor.`);
         setStep(STEP.IDLE);
         return;
       }
@@ -1189,7 +1189,7 @@ function AttendanceCard({ user, onUpdated }) {
       if (onUpdated) onUpdated();
       setStep(STEP.IDLE); setMode(null); setLocationData(null);
     } catch (err) {
-      setError("Gagal menyimpan data absensi. Coba lagi.");
+      setError("Gagal menyimpan data presensi. Coba lagi.");
       setStep(STEP.IDLE);
     }
   }
@@ -1242,18 +1242,18 @@ function AttendanceCard({ user, onUpdated }) {
           {!isOnLeaveToday && !hasCheckedIn && (
             <button onClick={() => beginFlow("in")} disabled={step !== STEP.IDLE}
               className="btn" style={{ width: "100%", background: "#fff", color: "var(--accent-700)", padding: "16px 0", fontSize: 14 }}>
-              <Icon name="log-in" size={18} /> Absen Masuk
+              <Icon name="log-in" size={18} /> Presensi Masuk
             </button>
           )}
           {!isOnLeaveToday && hasCheckedIn && !hasCheckedOut && (
             <button onClick={() => beginFlow("out")} disabled={step !== STEP.IDLE}
               className="btn" style={{ width: "100%", background: "var(--amber)", color: "#fff", padding: "16px 0", fontSize: 14 }}>
-              <Icon name="log-out" size={18} /> Absen Pulang
+              <Icon name="log-out" size={18} /> Presensi Pulang
             </button>
           )}
           {!isOnLeaveToday && hasCheckedIn && hasCheckedOut && (
             <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "rgba(255,255,255,.1)", color: "#fff", fontWeight: 600, borderRadius: 12, padding: "16px 0", fontSize: 14 }}>
-              <Icon name="check-circle-2" size={18} /> Absensi hari ini selesai
+              <Icon name="check-circle-2" size={18} /> Presensi hari ini selesai
             </div>
           )}
         </div>
@@ -1276,7 +1276,7 @@ function AttendanceCard({ user, onUpdated }) {
 
       {step === STEP.CAMERA && (
         <CameraCaptureModal
-          title={mode === "in" ? "Selfie Absen Masuk" : "Selfie Absen Pulang"}
+          title={mode === "in" ? "Selfie Presensi Masuk" : "Selfie Presensi Pulang"}
           onCapture={handlePhotoConfirmed}
           onClose={cancelFlow}
         />
@@ -1286,7 +1286,7 @@ function AttendanceCard({ user, onUpdated }) {
         <div className="modal-overlay">
           <div className="card" style={{ padding: "28px 32px", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
             <Icon name="loader-2" size={28} className="spin" style={{ color: "var(--accent-600)" }} />
-            <p style={{ color: "var(--navy-900)", fontWeight: 500, fontSize: 14 }}>Menyimpan data absensi…</p>
+            <p style={{ color: "var(--navy-900)", fontWeight: 500, fontSize: 14 }}>Menyimpan data presensi…</p>
           </div>
         </div>
       )}
@@ -1328,7 +1328,7 @@ function LoginPage() {
             Kehadiran tim Anda, tercatat akurat setiap hari.
           </h1>
           <p style={{ color: "rgba(231,237,245,.8)", fontSize: 16, lineHeight: 1.6 }}>
-            Absen masuk dan pulang dengan verifikasi selfie langsung dan lokasi GPS real-time.
+            Presensi masuk dan pulang dengan verifikasi selfie langsung dan lokasi GPS real-time.
             Data tersimpan otomatis sebagai bukti kehadiran yang sah.
           </p>
         </div>
@@ -1500,18 +1500,18 @@ function RecordDetailModal({ record, onClose }) {
                   <p style={{ fontSize: 12, color: "#94a3b8", marginBottom: 8 }}>Selfie Pulang — {formatTimeHM(record.checkOutTime)}</p>
                   {record.checkOutPhoto
                     ? <img src={record.checkOutPhoto} alt="Selfie pulang" style={{ width: "100%", aspectRatio: "1/1", objectFit: "cover", borderRadius: 12 }} />
-                    : <div style={{ aspectRatio: "1/1", borderRadius: 12, background: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 12 }}>Belum absen pulang</div>}
+                    : <div style={{ aspectRatio: "1/1", borderRadius: 12, background: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 12 }}>Belum presensi pulang</div>}
                 </div>
               </div>
               <div>
-                <p style={{ fontSize: 12, color: "#94a3b8", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><Icon name="map-pin" size={13} /> Lokasi Absen Masuk</p>
+                <p style={{ fontSize: 12, color: "#94a3b8", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><Icon name="map-pin" size={13} /> Lokasi Presensi Masuk</p>
                 <MiniMap lat={record.checkInLat} lng={record.checkInLng} />
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 6 }}>{record.checkInAddress}</p>
                 <RadiusNote distance={record.checkInDistance} withinRadius={record.checkInWithinRadius} nearestLocation={record.checkInNearestLocation} />
               </div>
               {record.checkOutLat && (
                 <div>
-                  <p style={{ fontSize: 12, color: "#94a3b8", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><Icon name="map-pin" size={13} /> Lokasi Absen Pulang</p>
+                  <p style={{ fontSize: 12, color: "#94a3b8", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><Icon name="map-pin" size={13} /> Lokasi Presensi Pulang</p>
                   <MiniMap lat={record.checkOutLat} lng={record.checkOutLng} />
                   <p style={{ fontSize: 12, color: "#64748b", marginTop: 6 }}>{record.checkOutAddress}</p>
                   <RadiusNote distance={record.checkOutDistance} withinRadius={record.checkOutWithinRadius} nearestLocation={record.checkOutNearestLocation} />
@@ -1575,13 +1575,13 @@ function EmployeeDashboard({ user }) {
 
       <div>
         <div className="flex" style={{ alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--navy-900)" }}>Riwayat Absensi</h2>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--navy-900)" }}>Riwayat Presensi</h2>
           <span style={{ fontSize: 12, color: "#94a3b8" }}>{records.length} catatan</span>
         </div>
         {records.length === 0 ? (
           <div className="card" style={{ padding: 32, textAlign: "center" }}>
             <Icon name="calendar" size={28} style={{ color: "#cbd5e1", margin: "0 auto 8px" }} />
-            <p style={{ fontSize: 14, color: "#64748b" }}>Belum ada riwayat absensi. Mulai dengan absen masuk hari ini.</p>
+            <p style={{ fontSize: 14, color: "#64748b" }}>Belum ada riwayat presensi. Mulai dengan presensi masuk hari ini.</p>
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -1638,7 +1638,7 @@ function HistoryPage({ user }) {
   return (
     <div className="container-md">
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, color: "var(--navy-900)" }}>Riwayat Absensi</h1>
+        <h1 style={{ fontSize: 20, fontWeight: 700, color: "var(--navy-900)" }}>Riwayat Presensi</h1>
         <p style={{ color: "#64748b", fontSize: 14, marginTop: 2 }}>Lihat rekam jejak kehadiran harian dan bulanan Anda.</p>
       </div>
 
@@ -2147,7 +2147,7 @@ function AdminRecordDetail({ record, onClose }) {
               <Icon name="user-x" size={20} style={{ color: "var(--red)", flexShrink: 0, marginTop: 2 }} />
               <div>
                 <p style={{ fontSize: 14, fontWeight: 600, color: "var(--navy-900)", marginBottom: 4 }}>Tidak ada catatan kehadiran</p>
-                <p style={{ fontSize: 13, color: "#64748b" }}>Karyawan tidak absen masuk maupun mengajukan izin pada hari kerja ini, sehingga otomatis ditandai Alpha.</p>
+                <p style={{ fontSize: 13, color: "#64748b" }}>Karyawan tidak presensi masuk maupun mengajukan izin pada hari kerja ini, sehingga otomatis ditandai Alpha.</p>
               </div>
             </div>
           ) : (
@@ -2163,18 +2163,18 @@ function AdminRecordDetail({ record, onClose }) {
                   <p style={{ fontSize: 12, color: "#94a3b8", marginBottom: 8 }}>Selfie Pulang — {formatTimeHM(record.checkOutTime)}</p>
                   {record.checkOutPhoto
                     ? <img src={record.checkOutPhoto} alt="Selfie pulang" style={{ width: "100%", aspectRatio: "1/1", objectFit: "cover", borderRadius: 12 }} />
-                    : <div style={{ aspectRatio: "1/1", borderRadius: 12, background: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 12 }}>Belum absen pulang</div>}
+                    : <div style={{ aspectRatio: "1/1", borderRadius: 12, background: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 12 }}>Belum presensi pulang</div>}
                 </div>
               </div>
               <div>
-                <p style={{ fontSize: 12, color: "#94a3b8", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><Icon name="map-pin" size={13} /> Lokasi Absen Masuk</p>
+                <p style={{ fontSize: 12, color: "#94a3b8", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><Icon name="map-pin" size={13} /> Lokasi Presensi Masuk</p>
                 <MiniMap lat={record.checkInLat} lng={record.checkInLng} />
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 6 }}>{record.checkInAddress}</p>
                 <RadiusNote distance={record.checkInDistance} withinRadius={record.checkInWithinRadius} nearestLocation={record.checkInNearestLocation} />
               </div>
               {record.checkOutLat && (
                 <div>
-                  <p style={{ fontSize: 12, color: "#94a3b8", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><Icon name="map-pin" size={13} /> Lokasi Absen Pulang</p>
+                  <p style={{ fontSize: 12, color: "#94a3b8", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><Icon name="map-pin" size={13} /> Lokasi Presensi Pulang</p>
                   <MiniMap lat={record.checkOutLat} lng={record.checkOutLng} />
                   <p style={{ fontSize: 12, color: "#64748b", marginTop: 6 }}>{record.checkOutAddress}</p>
                   <RadiusNote distance={record.checkOutDistance} withinRadius={record.checkOutWithinRadius} nearestLocation={record.checkOutNearestLocation} />
@@ -2252,7 +2252,7 @@ function AdminDashboard() {
           <Icon name="clock-alert" size={18} style={{ color: "var(--amber)", flexShrink: 0, marginTop: 2 }} />
           <div>
             <p style={{ fontSize: 13, fontWeight: 700, color: "#92400e" }}>
-              {lupaAbsenPulangUsers.length} karyawan belum absen pulang
+              {lupaAbsenPulangUsers.length} karyawan belum presensi pulang
             </p>
             <p style={{ fontSize: 12, color: "#92400e", marginTop: 3 }}>
               {lupaAbsenPulangUsers.map(u => u.name).join(", ")}
@@ -2265,7 +2265,7 @@ function AdminDashboard() {
         <StatCard icon="users" label="Total Karyawan" value={users.length} colorVar="var(--accent-700)" softVar="var(--accent-50)" />
         <StatCard icon="calendar-check" label="Hadir Hari Ini" value={hadirToday} colorVar="var(--green)" softVar="var(--green-soft)" />
         <StatCard icon="alert-triangle" label="Terlambat Hari Ini" value={terlambatToday} colorVar="var(--amber)" softVar="var(--amber-soft)" />
-        <StatCard icon="user-x" label="Belum Absen" value={belumAbsenToday} colorVar="var(--red)" softVar="var(--red-soft)" />
+        <StatCard icon="user-x" label="Belum Presensi" value={belumAbsenToday} colorVar="var(--red)" softVar="var(--red-soft)" />
         <StatCard icon="calendar-x" label="Alpha Bulan Ini" value={alphaThisMonth} colorVar="var(--red)" softVar="var(--red-soft)" />
       </div>
 
@@ -2461,7 +2461,7 @@ function DeleteEmployeeModal({ employee, onClose, onConfirmed }) {
           </div>
           <h3 style={{ fontSize: 16, fontWeight: 700, color: "var(--navy-900)", marginBottom: 6 }}>Hapus karyawan?</h3>
           <p style={{ fontSize: 14, color: "#64748b" }}>
-            Karyawan <strong style={{ color: "var(--navy-900)" }}>{employee.name}</strong> beserta seluruh riwayat absensinya akan dihapus permanen. Tindakan ini tidak dapat dibatalkan.
+            Karyawan <strong style={{ color: "var(--navy-900)" }}>{employee.name}</strong> beserta seluruh riwayat presensinya akan dihapus permanen. Tindakan ini tidak dapat dibatalkan.
           </p>
         </div>
         <div className="flex" style={{ gap: 10, padding: "0 24px 24px" }}>
@@ -2715,7 +2715,7 @@ function SettingsPage() {
   function toggleEnforce() {
     const next = updateSettings({ enforceRadius: !settings.enforceRadius });
     setSettingsState(next);
-    showToast(next.enforceRadius ? "Absen kini wajib dalam radius kantor." : "Absen di luar radius kini hanya diberi peringatan.");
+    showToast(next.enforceRadius ? "Presensi kini wajib dalam radius kantor." : "Presensi di luar radius kini hanya diberi peringatan.");
   }
 
   const locs = getLocations();
@@ -2724,7 +2724,7 @@ function SettingsPage() {
     <div className="container-md">
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: "var(--navy-900)" }}>Pengaturan</h1>
-        <p style={{ color: "#64748b", fontSize: 14, marginTop: 2 }}>Atur jam kerja dan validasi lokasi kantor untuk absensi.</p>
+        <p style={{ color: "#64748b", fontSize: 14, marginTop: 2 }}>Atur jam kerja dan validasi lokasi kantor untuk presensi.</p>
       </div>
 
       {toast && <div style={{ marginBottom: 16, background: "var(--green-soft)", color: "var(--green)", fontSize: 13, fontWeight: 600, padding: "10px 14px", borderRadius: 10 }}>{toast}</div>}
@@ -2732,7 +2732,7 @@ function SettingsPage() {
 
       <form onSubmit={saveWorkHours} className="card" style={{ padding: 20, marginBottom: 20 }}>
         <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--navy-900)", marginBottom: 4 }}>Jam Kerja</h2>
-        <p style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>Karyawan yang absen masuk melewati jam ini otomatis berstatus "Terlambat".</p>
+        <p style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>Karyawan yang presensi masuk melewati jam ini otomatis berstatus "Terlambat".</p>
         <div className="flex" style={{ gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
           <div style={{ minWidth: 160 }}>
             <label className="label">Batas jam masuk</label>
@@ -2873,9 +2873,9 @@ function SettingsPage() {
 
             <div className="flex" style={{ alignItems: "center", justifyContent: "space-between", gap: 12, paddingTop: 16, marginTop: 16, borderTop: "1px solid var(--line)" }}>
               <div>
-                <p style={{ fontSize: 14, fontWeight: 600, color: "var(--navy-900)" }}>Wajibkan absen dalam radius kantor</p>
+                <p style={{ fontSize: 14, fontWeight: 600, color: "var(--navy-900)" }}>Wajibkan presensi dalam radius kantor</p>
                 <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
-                  Jika aktif, karyawan di luar semua lokasi akan diblokir. Jika nonaktif, absen tetap bisa dilakukan namun ditandai untuk admin.
+                  Jika aktif, karyawan di luar semua lokasi akan diblokir. Jika nonaktif, presensi tetap bisa dilakukan namun ditandai untuk admin.
                 </p>
               </div>
               <button type="button" onClick={toggleEnforce} aria-pressed={settings.enforceRadius}
@@ -2892,7 +2892,7 @@ function SettingsPage() {
 
 /* ======================= APP UTAMA ======================= */
 const EMPLOYEE_NAV = [
-  { key: "home", label: "Absensi", icon: "layout-dashboard" },
+  { key: "home", label: "Presensi", icon: "layout-dashboard" },
   { key: "history", label: "Riwayat", icon: "history" },
   { key: "leave", label: "Izin", icon: "calendar-plus" },
   { key: "profile", label: "Profil", icon: "user-circle" },
