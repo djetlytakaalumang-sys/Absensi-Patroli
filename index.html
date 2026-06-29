@@ -810,7 +810,7 @@ function exportRekapPDF(user, monthKey, records) {
   doc.setTextColor(15, 27, 51); doc.setFont("helvetica", "bold"); doc.setFontSize(12);
   doc.text(user.name, 14, y2);
   doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(100, 116, 139);
-  doc.text(`${user.position}  |  ${user.department}  |  ID: ${user.id}`, 14, y2 + 6);
+  doc.text(`${user.position} | ${user.department}`, 14, y2 + 6);
   doc.setDrawColor(226, 230, 236); doc.setLineWidth(0.3);
   doc.line(14, y2 + 11, pw - 14, y2 + 11);
   y2 += 18;
