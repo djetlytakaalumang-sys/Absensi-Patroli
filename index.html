@@ -275,6 +275,10 @@ async function initFirestore() {
     store.users = snap.docs.map(d => d.data());
     _notifyStore();
   });
+  db.collection(COL.SETTINGS).doc("config").onSnapshot(snap => {
+    store.settings = snap.exists ? snap.data() : {};
+    _notifyStore();
+  });
 }
 
 /* ── Fungsi baca (sinkron, dari memori) ─────────────────────────── */
@@ -2648,7 +2652,7 @@ function LeaveRequestsPage({ onChanged }) {
 }
 
 /* ======================= HALAMAN PENGATURAN (ADMIN) ======================= */
-const MAX_OFFICE_LOCATIONS = 3;
+const MAX_OFFICE_LOCATIONS = 5;
 
 function SettingsPage() {
   const [settings, setSettingsState] = useState(getSettings());
@@ -2743,7 +2747,7 @@ function SettingsPage() {
         <div className="flex" style={{ alignItems: "center", justifyContent: "space-between", marginBottom: 4, gap: 12, flexWrap: "wrap" }}>
           <div>
             <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--navy-900)" }}>Lokasi Kantor</h2>
-            <p style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>Maksimal {MAX_OFFICE_LOCATIONS} lokasi. Karyawan valid jika berada dalam radius salah satu lokasi.</p>
+            <p style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>Maksimal {MAX_OFFICE_LOCATIONS} lokasi. Karyawan valid jika berada dalam radius salah satu lokasi. Koordinat bisa diisi manual atau gunakan GPS.</p>
           </div>
           {locs.length < MAX_OFFICE_LOCATIONS && (
             <Button variant="outline" size="sm" onClick={addLocation}><Icon name="plus" size={14} /> Tambah Lokasi</Button>
@@ -2779,15 +2783,56 @@ function SettingsPage() {
 
               <MiniMap lat={loc.lat} lng={loc.lng} height={150} />
 
+              {/* Input manual koordinat */}
+              <div className="flex" style={{ gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                <div style={{ flex: 1, minWidth: 120 }}>
+                  <label className="label" style={{ fontSize: 12 }}>Latitude</label>
+                  <input
+                    className="input"
+                    type="number"
+                    step="any"
+                    placeholder="Contoh: -8.67234"
+                    value={loc.lat != null ? loc.lat : ""}
+                    onChange={e => {
+                      const val = parseFloat(e.target.value);
+                      upsertLocation(idx, { lat: isNaN(val) ? null : val });
+                    }}
+                  />
+                </div>
+                <div style={{ flex: 1, minWidth: 120 }}>
+                  <label className="label" style={{ fontSize: 12 }}>Longitude</label>
+                  <input
+                    className="input"
+                    type="number"
+                    step="any"
+                    placeholder="Contoh: 115.21234"
+                    value={loc.lng != null ? loc.lng : ""}
+                    onChange={e => {
+                      const val = parseFloat(e.target.value);
+                      upsertLocation(idx, { lng: isNaN(val) ? null : val });
+                    }}
+                  />
+                </div>
+              </div>
+
               <div className="flex" style={{ gap: 8, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <Button type="button" variant="outline" size="sm"
                   disabled={locatingIdx === idx}
                   onClick={() => useCurrentLocation(idx)}>
                   {locatingIdx === idx
                     ? <React.Fragment><Icon name="loader-2" size={13} className="spin" /> Mengambil…</React.Fragment>
-                    : <React.Fragment><Icon name="crosshair" size={13} /> Gunakan Lokasi Saat Ini</React.Fragment>}
+                    : <React.Fragment><Icon name="crosshair" size={13} /> Gunakan GPS Saat Ini</React.Fragment>}
                 </Button>
-                {loc.lat != null && (
+                {loc.lat != null && loc.lng != null && (
+                  <a
+                    href={`https://www.google.com/maps?q=${loc.lat},${loc.lng}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--accent-600)", fontWeight: 500, textDecoration: "none" }}>
+                    <Icon name="map" size={13} /> Lihat di Maps
+                  </a>
+                )}
+                {loc.lat != null && loc.lng != null && (
                   <span style={{ fontSize: 11, color: "#94a3b8" }}>
                     {loc.lat.toFixed(5)}, {loc.lng.toFixed(5)}
                   </span>
@@ -2796,6 +2841,21 @@ function SettingsPage() {
               {loc.address && (
                 <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 6 }}>{loc.address}</p>
               )}
+
+              {/* Tombol simpan koordinat manual */}
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--line)" }}>
+                <Button type="button" variant="primary" size="sm"
+                  disabled={loc.lat == null || loc.lng == null}
+                  onClick={async () => {
+                    if (loc.lat == null || loc.lng == null) return;
+                    showToast("Menyimpan koordinat…");
+                    const address = await reverseGeocode(loc.lat, loc.lng).catch(() => null);
+                    upsertLocation(idx, { lat: loc.lat, lng: loc.lng, address: address || `${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}` });
+                    showToast(`Lokasi "${loc.name}" berhasil disimpan ke Firestore.`);
+                  }}>
+                  <Icon name="save" size={13} /> Simpan Lokasi Ini
+                </Button>
+              </div>
             </div>
           ))}
         </div>
