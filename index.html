@@ -125,13 +125,118 @@ img{max-width:100%; display:block;}
 
 .avatar{border-radius:999px; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600; font-family:var(--font-display); flex-shrink:0; object-fit:cover;}
 
-.login-wrap{min-height:100vh; width:100%; background:var(--slate-mist); display:grid;}
-@media (min-width:1024px){.login-wrap{grid-template-columns:1fr 1fr;}}
-.login-brand{display:none; flex-direction:column; justify-content:space-between; padding:48px; position:relative; overflow:hidden; color:#fff; background:linear-gradient(150deg, var(--accent-700), var(--accent-500));}
+.login-wrap{
+  min-height:100vh; width:100%; display:grid; background:#f0f4ff;
+}
+@media (min-width:1024px){.login-wrap{grid-template-columns:55fr 45fr;}}
+
+/* === SISI KIRI: brand panel === */
+.login-brand{
+  display:none; flex-direction:column; justify-content:space-between;
+  padding:48px 56px; position:relative; overflow:hidden; color:#fff;
+  background:linear-gradient(160deg,#0b2a7a 0%,#1a50c8 55%,#3b82f6 100%);
+}
 @media (min-width:1024px){.login-brand{display:flex;}}
-.login-brand::before{content:""; position:absolute; inset:0; opacity:.10; background-image:radial-gradient(circle at 1px 1px, white 1px, transparent 0); background-size:28px 28px;}
-.login-form-wrap{display:flex; align-items:center; justify-content:center; padding:24px; background:#fff;}
-@media (min-width:1024px){.login-form-wrap{border-radius:40px 0 0 40px; box-shadow:-16px 0 40px rgba(15,23,42,.06);}}
+/* wave bottom */
+.login-brand::after{
+  content:""; position:absolute; bottom:-2px; left:-1px; right:-1px; height:120px;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 120'%3E%3Cpath fill='%23f0f4ff' d='M0,60 C360,120 1080,0 1440,80 L1440,120 L0,120 Z'/%3E%3C/svg%3E") no-repeat bottom/cover;
+}
+/* dot grid */
+.login-brand::before{
+  content:""; position:absolute; inset:0; opacity:.08;
+  background-image:radial-gradient(circle at 1px 1px,white 1.5px,transparent 0);
+  background-size:32px 32px;
+}
+/* curved white blob top-right */
+.login-brand-blob{
+  position:absolute; top:-80px; right:-80px; width:340px; height:340px;
+  border-radius:999px; background:rgba(255,255,255,.07); pointer-events:none;
+}
+.login-brand-blob2{
+  position:absolute; bottom:80px; left:-60px; width:220px; height:220px;
+  border-radius:999px; background:rgba(255,255,255,.05); pointer-events:none;
+}
+
+/* === SISI KANAN: form panel === */
+.login-form-wrap{
+  display:flex; align-items:center; justify-content:center;
+  padding:32px 24px; background:#f0f4ff;
+}
+
+/* card form NIT */
+.nit-login-card{
+  width:100%; max-width:400px;
+  background:#fff; border-radius:24px;
+  box-shadow:0 8px 40px rgba(30,64,175,.12);
+  padding:40px 36px;
+}
+@media (max-width:480px){
+  .nit-login-card{padding:32px 20px; border-radius:20px;}
+}
+
+/* NIT logo teks */
+.nit-logo-text{
+  font-family:var(--font-display); font-weight:800; font-size:38px;
+  letter-spacing:-1px; color:#1d4ed8; line-height:1;
+  display:inline-flex; align-items:flex-end; gap:0;
+}
+.nit-logo-bar{
+  display:inline-block; width:4px; height:28px; background:#f59e0b;
+  border-radius:2px; margin:0 1px 4px; transform:skewX(-8deg);
+}
+.nit-logo-text-brand{
+  display:flex; flex-direction:column; align-items:flex-end;
+  font-size:10px; font-weight:700; color:#64748b; letter-spacing:.08em;
+  text-transform:uppercase; line-height:1.2; margin-left:8px; margin-bottom:2px;
+}
+
+/* input field NIT style */
+.nit-input-wrap{position:relative;}
+.nit-input-wrap .nit-input-icon{
+  position:absolute; left:14px; top:50%; transform:translateY(-50%);
+  color:#94a3b8; pointer-events:none; display:flex;
+}
+.nit-input{
+  width:100%; border:1.5px solid #e2e8f0; background:#f8faff;
+  border-radius:12px; padding:13px 14px 13px 42px;
+  font-size:14px; color:var(--navy-900); transition:.15s;
+  font-family:inherit;
+}
+.nit-input::placeholder{color:#b0bec8;}
+.nit-input:focus{border-color:#2563eb; outline:none; background:#fff; box-shadow:0 0 0 3px rgba(37,99,235,.1);}
+
+/* tombol masuk NIT */
+.nit-btn-primary{
+  width:100%; padding:14px; border-radius:12px; border:none; cursor:pointer;
+  background:linear-gradient(135deg,#1d4ed8,#2563eb); color:#fff;
+  font-size:15px; font-weight:700; font-family:inherit; display:flex;
+  align-items:center; justify-content:center; gap:8px; transition:.15s;
+  box-shadow:0 4px 16px rgba(37,99,235,.3);
+}
+.nit-btn-primary:hover:not(:disabled){background:linear-gradient(135deg,#1e40af,#1d4ed8); transform:translateY(-1px);}
+.nit-btn-primary:active:not(:disabled){transform:translateY(0);}
+.nit-btn-primary:disabled{opacity:.6; cursor:not-allowed;}
+
+/* tombol fingerprint NIT */
+.nit-btn-fp{
+  width:100%; padding:13px; border-radius:12px; cursor:pointer;
+  background:#fff; color:#1d4ed8; border:1.5px solid #bfdbfe;
+  font-size:14px; font-weight:600; font-family:inherit; display:flex;
+  align-items:center; justify-content:center; gap:8px; transition:.15s;
+}
+.nit-btn-fp:hover:not(:disabled){background:#eff6ff; border-color:#2563eb;}
+.nit-btn-fp:disabled{opacity:.5; cursor:not-allowed;}
+
+/* divider */
+.nit-divider{display:flex; align-items:center; gap:12px; margin:16px 0;}
+.nit-divider::before,.nit-divider::after{content:""; flex:1; height:1px; background:#e2e8f0;}
+.nit-divider span{font-size:12px; color:#94a3b8; white-space:nowrap;}
+
+/* feature list di brand */
+.nit-feature{display:flex; align-items:center; gap:14px; margin-bottom:18px;}
+.nit-feature-icon{width:44px; height:44px; border-radius:12px; background:rgba(255,255,255,.15); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+
 
 .sidebar{display:none; flex-direction:column; width:256px; background:#fff; color:var(--navy-900); height:100vh; position:sticky; top:0; flex-shrink:0; border-right:1px solid var(--line);}
 @media (min-width:1024px){.sidebar{display:flex;}}
@@ -645,6 +750,85 @@ function distanceMeters(lat1, lng1, lat2, lng2) {
   const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/* ======================= FINGERPRINT / WEBAUTHN ======================= */
+const FP_KEY = "presensi_fp_credentials"; // localStorage: { userId -> credentialId (base64) }
+
+function fpSupported() {
+  return !!(window.PublicKeyCredential && navigator.credentials && navigator.credentials.create);
+}
+
+function _bufferToBase64(buf) {
+  return btoa(String.fromCharCode(...new Uint8Array(buf)));
+}
+function _base64ToBuffer(b64) {
+  const bin = atob(b64);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return buf.buffer;
+}
+
+function fpGetStored() {
+  try { return JSON.parse(localStorage.getItem(FP_KEY) || "{}"); } catch { return {}; }
+}
+function fpSaveCredential(userId, credId) {
+  const all = fpGetStored();
+  all[userId] = credId;
+  localStorage.setItem(FP_KEY, JSON.stringify(all));
+}
+function fpRemoveCredential(userId) {
+  const all = fpGetStored();
+  delete all[userId];
+  localStorage.setItem(FP_KEY, JSON.stringify(all));
+}
+function fpGetCredentialId(userId) {
+  return fpGetStored()[userId] || null;
+}
+function fpHasCredential(userId) {
+  return !!fpGetCredentialId(userId);
+}
+
+async function fpRegister(userId, userName) {
+  if (!fpSupported()) throw new Error("Perangkat ini tidak mendukung fingerprint / biometrik.");
+  const challenge = crypto.getRandomValues(new Uint8Array(32));
+  const cred = await navigator.credentials.create({
+    publicKey: {
+      challenge,
+      rp: { name: "Presensi App", id: location.hostname || "localhost" },
+      user: {
+        id: new TextEncoder().encode(userId),
+        name: userName,
+        displayName: userName,
+      },
+      pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+      authenticatorSelection: {
+        authenticatorAttachment: "platform",
+        userVerification: "required",
+      },
+      timeout: 60000,
+      attestation: "none",
+    },
+  });
+  const credId = _bufferToBase64(cred.rawId);
+  fpSaveCredential(userId, credId);
+  return credId;
+}
+
+async function fpAuthenticate(userId) {
+  if (!fpSupported()) throw new Error("Perangkat ini tidak mendukung fingerprint / biometrik.");
+  const credId = fpGetCredentialId(userId);
+  if (!credId) throw new Error("Fingerprint belum didaftarkan untuk akun ini.");
+  const challenge = crypto.getRandomValues(new Uint8Array(32));
+  await navigator.credentials.get({
+    publicKey: {
+      challenge,
+      allowCredentials: [{ type: "public-key", id: _base64ToBuffer(credId) }],
+      userVerification: "required",
+      timeout: 60000,
+    },
+  });
+  return true;
 }
 
 /* ======================= HOOK KAMERA (live capture, anti-galeri) ======================= */
@@ -1294,7 +1478,35 @@ function AttendanceCard({ user, onUpdated }) {
   );
 }
 
-/* ======================= HALAMAN LOGIN ======================= */
+/* ======================= HALAMAN LOGIN (NIT BRANDED) ======================= */
+/* Komponen logo NIT */
+function NITLogo({ size = "md", light = false }) {
+  const big = size === "lg";
+  const color = light ? "#fff" : "#1d4ed8";
+  const subColor = light ? "rgba(255,255,255,.7)" : "#64748b";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: big ? 10 : 6 }}>
+      <div style={{
+        background: light ? "rgba(255,255,255,.15)" : "#eff6ff",
+        borderRadius: big ? 16 : 10, padding: big ? "10px 14px" : "6px 10px",
+        display: "flex", alignItems: "center",
+      }}>
+        <span style={{ fontFamily: "var(--font-display)", fontWeight: 900, fontSize: big ? 28 : 20, color, letterSpacing: "-1px", lineHeight: 1 }}>
+          N<span style={{ display: "inline-block", width: big ? 3 : 2, height: big ? 20 : 14, background: "#f59e0b", borderRadius: 2, margin: "0 1px", verticalAlign: "middle", transform: "translateY(-1px)" }} />T
+        </span>
+      </div>
+      <div>
+        <p style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: big ? 18 : 13, color, margin: 0, lineHeight: 1 }}>
+          {big ? "Presensi NIT" : "Presensi NIT"}
+        </p>
+        <p style={{ fontSize: big ? 12 : 10, color: subColor, margin: 0, letterSpacing: ".03em" }}>
+          Sistem Presensi Karyawan
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function LoginPage() {
   const { login } = useAuth();
   const [username, setUsername] = useState("");
@@ -1302,6 +1514,13 @@ function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [fpLoading, setFpLoading] = useState(null);
+
+  const fpUsers = useMemo(() => {
+    if (!fpSupported()) return [];
+    const all = fpGetStored();
+    return Object.keys(all).map(uid => getUserById(uid)).filter(Boolean);
+  }, []);
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -1314,69 +1533,199 @@ function LoginPage() {
     }, 300);
   }
 
+  async function handleFingerprintLogin(targetUser) {
+    setError(""); setFpLoading(targetUser.id);
+    try {
+      await fpAuthenticate(targetUser.id);
+      setSession(targetUser.id);
+      window.location.reload();
+    } catch (err) {
+      setError(err.message || "Verifikasi fingerprint gagal. Coba lagi.");
+    } finally {
+      setFpLoading(null);
+    }
+  }
+
+  const FEATURES = [
+    { icon: "clock", title: "Presensi Real-time", desc: "Presensi kapan saja dan di mana saja" },
+    { icon: "shield-check", title: "Aman & Terpercaya", desc: "Data Anda aman bersama kami" },
+    { icon: "bar-chart-2", title: "Laporan Lengkap", desc: "Pantau kehadiran dengan mudah" },
+  ];
+
   return (
     <div className="login-wrap">
+
+      {/* ===== SISI KIRI: Brand ===== */}
       <div className="login-brand">
-        <div className="flex" style={{ alignItems: "center", gap: 10, zIndex: 1 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(255,255,255,.1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Icon name="building-2" size={20} />
-          </div>
-          <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 18 }}>Presensi</span>
+        <div className="login-brand-blob" />
+        <div className="login-brand-blob2" />
+
+        {/* Logo */}
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <NITLogo size="lg" light />
         </div>
-        <div style={{ maxWidth: 420, zIndex: 1 }}>
-          <h1 style={{ fontSize: 36, fontWeight: 800, lineHeight: 1.15, marginBottom: 16 }}>
-            Kehadiran tim Anda, tercatat akurat setiap hari.
+
+        {/* Headline */}
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <h1 style={{ fontSize: 38, fontWeight: 800, lineHeight: 1.2, marginBottom: 16, color: "#fff" }}>
+            Presensi NIT
           </h1>
-          <p style={{ color: "rgba(231,237,245,.8)", fontSize: 16, lineHeight: 1.6 }}>
-            Presensi masuk dan pulang dengan verifikasi selfie langsung dan lokasi GPS real-time.
-            Data tersimpan otomatis sebagai bukti kehadiran yang sah.
+          <p style={{ fontSize: 18, fontWeight: 600, color: "rgba(219,234,254,.9)", marginBottom: 8 }}>
+            Sistem Presensi Karyawan
           </p>
+          <p style={{ color: "rgba(191,219,254,.8)", fontSize: 14, lineHeight: 1.7, marginBottom: 32 }}>
+            Kelola kehadiran dengan mudah, cepat dan akurat.
+          </p>
+          {FEATURES.map(f => (
+            <div key={f.icon} className="nit-feature">
+              <div className="nit-feature-icon">
+                <Icon name={f.icon} size={20} style={{ color: "#fff" }} />
+              </div>
+              <div>
+                <p style={{ fontWeight: 700, fontSize: 14, color: "#fff", margin: 0 }}>{f.title}</p>
+                <p style={{ fontSize: 12, color: "rgba(191,219,254,.8)", margin: 0 }}>{f.desc}</p>
+              </div>
+            </div>
+          ))}
         </div>
-        <div className="flex" style={{ alignItems: "center", gap: 12, color: "rgba(231,237,245,.7)", fontSize: 14, zIndex: 1 }}>
-          <Icon name="shield-check" size={18} />
-          <span>Selfie live dan timestamp otomatis mencegah manipulasi data.</span>
+
+        {/* Footer brand */}
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <p style={{ fontSize: 12, color: "rgba(191,219,254,.6)" }}>© 2024 NIT. Semua Hak Dilindungi.</p>
         </div>
       </div>
 
+      {/* ===== SISI KANAN: Form ===== */}
       <div className="login-form-wrap">
-        <div style={{ width: "100%", maxWidth: 384 }} className="fade-up">
-          <div className="lg-hidden flex" style={{ alignItems: "center", gap: 10, marginBottom: 32, justifyContent: "center" }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: "var(--accent-600)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Icon name="building-2" size={20} style={{ color: "#fff" }} />
-            </div>
-            <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 18, color: "var(--navy-900)" }}>Presensi</span>
+        <div className="nit-login-card fade-up">
+
+          {/* Logo di mobile */}
+          <div className="lg-hidden" style={{ textAlign: "center", marginBottom: 28 }}>
+            <NITLogo size="lg" />
           </div>
 
-          <h2 style={{ fontSize: 24, fontWeight: 700, color: "var(--navy-900)", marginBottom: 4 }}>Masuk ke akun Anda</h2>
-          <p style={{ color: "#64748b", fontSize: 14, marginBottom: 28 }}>Gunakan username dan kata sandi yang terdaftar.</p>
-
-          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div>
-              <label className="label">Username</label>
-              <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="contoh: andika" autoComplete="username" className="input" />
-            </div>
-            <div>
-              <label className="label">Kata sandi</label>
-              <div style={{ position: "relative" }}>
-                <input type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)}
-                  placeholder="••••••••" autoComplete="current-password" className="input" style={{ paddingRight: 44 }} />
-                <button type="button" onClick={() => setShowPassword(s => !s)} aria-label={showPassword ? "Sembunyikan kata sandi" : "Tampilkan kata sandi"}
-                  style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: "#94a3b8" }}>
-                  <Icon name={showPassword ? "eye-off" : "eye"} size={18} />
-                </button>
+          {/* Logo di dalam card (desktop) */}
+          <div className="lg-block hidden" style={{ textAlign: "center", marginBottom: 24 }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
+              <div style={{ background: "#eff6ff", borderRadius: 14, padding: "10px 16px" }}>
+                <span style={{ fontFamily: "var(--font-display)", fontWeight: 900, fontSize: 32, color: "#1d4ed8", letterSpacing: "-1.5px", lineHeight: 1 }}>
+                  N<span style={{ display: "inline-block", width: 3, height: 22, background: "#f59e0b", borderRadius: 2, margin: "0 1px", verticalAlign: "middle", transform: "translateY(-2px)" }} />T
+                </span>
               </div>
             </div>
+          </div>
 
-            {error && <div style={{ borderRadius: 10, background: "var(--red-soft)", color: "var(--red)", fontSize: 14, padding: "10px 14px" }}>{error}</div>}
+          <div style={{ textAlign: "center", marginBottom: 28 }}>
+            <h2 style={{ fontSize: 20, fontWeight: 700, color: "var(--navy-900)", marginBottom: 4 }}>
+              Selamat Datang 👋
+            </h2>
+            <p style={{ color: "#64748b", fontSize: 13 }}>Masuk untuk melanjutkan ke akun Anda</p>
+          </div>
 
-            <button type="submit" disabled={submitting} className="btn btn-primary btn-lg" style={{ width: "100%" }}>
-              {submitting ? "Memeriksa..." : (<React.Fragment><Icon name="log-in" size={17} /> Masuk</React.Fragment>)}
+          {/* Form login */}
+          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div className="nit-input-wrap">
+              <span className="nit-input-icon"><Icon name="user" size={16} /></span>
+              <input
+                className="nit-input"
+                type="text"
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                placeholder="Username / Email"
+                autoComplete="username"
+              />
+            </div>
+            <div className="nit-input-wrap">
+              <span className="nit-input-icon"><Icon name="lock" size={16} /></span>
+              <input
+                className="nit-input"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="Password"
+                autoComplete="current-password"
+                style={{ paddingRight: 44 }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(s => !s)}
+                style={{ position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)", color: "#94a3b8", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                <Icon name={showPassword ? "eye-off" : "eye"} size={17} />
+              </button>
+            </div>
+
+            {error && (
+              <div style={{ borderRadius: 10, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", display: "flex", gap: 8, alignItems: "flex-start" }}>
+                <Icon name="alert-circle" size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                {error}
+              </div>
+            )}
+
+            <button type="submit" disabled={submitting} className="nit-btn-primary" style={{ marginTop: 4 }}>
+              {submitting
+                ? <React.Fragment><span className="spinner" style={{ width: 18, height: 18, borderWidth: 2 }} /> Memeriksa…</React.Fragment>
+                : <React.Fragment><Icon name="log-in" size={17} /> Masuk</React.Fragment>}
             </button>
           </form>
 
-          <div style={{ marginTop: 28, paddingTop: 24, borderTop: "1px solid var(--line)" }}>
-            <p style={{ fontSize: 12, color: "#94a3b8", textAlign: "center" }}>Hubungi administrator jika lupa kata sandi.</p>
-          </div>
+          {/* Fingerprint section */}
+          {fpSupported() && (
+            <React.Fragment>
+              <div className="nit-divider"><span>atau</span></div>
+
+              {fpUsers.length === 0 ? (
+                /* Belum ada akun terdaftar — tampilkan tombol generik */
+                <button type="button" className="nit-btn-fp" disabled>
+                  <Icon name="fingerprint" size={18} />
+                  Login dengan Fingerprint
+                </button>
+              ) : fpUsers.length === 1 ? (
+                /* Hanya 1 akun — langsung tap untuk verifikasi */
+                <button
+                  type="button"
+                  className="nit-btn-fp"
+                  disabled={fpLoading !== null}
+                  onClick={() => handleFingerprintLogin(fpUsers[0])}
+                >
+                  {fpLoading === fpUsers[0].id
+                    ? <React.Fragment><span className="spinner spinner-dark" style={{ width: 17, height: 17, borderWidth: 2 }} /> Memverifikasi…</React.Fragment>
+                    : <React.Fragment><Icon name="fingerprint" size={18} /> Login dengan Fingerprint</React.Fragment>}
+                </button>
+              ) : (
+                /* Beberapa akun — tampilkan picker per user */
+                <div>
+                  <p style={{ fontSize: 12, color: "#94a3b8", textAlign: "center", marginBottom: 10 }}>
+                    Pilih akun untuk login dengan fingerprint
+                  </p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {fpUsers.map(u => (
+                      <button
+                        key={u.id}
+                        type="button"
+                        className="nit-btn-fp"
+                        style={{ justifyContent: "flex-start", gap: 12, padding: "10px 14px", opacity: fpLoading !== null && fpLoading !== u.id ? 0.4 : 1 }}
+                        disabled={fpLoading !== null}
+                        onClick={() => handleFingerprintLogin(u)}
+                      >
+                        <Avatar name={u.name} color={u.avatarColor} size={32} />
+                        <div style={{ flex: 1, textAlign: "left" }}>
+                          <p style={{ fontSize: 13, fontWeight: 700, color: "var(--navy-900)", margin: 0 }}>{u.name}</p>
+                          <p style={{ fontSize: 11, color: "#94a3b8", margin: 0 }}>{u.position}</p>
+                        </div>
+                        {fpLoading === u.id
+                          ? <span className="spinner spinner-dark" style={{ width: 16, height: 16, borderWidth: 2, flexShrink: 0 }} />
+                          : <Icon name="fingerprint" size={16} style={{ flexShrink: 0, color: "#2563eb" }} />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </React.Fragment>
+          )}
+
+          <p style={{ textAlign: "center", fontSize: 12, color: "#b0bec8", marginTop: 24 }}>
+            Hubungi administrator jika lupa kata sandi.
+          </p>
         </div>
       </div>
     </div>
@@ -1388,12 +1737,8 @@ function Sidebar({ user, navItems, activeKey, onNavigate, onLogout }) {
   return (
     <React.Fragment>
       <aside className="sidebar">
-        <div className="flex" style={{ alignItems: "center", gap: 10, padding: "24px 24px 16px" }}>
-          <div style={{ width: 36, height: 36, borderRadius: 10, background: "var(--accent-50)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <Icon name="building-2" size={20} style={{ color: "var(--accent-700)" }} />
-          </div>
-          <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 18 }}>Presensi</span>
-        </div>
+        <div className="flex" style={{ alignItems: "center", gap: 10, padding: "20px 20px 16px" }}>
+          <NITLogo size="sm" />
 
         <nav style={{ flex: 1, padding: "8px 12px", display: "flex", flexDirection: "column", gap: 4 }}>
           {navItems.map(item => (
@@ -1423,12 +1768,7 @@ function Sidebar({ user, navItems, activeKey, onNavigate, onLogout }) {
       </aside>
 
       <header className="topbar-mobile">
-        <div className="flex" style={{ alignItems: "center", gap: 8 }}>
-          <div style={{ width: 28, height: 28, borderRadius: 8, background: "var(--accent-50)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Icon name="building-2" size={15} style={{ color: "var(--accent-700)" }} />
-          </div>
-          <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 14 }}>Presensi</span>
-        </div>
+        <NITLogo size="sm" />
         <button onClick={onLogout} aria-label="Keluar" style={{ color: "#64748b", padding: 4 }}>
           <Icon name="log-out" size={18} />
         </button>
@@ -1932,12 +2272,36 @@ function ProfilePage({ user }) {
   const { refreshCurrentUser } = useAuth();
   const [modal, setModal] = useState(null);
   const [toast, setToast] = useState("");
+  const [fpStatus, setFpStatus] = useState(() => fpHasCredential(user.id));
+  const [fpLoading, setFpLoading] = useState(false);
+  const [fpError, setFpError] = useState("");
 
   function handleSaved(message) {
     setModal(null);
     refreshCurrentUser();
     setToast(message);
     setTimeout(() => setToast(""), 2500);
+  }
+
+  function showToast(msg) { setToast(msg); setTimeout(() => setToast(""), 2500); }
+
+  async function handleRegisterFp() {
+    setFpError(""); setFpLoading(true);
+    try {
+      await fpRegister(user.id, user.name);
+      setFpStatus(true);
+      showToast("Fingerprint berhasil didaftarkan. Kini Anda bisa login tanpa kata sandi.");
+    } catch (err) {
+      setFpError(err.message || "Gagal mendaftarkan fingerprint.");
+    } finally {
+      setFpLoading(false);
+    }
+  }
+
+  function handleRemoveFp() {
+    fpRemoveCredential(user.id);
+    setFpStatus(false);
+    showToast("Fingerprint dihapus dari perangkat ini.");
   }
 
   return (
@@ -1960,13 +2324,62 @@ function ProfilePage({ user }) {
           <Button variant="outline" size="sm" onClick={() => setModal("password")}><Icon name="lock" size={14} /> Ubah Kata Sandi</Button>
         </div>
       </div>
-      <div className="card" style={{ padding: 8 }}>
+      <div className="card" style={{ padding: 8, marginBottom: 16 }}>
         <InfoRow icon="mail" label="Username" value={user.username} />
         <InfoRow icon="briefcase" label="Jabatan" value={user.position} />
         <InfoRow icon="building" label="Departemen" value={user.department} />
         <InfoRow icon="phone" label="Nomor HP" value={user.phone || "—"} />
         <InfoRow icon="map-pin" label="Alamat" value={user.address || "—"} last />
       </div>
+
+      {/* Kartu Fingerprint */}
+      {fpSupported() ? (
+        <div className="card" style={{ padding: 20, marginBottom: 16 }}>
+          <div className="flex" style={{ alignItems: "center", gap: 14, marginBottom: fpError ? 12 : 0 }}>
+            <div style={{ width: 44, height: 44, borderRadius: 12, background: fpStatus ? "var(--green-soft)" : "var(--accent-50)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>
+              🫆
+            </div>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontWeight: 700, fontSize: 14, color: "var(--navy-900)", margin: 0 }}>Login Fingerprint / Biometrik</p>
+              <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0" }}>
+                {fpStatus
+                  ? "✅ Fingerprint sudah terdaftar di perangkat ini. Anda bisa login tanpa kata sandi."
+                  : "Daftarkan sidik jari atau Face ID untuk login lebih cepat."}
+              </p>
+            </div>
+          </div>
+          {fpError && (
+            <div style={{ marginTop: 10, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "8px 12px", borderRadius: 8 }}>{fpError}</div>
+          )}
+          <div className="flex" style={{ gap: 8, marginTop: 14 }}>
+            {!fpStatus ? (
+              <Button variant="primary" size="sm" disabled={fpLoading} onClick={handleRegisterFp}>
+                {fpLoading
+                  ? <React.Fragment><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Mendaftarkan…</React.Fragment>
+                  : <React.Fragment><Icon name="fingerprint" size={14} /> Daftarkan Fingerprint</React.Fragment>}
+              </Button>
+            ) : (
+              <React.Fragment>
+                <Button variant="outline" size="sm" disabled={fpLoading} onClick={handleRegisterFp}>
+                  {fpLoading ? "Memperbarui…" : <React.Fragment><Icon name="refresh-cw" size={14} /> Perbarui</React.Fragment>}
+                </Button>
+                <Button variant="danger" size="sm" onClick={handleRemoveFp}>
+                  <Icon name="trash-2" size={14} /> Hapus Fingerprint
+                </Button>
+              </React.Fragment>
+            )}
+          </div>
+          <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 10 }}>
+            ⚠️ Fingerprint disimpan di perangkat ini saja. Jika ganti HP, daftarkan ulang di perangkat baru.
+          </p>
+        </div>
+      ) : (
+        <div className="card" style={{ padding: 16, marginBottom: 16, background: "#f8fafc" }}>
+          <p style={{ fontSize: 13, color: "#94a3b8", textAlign: "center" }}>
+            Perangkat atau browser ini tidak mendukung fitur fingerprint / biometrik.
+          </p>
+        </div>
+      )}
 
       {modal === "edit" && <EditProfileModal user={user} onClose={() => setModal(null)} onSaved={() => handleSaved("Profil berhasil diperbarui.")} />}
       {modal === "password" && <ChangePasswordModal user={user} onClose={() => setModal(null)} onSaved={() => handleSaved("Kata sandi berhasil diubah.")} />}
