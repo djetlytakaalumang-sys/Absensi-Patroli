@@ -140,7 +140,7 @@ img{max-width:100%; display:block;}
 .nav-item:hover{background:var(--accent-50); color:var(--accent-700);}
 .nav-item.active{background:var(--accent-600); color:#fff;}
 
-.topbar-mobile{display:flex; align-items:center; justify-content:space-between; padding:14px 16px; background:#fff; color:var(--navy-900); position:sticky; top:0; z-index:30; border-bottom:1px solid var(--line);}
+.topbar-mobile{display:flex; align-items:center; justify-content:space-between; padding:10px 16px; background:#fff; color:var(--navy-900); position:sticky; top:0; z-index:30; border-bottom:1px solid var(--line);}
 @media (min-width:1024px){.topbar-mobile{display:none;}}
 .bottomnav-mobile{display:flex; position:fixed; bottom:0; left:0; right:0; background:#fff; border-top:1px solid var(--line); z-index:30; padding-bottom:env(safe-area-inset-bottom);}
 @media (min-width:1024px){.bottomnav-mobile{display:none;}}
@@ -1328,8 +1328,8 @@ function LoginPage() {
   return (
     <div className="login-wrap">
       <div className="login-brand">
-        <div className="flex" style={{ alignItems: "center", gap: 10, zIndex: 1 }}>
-          <LogoMark size={48} radius={13} />
+        <div className="flex" style={{ alignItems: "center", gap: 14, zIndex: 1 }}>
+          <LogoMark size={100} radius={20} />
           <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 18 }}>Presensi</span>
         </div>
         <div style={{ maxWidth: 420, zIndex: 1 }}>
@@ -1349,8 +1349,8 @@ function LoginPage() {
 
       <div className="login-form-wrap">
         <div style={{ width: "100%", maxWidth: 384 }} className="fade-up">
-          <div className="lg-hidden flex" style={{ alignItems: "center", gap: 10, marginBottom: 32, justifyContent: "center" }}>
-            <LogoMark size={48} radius={13} />
+          <div className="lg-hidden flex" style={{ alignItems: "center", gap: 14, marginBottom: 32, justifyContent: "center" }}>
+            <LogoMark size={100} radius={20} />
             <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 18, color: "var(--navy-900)" }}>Presensi</span>
           </div>
 
@@ -1395,8 +1395,8 @@ function Sidebar({ user, navItems, activeKey, onNavigate, onLogout }) {
   return (
     <React.Fragment>
       <aside className="sidebar">
-        <div className="flex" style={{ alignItems: "center", gap: 10, padding: "24px 24px 16px" }}>
-          <LogoMark size={48} radius={13} />
+        <div className="flex" style={{ alignItems: "center", gap: 12, padding: "20px 24px 16px" }}>
+          <LogoMark size={60} radius={14} />
           <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 18 }}>Presensi</span>
         </div>
 
@@ -1428,8 +1428,8 @@ function Sidebar({ user, navItems, activeKey, onNavigate, onLogout }) {
       </aside>
 
       <header className="topbar-mobile">
-        <div className="flex" style={{ alignItems: "center", gap: 8 }}>
-          <LogoMark size={36} radius={10} />
+        <div className="flex" style={{ alignItems: "center", gap: 10 }}>
+          <LogoMark size={44} radius={11} />
           <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 14 }}>Presensi</span>
         </div>
         <button onClick={onLogout} aria-label="Keluar" style={{ color: "#64748b", padding: 4 }}>
