@@ -846,39 +846,89 @@ function exportRekapPDF(user, monthKey, records) {
   ]);
 
   doc.autoTable({
-    startY: y2,
-    head: [["#", "Tanggal", "Hari", "Masuk", "Pulang", "Durasi", "Status"]],
-    body: tableBody,
-    styles: { fontSize: 8, cellPadding: 2.5, valign: "middle" },
-    headStyles: { fillColor: [30, 58, 95], textColor: 255, fontStyle: "bold", fontSize: 8 },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
-    columnStyles: {
-      0: { cellWidth: 8,  halign: "center" },
-      1: { cellWidth: 30 },
-      2: { cellWidth: 14, halign: "center" },
-      3: { cellWidth: 18, halign: "center" },
-      4: { cellWidth: 18, halign: "center" },
-      5: { cellWidth: 18, halign: "center" },
-      6: { cellWidth: 24, halign: "center" },
-    },
-    didDrawCell(data) {
-      if (data.section !== "body" || data.column.index !== 6) return;
-      const status = data.cell.raw;
-      const col = PDF_STATUS_COLOR[status];
-      if (!col) return;
-      const { x, y, width, height } = data.cell;
-      doc.setFillColor(...col.fill);
-      doc.roundedRect(x + 2, y + 1.5, width - 4, height - 3, 1.5, 1.5, "F");
-      doc.setTextColor(...col.text);
-      doc.setFont("helvetica", "bold"); doc.setFontSize(7);
-      doc.text(status, x + width / 2, y + height / 2 + 0.5, { align: "center", baseline: "middle" });
-    },
-    didParseCell(data) {
-      if (data.section === "body" && data.column.index === 6) {
-        data.cell.styles.textColor = [255, 255, 255, 0];
-      }
-    },
-  });
+  startY: y2,
+
+  margin: {
+    left: 14,
+    right: 14,
+  },
+
+  tableWidth: "auto",
+
+  head: [["#", "Tanggal", "Hari", "Masuk", "Pulang", "Durasi", "Status"]],
+  body: tableBody,
+
+  styles: {
+    fontSize: 8,
+    cellPadding: 3,
+    valign: "middle",
+    lineWidth: 0.1,
+    lineColor: [225, 225, 225],
+    overflow: "linebreak",
+  },
+
+  headStyles: {
+    fillColor: [30, 58, 95],
+    textColor: 255,
+    fontStyle: "bold",
+    fontSize: 8,
+    halign: "center",
+    valign: "middle",
+  },
+
+  alternateRowStyles: {
+    fillColor: [248, 250, 252],
+  },
+
+  columnStyles: {
+    0: { cellWidth: 10, halign: "center" }, // #
+    1: { cellWidth: 38, halign: "center" }, // Tanggal
+    2: { cellWidth: 18, halign: "center" }, // Hari
+    3: { cellWidth: 22, halign: "center" }, // Masuk
+    4: { cellWidth: 22, halign: "center" }, // Pulang
+    5: { cellWidth: 26, halign: "center" }, // Durasi
+    6: { cellWidth: 40, halign: "center" }, // Status
+  },
+
+  didDrawCell(data) {
+    if (data.section !== "body" || data.column.index !== 6) return;
+
+    const status = String(data.cell.raw || "");
+
+    let bg = [255, 255, 255];
+    let fg = [60, 60, 60];
+
+    if (status === "Hadir") {
+      bg = [220, 252, 231];
+      fg = [22, 163, 74];
+    } else if (status === "Terlambat") {
+      bg = [254, 243, 199];
+      fg = [180, 83, 9];
+    } else if (status === "Alpha") {
+      bg = [254, 226, 226];
+      fg = [220, 38, 38];
+    } else if (status === "Izin") {
+      bg = [237, 233, 254];
+      fg = [124, 58, 237];
+    }
+
+    const x = data.cell.x + 2;
+    const y = data.cell.y + 2;
+    const w = data.cell.width - 4;
+    const h = data.cell.height - 4;
+
+    doc.setFillColor(...bg);
+    doc.roundedRect(x, y, w, h, 2, 2, "F");
+
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...fg);
+
+    doc.text(status, x + w / 2, y + h / 2 + 1, {
+      align: "center",
+    });
+  },
+});
 
   // ── Footer ────────────────────────────────────────────────────────────────
   const finalY = doc.lastAutoTable.finalY || 260;
