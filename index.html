@@ -654,7 +654,11 @@ function isNightShift(t) {
   const s = getSettings();
   const start = (s.nightShiftStart || "17:01") + ":00";
   const end = (s.nightShiftEnd || "05:59") + ":59";
-  // Rentang piket malam melewati tengah malam: mulai jam start s/d 23:59:59,
+  if (start <= end) {
+    // Rentang tidak melewati tengah malam (mis. 20:00–23:00): cukup dicek langsung antara start–end.
+    return t >= start && t <= end;
+  }
+  // Rentang melewati tengah malam (mis. 17:01–05:59): mulai jam start s/d 23:59:59,
   // lalu lanjut 00:00:00 s/d end pada hari berikutnya.
   return t >= start || t <= end;
 }
@@ -3262,6 +3266,7 @@ function PatrolPage({ user }) {
 
   const watchIdRef = useRef(null);
   const lastSavedRef = useRef(null);
+  const currentPosRef = useRef(null);
 
   // Jam berjalan untuk durasi patroli
   useEffect(() => {
@@ -3276,6 +3281,8 @@ function PatrolPage({ user }) {
       setPath(activePatrol.path);
       const last = activePatrol.path[activePatrol.path.length - 1];
       setLivePosition({ lat: last.lat, lng: last.lng });
+      lastSavedRef.current = { lat: last.lat, lng: last.lng };
+      currentPosRef.current = { lat: last.lat, lng: last.lng };
     }
     if (!activePatrol) { setPath([]); setLivePosition(null); }
   }, [activePatrol?.id]);
@@ -3298,7 +3305,27 @@ function PatrolPage({ user }) {
     };
   }, [activePatrol?.id]);
 
+  // Heartbeat: kirim titik posisi terakhir ke Firestore secara berkala walau petugas belum
+  // berpindah 15m (mis. sesi Piket Malam yang stasioner di satu pos). Tanpa ini, peta admin
+  // & status "Live" akan terlihat berhenti karena handleNewPosition hanya menulis saat movedFar.
+  useEffect(() => {
+    if (!activePatrol) return;
+    const hb = setInterval(() => {
+      const cur = currentPosRef.current;
+      if (!cur) return;
+      setPath(prev => {
+        const point = { lat: cur.lat, lng: cur.lng, t: new Date().toISOString() };
+        const nextPath = [...prev, point];
+        lastSavedRef.current = point;
+        updatePatrolSession(activePatrol.id, { path: nextPath, lastSeen: point.t });
+        return nextPath;
+      });
+    }, 45000);
+    return () => clearInterval(hb);
+  }, [activePatrol?.id]);
+
   function handleNewPosition(lat, lng, accuracy) {
+    currentPosRef.current = { lat, lng };
     if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return;
     setLivePosition({ lat, lng });
     setPath(prev => {
@@ -3337,6 +3364,7 @@ function PatrolPage({ user }) {
       const pos = await getCurrentPosition();
       const patrol = startPatrolSession(user, pos);
       lastSavedRef.current = { lat: pos.lat, lng: pos.lng };
+      currentPosRef.current = { lat: pos.lat, lng: pos.lng };
       setLivePosition({ lat: pos.lat, lng: pos.lng });
       setPath([{ lat: pos.lat, lng: pos.lng, t: new Date().toISOString() }]);
     } catch (err) {
