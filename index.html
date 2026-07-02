@@ -386,8 +386,12 @@ function updateUser(id, data) {
 function deleteUser(id) {
   store.users    = store.users.filter(u => u.id !== id);
   store.records  = store.records.filter(r => r.userId !== id);
+  store.patrols  = store.patrols.filter(p => p.userId !== id);
   db.collection(COL.USERS).doc(id).delete().catch(console.error);
   db.collection(COL.RECORDS).where("userId", "==", id).get().then(snap =>
+    snap.docs.forEach(d => d.ref.delete())
+  ).catch(console.error);
+  db.collection(COL.PATROLS).where("userId", "==", id).get().then(snap =>
     snap.docs.forEach(d => d.ref.delete())
   ).catch(console.error);
   return true;
@@ -3864,7 +3868,7 @@ function AdminPatrolMapPage() {
 
   const checkpoints = useMemo(() => getCheckpoints(), [store.checkpoints]);
   const allPatrols = useMemo(() => getPatrols(), [store.patrols]);
-  const activePatrols = allPatrols.filter(p => p.status === PATROL_STATUS.ACTIVE);
+  const activePatrols = allPatrols.filter(p => p.status === PATROL_STATUS.ACTIVE && getUserById(p.userId));
   const todayStr = todayDateStr();
   const completedToday = allPatrols
     .filter(p => p.status === PATROL_STATUS.COMPLETED && p.date === todayStr)
