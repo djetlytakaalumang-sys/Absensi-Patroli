@@ -397,6 +397,17 @@ function deleteUser(id) {
   ).catch(console.error);
   return true;
 }
+// Hapus permanen sesi patroli yang userId-nya sudah tidak ada di daftar user (data lama
+// dari sebelum deleteUser() ikut membersihkan koleksi PATROLS). Dipakai oleh tombol
+// "Bersihkan Data Orphan" di halaman Peta Live Patroli.
+function cleanupOrphanPatrols() {
+  const orphans = store.patrols.filter(p => !getUserById(p.userId));
+  if (orphans.length === 0) return 0;
+  const orphanIds = new Set(orphans.map(p => p.id));
+  store.patrols = store.patrols.filter(p => !orphanIds.has(p.id));
+  orphans.forEach(p => db.collection(COL.PATROLS).doc(p.id).delete().catch(console.error));
+  return orphans.length;
+}
 function saveCheckIn(record) {
   store.records = [...store.records, record];
   db.collection(COL.RECORDS).doc(record.id).set(record).catch(console.error);
@@ -3882,6 +3893,8 @@ function KejadianPage() {
 function AdminPatrolMapPage() {
   useStoreSync();
   const [now, setNow] = useState(Date.now());
+  const [cleaning, setCleaning] = useState(false);
+  const [toast, setToast] = useState("");
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
 
   const checkpoints = useMemo(() => getCheckpoints(), [store.checkpoints]);
@@ -3889,8 +3902,19 @@ function AdminPatrolMapPage() {
   const activePatrols = allPatrols.filter(p => p.status === PATROL_STATUS.ACTIVE && getUserById(p.userId));
   const todayStr = todayDateStr();
   const completedToday = allPatrols
-    .filter(p => p.status === PATROL_STATUS.COMPLETED && p.date === todayStr)
+    .filter(p => p.status === PATROL_STATUS.COMPLETED && p.date === todayStr && getUserById(p.userId))
     .sort((a, b) => (a.endTime < b.endTime ? 1 : -1));
+  const orphanCount = allPatrols.filter(p => !getUserById(p.userId)).length;
+
+  function handleCleanup() {
+    const ok = window.confirm(`Hapus permanen ${orphanCount} data sesi patroli milik akun yang sudah dihapus? Tindakan ini tidak bisa dibatalkan.`);
+    if (!ok) return;
+    setCleaning(true);
+    const n = cleanupOrphanPatrols();
+    setCleaning(false);
+    setToast(`${n} data orphan berhasil dihapus dari database.`);
+    setTimeout(() => setToast(""), 3000);
+  }
 
   return (
     <div className="container-app">
@@ -3898,6 +3922,26 @@ function AdminPatrolMapPage() {
         <h1 style={{ fontSize: 20, fontWeight: 700, color: "var(--navy-900)" }}>Peta Live Patroli</h1>
         <p style={{ color: "#64748b", fontSize: 14, marginTop: 2 }}>Pantau posisi seluruh petugas yang sedang patroli secara real-time.</p>
       </div>
+
+      {toast && (
+        <div style={{ marginBottom: 16, background: "var(--green-soft)", color: "var(--green)", fontSize: 13, fontWeight: 600, padding: "10px 14px", borderRadius: 10 }}>{toast}</div>
+      )}
+
+      {orphanCount > 0 && (
+        <div className="card" style={{ padding: 16, marginBottom: 20, background: "var(--red-soft)", border: "none", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div className="flex" style={{ alignItems: "center", gap: 10 }}>
+            <Icon name="trash-2" size={18} style={{ color: "var(--red)" }} />
+            <p style={{ fontSize: 13, color: "var(--red)" }}>
+              Ditemukan <strong>{orphanCount}</strong> sesi patroli milik akun yang sudah dihapus, tapi datanya masih tersimpan di database.
+            </p>
+          </div>
+          <Button variant="danger" size="sm" onClick={handleCleanup} disabled={cleaning}>
+            {cleaning
+              ? <React.Fragment><Icon name="loader-2" size={14} className="spin" /> Membersihkan…</React.Fragment>
+              : <React.Fragment><Icon name="trash-2" size={14} /> Bersihkan Data Orphan</React.Fragment>}
+          </Button>
+        </div>
+      )}
 
       <div className="grid-3" style={{ marginBottom: 20 }}>
         <StatCard icon="footprints" label="Sedang Patroli" value={activePatrols.length} colorVar="var(--green)" softVar="var(--green-soft)" />
