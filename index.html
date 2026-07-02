@@ -900,6 +900,23 @@ function distanceMeters(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// Arah hadap (0-360°, 0=utara) dari titik 1 ke titik 2 — dipakai buat rotasi anak panah marker.
+function bearingDeg(lat1, lng1, lat2, lng2) {
+  const toRad = (v) => (v * Math.PI) / 180, toDeg = (v) => (v * 180) / Math.PI;
+  const y = Math.sin(toRad(lng2 - lng1)) * Math.cos(toRad(lat2));
+  const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lng2 - lng1));
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
+// Kecepatan (km/jam) antara dua titik path berurutan berdasarkan jarak & selisih waktu.
+function speedKmh(prevPoint, curPoint) {
+  if (!prevPoint || !curPoint) return 0;
+  const distM = distanceMeters(prevPoint.lat, prevPoint.lng, curPoint.lat, curPoint.lng);
+  const dtSec = (new Date(curPoint.t) - new Date(prevPoint.t)) / 1000;
+  if (dtSec <= 0) return 0;
+  return (distM / dtSec) * 3.6;
+}
+
 /* ======================= HOOK KAMERA (live capture, anti-galeri) ======================= */
 function useCamera() {
   const videoRef = useRef(null);
@@ -1346,6 +1363,30 @@ function MiniMap({ lat, lng, height = 160, label }) {
   );
 }
 
+/* ======================= ANIMASI MARKER (GOJEK-STYLE SMOOTH MOVE) =======================
+   Alih-alih marker "loncat" instan ke titik GPS baru, posisi diinterpolasi halus dari titik
+   lama ke titik baru dengan easing, mirip tampilan live tracking driver Gojek/Grab. */
+function animateMarkerMove(marker, toLatLng, duration = 800) {
+  if (!marker) return;
+  if (marker.__animFrame) cancelAnimationFrame(marker.__animFrame);
+  const from = marker.getLatLng();
+  const toLat = toLatLng[0], toLng = toLatLng[1];
+  // Lompatan jarak sangat jauh (mis. GPS baru pulih setelah lama offline) tidak perlu dianimasikan,
+  // langsung pindah saja supaya tidak terlihat "meluncur" melintasi peta secara tidak wajar.
+  if (distanceMeters(from.lat, from.lng, toLat, toLng) > 300) {
+    marker.setLatLng(toLatLng);
+    return;
+  }
+  const start = performance.now();
+  function step(now) {
+    const t = Math.min(1, (now - start) / duration);
+    const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    marker.setLatLng([from.lat + (toLat - from.lat) * ease, from.lng + (toLng - from.lng) * ease]);
+    marker.__animFrame = t < 1 ? requestAnimationFrame(step) : null;
+  }
+  marker.__animFrame = requestAnimationFrame(step);
+}
+
 function PatrolMap({ checkpoints, position, path, height = 320 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -1396,17 +1437,25 @@ function PatrolMap({ checkpoints, position, path, height = 320 }) {
     const map = mapRef.current;
     if (!map || !window.L || !position) return;
     const latlng = [position.lat, position.lng];
+    const prevPt = path.length > 1 ? path[path.length - 2] : null;
+    const heading = prevPt ? bearingDeg(prevPt.lat, prevPt.lng, position.lat, position.lng) : 0;
+    const icon = window.L.divIcon({
+      className: "",
+      html: `<div style="position:relative;width:26px;height:26px;">
+        <div style="position:absolute;inset:0;transform:rotate(${heading}deg);transition:transform .8s ease;">
+          <div style="position:absolute;top:0;left:50%;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:7px solid var(--accent-600);opacity:${prevPt ? 1 : 0};"></div>
+        </div>
+        <div style="position:absolute;top:4px;left:4px;width:18px;height:18px;border-radius:50%;background:var(--accent-600);border:3px solid #fff;box-shadow:0 0 0 4px rgba(37,99,235,.25);"></div>
+      </div>`,
+      iconSize: [26, 26], iconAnchor: [13, 13],
+    });
     if (!liveMarkerRef.current) {
-      const icon = window.L.divIcon({
-        className: "",
-        html: `<div style="width:18px;height:18px;border-radius:50%;background:var(--accent-600);border:3px solid #fff;box-shadow:0 0 0 4px rgba(37,99,235,.25);"></div>`,
-        iconSize: [18, 18], iconAnchor: [9, 9],
-      });
       liveMarkerRef.current = window.L.marker(latlng, { icon, zIndexOffset: 1000 }).addTo(map);
     } else {
-      liveMarkerRef.current.setLatLng(latlng);
+      animateMarkerMove(liveMarkerRef.current, latlng);
+      liveMarkerRef.current.setIcon(icon);
     }
-    map.panTo(latlng, { animate: true });
+    map.panTo(latlng, { animate: true, duration: 0.8 });
   }, [position]);
 
   useEffect(() => {
@@ -1431,7 +1480,7 @@ function colorForUserId(userId) {
   return PATROL_COLOR_PALETTE[hash % PATROL_COLOR_PALETTE.length];
 }
 
-function AdminLivePatrolMap({ patrols, checkpoints, height = 420 }) {
+function AdminLivePatrolMap({ patrols, checkpoints, height = 420, followUserId }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const userMarkersRef = useRef({});
@@ -1479,18 +1528,31 @@ function AdminLivePatrolMap({ patrols, checkpoints, height = 420 }) {
       if (!p.path?.length) return;
       seen.add(p.userId);
       const last = p.path[p.path.length - 1];
+      const prev = p.path.length > 1 ? p.path[p.path.length - 2] : null;
       const color = colorForUserId(p.userId);
       const initials = p.userName.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
+      const heading = prev ? bearingDeg(prev.lat, prev.lng, last.lat, last.lng) : 0;
+      const speed = prev ? Math.round(speedKmh(prev, last)) : 0;
+      const tooltipText = `${p.userName}${speed > 0 ? ` · ${speed} km/j` : ""}`;
       const icon = window.L.divIcon({
         className: "",
-        html: `<div style="width:30px;height:30px;border-radius:50%;background:${color};border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;">${initials}</div>`,
-        iconSize: [30, 30], iconAnchor: [15, 15],
+        html: `<div style="position:relative;width:36px;height:36px;">
+          <div style="position:absolute;inset:0;transform:rotate(${heading}deg);transition:transform .8s ease;">
+            <div style="position:absolute;top:0;left:50%;transform:translateX(-50%);width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:9px solid ${color};opacity:${prev ? 1 : 0};"></div>
+          </div>
+          <div style="position:absolute;top:3px;left:3px;width:30px;height:30px;border-radius:50%;background:${color};border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;">${initials}</div>
+        </div>`,
+        iconSize: [36, 36], iconAnchor: [18, 18],
       });
       if (userMarkersRef.current[p.userId]) {
-        userMarkersRef.current[p.userId].setLatLng([last.lat, last.lng]);
+        animateMarkerMove(userMarkersRef.current[p.userId], [last.lat, last.lng]);
         userMarkersRef.current[p.userId].setIcon(icon);
+        userMarkersRef.current[p.userId].setTooltipContent(tooltipText);
       } else {
-        userMarkersRef.current[p.userId] = window.L.marker([last.lat, last.lng], { icon, zIndexOffset: 1000 }).addTo(map).bindTooltip(p.userName);
+        userMarkersRef.current[p.userId] = window.L.marker([last.lat, last.lng], { icon, zIndexOffset: 1000 }).addTo(map).bindTooltip(tooltipText);
+      }
+      if (followUserId === p.userId) {
+        map.panTo([last.lat, last.lng], { animate: true, duration: 0.8 });
       }
       const latlngs = p.path.map(pt => [pt.lat, pt.lng]);
       if (userLinesRef.current[p.userId]) userLinesRef.current[p.userId].setLatLngs(latlngs);
@@ -3895,6 +3957,7 @@ function AdminPatrolMapPage() {
   const [now, setNow] = useState(Date.now());
   const [cleaning, setCleaning] = useState(false);
   const [toast, setToast] = useState("");
+  const [followUserId, setFollowUserId] = useState("");
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
 
   const checkpoints = useMemo(() => getCheckpoints(), [store.checkpoints]);
@@ -3905,6 +3968,10 @@ function AdminPatrolMapPage() {
     .filter(p => p.status === PATROL_STATUS.COMPLETED && p.date === todayStr && getUserById(p.userId))
     .sort((a, b) => (a.endTime < b.endTime ? 1 : -1));
   const orphanCount = allPatrols.filter(p => !getUserById(p.userId)).length;
+
+  useEffect(() => {
+    if (followUserId && !activePatrols.some(p => p.userId === followUserId)) setFollowUserId("");
+  }, [activePatrols, followUserId]);
 
   function handleCleanup() {
     const ok = window.confirm(`Hapus permanen ${orphanCount} data sesi patroli milik akun yang sudah dihapus? Tindakan ini tidak bisa dibatalkan.`);
@@ -3956,7 +4023,24 @@ function AdminPatrolMapPage() {
         </div>
       ) : (
         <div className="card" style={{ padding: 12, marginBottom: 20 }}>
-          <AdminLivePatrolMap patrols={activePatrols} checkpoints={checkpoints} height={420} />
+          {activePatrols.length > 0 && (
+            <div className="flex" style={{ alignItems: "center", gap: 8, padding: "4px 8px 12px", flexWrap: "wrap" }}>
+              <Icon name="crosshair" size={14} style={{ color: "#64748b" }} />
+              <span style={{ fontSize: 12, color: "#64748b", fontWeight: 600 }}>Ikuti kamera ke:</span>
+              <select
+                className="input"
+                style={{ width: "auto", fontSize: 12, padding: "6px 10px" }}
+                value={followUserId}
+                onChange={e => setFollowUserId(e.target.value)}
+              >
+                <option value="">Bebas (tidak mengikuti)</option>
+                {activePatrols.map(p => (
+                  <option key={p.userId} value={p.userId}>{p.userName}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <AdminLivePatrolMap patrols={activePatrols} checkpoints={checkpoints} height={420} followUserId={followUserId} />
         </div>
       )}
 
