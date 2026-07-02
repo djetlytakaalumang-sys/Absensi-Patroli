@@ -267,6 +267,7 @@ const store = {
   patrols:     [],
   kejadian:    [],
   ready:       false,
+  tracker:     { position: null, path: [], gpsError: "" },
 };
 
 const _storeListeners = new Set();
@@ -3252,51 +3253,40 @@ function formatDurationShort(ms) {
   return `${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}d`;
 }
 
-function PatrolPage({ user }) {
+/* ======================= GPS TRACKER GLOBAL (LINTAS TAB) =======================
+   Dulu logic watchPosition + heartbeat ada di dalam PatrolPage, sehingga berhenti
+   total begitu petugas pindah tab (mis. ke Dashboard/Riwayat) karena PatrolPage
+   di-unmount. Sekarang dipindah ke sini dan dipasang sekali di level App(), agar
+   tetap berjalan selama sesi patroli aktif, apa pun tab yang sedang dibuka. */
+function PatrolTracker({ user }) {
   useStoreSync();
-  const checkpoints = useMemo(() => getCheckpoints(), [store.checkpoints]);
   const activePatrol = useMemo(() => getActivePatrolForUser(user.id), [user.id, store.patrols]);
-  const myReports = useMemo(() => getKejadianReportsByUser(user.id).slice(0, 5), [user.id, store.kejadian]);
-
-  const [starting, setStarting] = useState(false);
-  const [ending, setEnding] = useState(false);
-  const [gpsError, setGpsError] = useState("");
-  const [livePosition, setLivePosition] = useState(null);
-  const [path, setPath] = useState([]);
-  const [now, setNow] = useState(Date.now());
-  const [justFinished, setJustFinished] = useState(null);
-  const [showIncidentModal, setShowIncidentModal] = useState(false);
-  const [incidentToast, setIncidentToast] = useState("");
 
   const watchIdRef = useRef(null);
   const lastSavedRef = useRef(null);
   const currentPosRef = useRef(null);
 
-  // Jam berjalan untuk durasi patroli
-  useEffect(() => {
-    if (!activePatrol) return;
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [activePatrol?.id]);
-
   // Muat ulang path dari sesi aktif (mis. setelah refresh halaman)
   useEffect(() => {
-    if (activePatrol && path.length === 0 && activePatrol.path?.length) {
-      setPath(activePatrol.path);
+    if (activePatrol && store.tracker.path.length === 0 && activePatrol.path?.length) {
       const last = activePatrol.path[activePatrol.path.length - 1];
-      setLivePosition({ lat: last.lat, lng: last.lng });
       lastSavedRef.current = { lat: last.lat, lng: last.lng };
       currentPosRef.current = { lat: last.lat, lng: last.lng };
+      store.tracker = { position: { lat: last.lat, lng: last.lng }, path: activePatrol.path, gpsError: store.tracker.gpsError };
+      _notifyStore();
     }
-    if (!activePatrol) { setPath([]); setLivePosition(null); }
+    if (!activePatrol && store.tracker.path.length > 0) {
+      store.tracker = { position: null, path: [], gpsError: "" };
+      _notifyStore();
+    }
   }, [activePatrol?.id]);
 
   // Mulai/berhentikan watchPosition sesuai status sesi aktif
   useEffect(() => {
     if (activePatrol && watchIdRef.current == null && "geolocation" in navigator) {
       watchIdRef.current = navigator.geolocation.watchPosition(
-        pos => handleNewPosition(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
-        err => setGpsError(_friendlyGeoError(err)),
+        pos => handleNewPosition(pos.coords.latitude, pos.coords.longitude),
+        err => { store.tracker = { ...store.tracker, gpsError: _friendlyGeoError(err) }; _notifyStore(); },
         { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
       );
     }
@@ -3310,69 +3300,97 @@ function PatrolPage({ user }) {
   }, [activePatrol?.id]);
 
   // Heartbeat: kirim titik posisi terakhir ke Firestore secara berkala walau petugas belum
-  // berpindah 15m (mis. sesi Piket Malam yang stasioner di satu pos). Tanpa ini, peta admin
-  // & status "Live" akan terlihat berhenti karena handleNewPosition hanya menulis saat movedFar.
+  // berpindah 15m (mis. sesi Piket Malam yang stasioner di satu pos).
   useEffect(() => {
     if (!activePatrol) return;
     const hb = setInterval(() => {
       const cur = currentPosRef.current;
       if (!cur) return;
-      setPath(prev => {
-        const point = { lat: cur.lat, lng: cur.lng, t: new Date().toISOString() };
-        const nextPath = [...prev, point];
-        lastSavedRef.current = point;
-        updatePatrolSession(activePatrol.id, { path: nextPath, lastSeen: point.t });
-        return nextPath;
-      });
+      const point = { lat: cur.lat, lng: cur.lng, t: new Date().toISOString() };
+      const nextPath = [...store.tracker.path, point];
+      lastSavedRef.current = point;
+      store.tracker = { ...store.tracker, path: nextPath };
+      updatePatrolSession(activePatrol.id, { path: nextPath, lastSeen: point.t });
+      _notifyStore();
     }, 45000);
     return () => clearInterval(hb);
   }, [activePatrol?.id]);
 
-  function handleNewPosition(lat, lng, accuracy) {
+  function handleNewPosition(lat, lng) {
     currentPosRef.current = { lat, lng };
     if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return;
-    setLivePosition({ lat, lng });
-    setPath(prev => {
-      const point = { lat, lng, t: new Date().toISOString() };
-      const nextPath = [...prev, point];
+    const point = { lat, lng, t: new Date().toISOString() };
+    const prevPath = store.tracker.path;
+    const nextPath = [...prevPath, point];
 
-      // Simpan ke Firestore hanya jika berpindah cukup jauh dari titik tersimpan terakhir (hemat penulisan)
-      const lastSaved = lastSavedRef.current;
-      const movedFar = !lastSaved || distanceMeters(lastSaved.lat, lastSaved.lng, lat, lng) >= 15;
-      if (movedFar && activePatrol) {
-        lastSavedRef.current = point;
-        let totalDist = activePatrol.totalDistanceMeters || 0;
-        if (prev.length > 0) totalDist += distanceMeters(prev[prev.length - 1].lat, prev[prev.length - 1].lng, lat, lng);
-        updatePatrolSession(activePatrol.id, { path: nextPath, totalDistanceMeters: totalDist });
-      }
+    // Simpan ke Firestore hanya jika berpindah cukup jauh dari titik tersimpan terakhir (hemat penulisan)
+    const lastSaved = lastSavedRef.current;
+    const movedFar = !lastSaved || distanceMeters(lastSaved.lat, lastSaved.lng, lat, lng) >= 15;
+    if (movedFar && activePatrol) {
+      lastSavedRef.current = point;
+      let totalDist = activePatrol.totalDistanceMeters || 0;
+      if (prevPath.length > 0) totalDist += distanceMeters(prevPath[prevPath.length - 1].lat, prevPath[prevPath.length - 1].lng, lat, lng);
+      updatePatrolSession(activePatrol.id, { path: nextPath, totalDistanceMeters: totalDist });
+    }
 
-      // Cek kedekatan ke checkpoint yang belum dikunjungi (dilewati untuk sesi Piket Malam tanpa checkpoint)
-      if (activePatrol && activePatrol.usesCheckpoints !== false) {
-        const visitedIds = new Set((activePatrol.checkpointsVisited || []).map(v => v.checkpointId));
-        checkpoints.forEach(cp => {
-          if (cp.lat == null || cp.lng == null || visitedIds.has(cp.id)) return;
-          const d = distanceMeters(lat, lng, cp.lat, cp.lng);
-          if (d <= (cp.radius || DEFAULT_CHECKPOINT_RADIUS)) {
-            const nextVisited = [...(activePatrol.checkpointsVisited || []), { checkpointId: cp.id, name: cp.name, time: new Date().toISOString(), lat, lng }];
-            updatePatrolSession(activePatrol.id, { checkpointsVisited: nextVisited });
-          }
-        });
-      }
-      return nextPath;
-    });
+    // Cek kedekatan ke checkpoint yang belum dikunjungi (dilewati untuk sesi Piket Malam tanpa checkpoint)
+    if (activePatrol && activePatrol.usesCheckpoints !== false) {
+      const checkpoints = getCheckpoints();
+      const visitedIds = new Set((activePatrol.checkpointsVisited || []).map(v => v.checkpointId));
+      checkpoints.forEach(cp => {
+        if (cp.lat == null || cp.lng == null || visitedIds.has(cp.id)) return;
+        const d = distanceMeters(lat, lng, cp.lat, cp.lng);
+        if (d <= (cp.radius || DEFAULT_CHECKPOINT_RADIUS)) {
+          const nextVisited = [...(activePatrol.checkpointsVisited || []), { checkpointId: cp.id, name: cp.name, time: new Date().toISOString(), lat, lng }];
+          updatePatrolSession(activePatrol.id, { checkpointsVisited: nextVisited });
+        }
+      });
+    }
+
+    store.tracker = { position: { lat, lng }, path: nextPath, gpsError: store.tracker.gpsError };
+    _notifyStore();
   }
 
+  return null;
+}
+
+function PatrolPage({ user }) {
+  useStoreSync();
+  const checkpoints = useMemo(() => getCheckpoints(), [store.checkpoints]);
+  const activePatrol = useMemo(() => getActivePatrolForUser(user.id), [user.id, store.patrols]);
+  const myReports = useMemo(() => getKejadianReportsByUser(user.id).slice(0, 5), [user.id, store.kejadian]);
+
+  const [starting, setStarting] = useState(false);
+  const [ending, setEnding] = useState(false);
+  const [now, setNow] = useState(Date.now());
+  const [justFinished, setJustFinished] = useState(null);
+  const [showIncidentModal, setShowIncidentModal] = useState(false);
+  const [incidentToast, setIncidentToast] = useState("");
+
+  // Posisi/jejak/error GPS sekarang dikelola secara global oleh <PatrolTracker/> (lihat App()),
+  // supaya tetap berjalan walau petugas pindah tab. Di sini cukup dibaca saja.
+  const livePosition = store.tracker.position;
+  const path = store.tracker.path;
+  const gpsError = store.tracker.gpsError;
+
+  // Jam berjalan untuk durasi patroli
+  useEffect(() => {
+    if (!activePatrol) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [activePatrol?.id]);
+
   async function handleStart() {
-    setStarting(true); setGpsError(""); setJustFinished(null);
+    setStarting(true); setJustFinished(null);
+    store.tracker = { ...store.tracker, gpsError: "" };
     try {
       const pos = await getCurrentPosition();
-      const patrol = startPatrolSession(user, pos);
-      lastSavedRef.current = { lat: pos.lat, lng: pos.lng };
-      currentPosRef.current = { lat: pos.lat, lng: pos.lng };
-      setLivePosition({ lat: pos.lat, lng: pos.lng });
-      setPath([{ lat: pos.lat, lng: pos.lng, t: new Date().toISOString() }]);
+      startPatrolSession(user, pos);
+      store.tracker = { position: { lat: pos.lat, lng: pos.lng }, path: [{ lat: pos.lat, lng: pos.lng, t: new Date().toISOString() }], gpsError: "" };
+      _notifyStore();
     } catch (err) {
-      setGpsError(err.message);
+      store.tracker = { ...store.tracker, gpsError: err.message };
+      _notifyStore();
     } finally {
       setStarting(false);
     }
@@ -4501,6 +4519,7 @@ function App() {
 
   return (
     <div className="lg-flex" style={{ minHeight: "100vh", background: "var(--slate-mist)" }}>
+      {!isAdmin && <PatrolTracker user={user} />}
       <Sidebar user={user} navItems={navItems} activeKey={page} onNavigate={setPage} onLogout={logout} />
       <main style={{ flex: 1, paddingBottom: 80 }}>{renderPage()}</main>
     </div>
