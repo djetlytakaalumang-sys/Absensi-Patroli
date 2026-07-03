@@ -3398,9 +3398,11 @@ function PatrolTracker({ user }) {
     // Penting: HARUS lewat registerPlugin (bukan window.Capacitor.Plugins.X langsung),
     // supaya method addWatcher balikin Promise seperti di dokumentasi resmi plugin ini.
     const BgGeo = isNative && window.Capacitor.registerPlugin && window.Capacitor.registerPlugin("BackgroundGeolocation");
+    console.log("[GPSDEBUG] useEffect jalan. activePatrol:", !!activePatrol, "isNative:", isNative, "BgGeo tersedia:", !!BgGeo, "watchIdRef sudah ada:", watchIdRef.current != null);
 
     if (activePatrol && watchIdRef.current == null) {
       if (BgGeo) {
+        console.log("[GPSDEBUG] Memanggil BgGeo.addWatcher...");
         BgGeo.addWatcher(
           {
             backgroundMessage: "Melacak lokasi patroli…",
@@ -3411,29 +3413,17 @@ function PatrolTracker({ user }) {
           },
           (location, error) => {
             if (error) {
+              console.log("[GPSDEBUG] Callback error:", JSON.stringify(error));
               store.tracker = { ...store.tracker, gpsError: error.message || "Gagal mengambil lokasi GPS" };
               _notifyStore();
               return;
             }
-            if (location) handleNewPosition(location.latitude, location.longitude);
+            if (location) { console.log("[GPSDEBUG] Lokasi diterima:", location.latitude, location.longitude); handleNewPosition(location.latitude, location.longitude); }
           }
-        ).then(id => { watchIdRef.current = id; }).catch(err => {
-          // Kalau plugin native belum terpasang benar (mis. lupa `npm install` + `npx cap sync`),
-          // addWatcher akan gagal di sini. Tanpa .catch ini, kegagalannya diam-diam tanpa jejak.
-          const msg = "Background location plugin gagal dijalankan: " + (err && err.message ? err.message : String(err));
-          console.error(msg, err);
-          store.tracker = { ...store.tracker, gpsError: msg };
-          _notifyStore();
-          // Fallback: tetap coba geolocation biasa supaya tracking foreground tidak ikut mati total.
-          if ("geolocation" in navigator && watchIdRef.current == null) {
-            watchIdRef.current = navigator.geolocation.watchPosition(
-              pos => handleNewPosition(pos.coords.latitude, pos.coords.longitude),
-              err2 => { store.tracker = { ...store.tracker, gpsError: _friendlyGeoError(err2) }; _notifyStore(); },
-              { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
-            );
-          }
-        });
+        ).then(id => { console.log("[GPSDEBUG] addWatcher berhasil, watcher id:", id); watchIdRef.current = id; })
+         .catch(err => { console.log("[GPSDEBUG] addWatcher GAGAL (promise rejected):", JSON.stringify(err), err && err.message); });
       } else if ("geolocation" in navigator) {
+        console.log("[GPSDEBUG] Fallback ke navigator.geolocation.watchPosition (BgGeo tidak tersedia)");
         watchIdRef.current = navigator.geolocation.watchPosition(
           pos => handleNewPosition(pos.coords.latitude, pos.coords.longitude),
           err => { store.tracker = { ...store.tracker, gpsError: _friendlyGeoError(err) }; _notifyStore(); },
