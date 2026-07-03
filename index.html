@@ -1,6 +1,9 @@
 <!doctype html>
 <html lang="id">
 <head>
+<!-- Polyfill window.Capacitor.registerPlugin — dibutuhkan supaya plugin native (background-geolocation dkk)
+     bisa dipanggil dengan benar tanpa proses bundling/build step. Aman dimuat di web biasa juga (no-op). -->
+<script src="https://unpkg.com/@capacitor/core@6.1.2/dist/capacitor.js"></script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#e4142b" />
