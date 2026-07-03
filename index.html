@@ -3464,9 +3464,12 @@ function PatrolTracker({ user }) {
 
   // Heartbeat: kirim titik posisi terakhir ke Firestore secara berkala walau petugas belum
   // berpindah 15m (mis. sesi Piket Malam yang stasioner di satu pos).
+  // Selain interval berkala, juga langsung dipaksa kirim begitu HP dibuka lagi (layar di-unlock /
+  // app kembali ke depan) — supaya status "Tertunda" langsung balik jadi "Live" seketika,
+  // tanpa nunggu tick interval berikutnya.
   useEffect(() => {
     if (!activePatrol) return;
-    const hb = setInterval(() => {
+    const sendHeartbeat = () => {
       const cur = currentPosRef.current;
       if (!cur) return;
       const point = { lat: cur.lat, lng: cur.lng, t: new Date().toISOString() };
@@ -3475,8 +3478,22 @@ function PatrolTracker({ user }) {
       store.tracker = { ...store.tracker, path: nextPath };
       updatePatrolSession(activePatrol.id, { path: nextPath, lastSeen: point.t });
       _notifyStore();
-    }, 20000);
-    return () => clearInterval(hb);
+    };
+    const hb = setInterval(sendHeartbeat, 20000);
+
+    const onVisible = () => { if (document.visibilityState === "visible") sendHeartbeat(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    // Capacitor App plugin juga memancarkan event 'resume' saat app dibawa ke depan lagi
+    // (mis. via notifikasi/recent apps) — dengar juga event ini kalau tersedia.
+    document.addEventListener("resume", onVisible);
+
+    return () => {
+      clearInterval(hb);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("resume", onVisible);
+    };
   }, [activePatrol?.id]);
 
   function handleNewPosition(lat, lng) {
@@ -4175,12 +4192,14 @@ function AdminPatrolMapPage() {
                       Durasi {formatDurationShort(elapsed)} · {(p.checkpointsVisited || []).length}/{checkpoints.length} checkpoint · ±{Math.round(p.totalDistanceMeters || 0)} m
                     </p>
                   </div>
-                  <span style={{
-                    fontSize: 11, fontWeight: 700, flexShrink: 0, padding: "3px 8px", borderRadius: 999,
-                    color: lastAgoSec == null ? "#94a3b8" : lastAgoSec < 90 ? "var(--green)" : lastAgoSec < 300 ? "var(--amber)" : "var(--red)",
-                    background: lastAgoSec == null ? "rgba(148,163,184,.12)" : lastAgoSec < 90 ? "var(--green-soft)" : lastAgoSec < 300 ? "var(--amber-soft)" : "var(--red-soft)",
-                  }}>
-                    {lastAgoSec == null ? "-" : lastAgoSec < 90 ? "● Live" : lastAgoSec < 300 ? `⚠ ${Math.floor(lastAgoSec / 60)}m lalu` : `⛔ Terputus ${Math.floor(lastAgoSec / 60)}m`}
+                  <span
+                    title={lastAgoSec != null && lastAgoSec >= 90 && lastAgoSec < 420 ? "Layar HP petugas terkunci — data GPS tetap tersimpan di HP dan akan otomatis sinkron begitu HP dibuka lagi." : undefined}
+                    style={{
+                      fontSize: 11, fontWeight: 700, flexShrink: 0, padding: "3px 8px", borderRadius: 999,
+                      color: lastAgoSec == null ? "#94a3b8" : lastAgoSec < 90 ? "var(--green)" : lastAgoSec < 420 ? "var(--amber)" : "var(--red)",
+                      background: lastAgoSec == null ? "rgba(148,163,184,.12)" : lastAgoSec < 90 ? "var(--green-soft)" : lastAgoSec < 420 ? "var(--amber-soft)" : "var(--red-soft)",
+                    }}>
+                    {lastAgoSec == null ? "-" : lastAgoSec < 90 ? "● Live" : lastAgoSec < 420 ? `🔄 Tertunda ${Math.floor(lastAgoSec / 60)}m` : `⛔ Terputus ${Math.floor(lastAgoSec / 60)}m`}
                   </span>
                 </div>
               );
