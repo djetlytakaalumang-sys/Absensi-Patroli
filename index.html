@@ -3475,7 +3475,7 @@ function PatrolTracker({ user }) {
       store.tracker = { ...store.tracker, path: nextPath };
       updatePatrolSession(activePatrol.id, { path: nextPath, lastSeen: point.t });
       _notifyStore();
-    }, 20000);
+    }, 7000);
     return () => clearInterval(hb);
   }, [activePatrol?.id]);
 
@@ -3488,7 +3488,7 @@ function PatrolTracker({ user }) {
 
     // Simpan ke Firestore hanya jika berpindah cukup jauh dari titik tersimpan terakhir (hemat penulisan)
     const lastSaved = lastSavedRef.current;
-    const movedFar = !lastSaved || distanceMeters(lastSaved.lat, lastSaved.lng, lat, lng) >= 15;
+    const movedFar = !lastSaved || distanceMeters(lastSaved.lat, lastSaved.lng, lat, lng) >= 8;
     if (movedFar && activePatrol) {
       lastSavedRef.current = point;
       let totalDist = activePatrol.totalDistanceMeters || 0;
