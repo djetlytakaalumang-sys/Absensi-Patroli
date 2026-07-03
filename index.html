@@ -3464,51 +3464,19 @@ function PatrolTracker({ user }) {
 
   // Heartbeat: kirim titik posisi terakhir ke Firestore secara berkala walau petugas belum
   // berpindah 15m (mis. sesi Piket Malam yang stasioner di satu pos).
-  // Selain interval berkala, juga langsung dipaksa kirim begitu HP dibuka lagi (layar di-unlock /
-  // app kembali ke depan) — supaya status "Tertunda" langsung balik jadi "Live" seketika,
-  // tanpa nunggu tick interval berikutnya.
   useEffect(() => {
     if (!activePatrol) return;
-    const sendHeartbeat = () => {
+    const hb = setInterval(() => {
       const cur = currentPosRef.current;
-      if (!cur) { console.log("[GPSDEBUG] sendHeartbeat dipanggil tapi currentPosRef masih null, dilewati"); return; }
+      if (!cur) return;
       const point = { lat: cur.lat, lng: cur.lng, t: new Date().toISOString() };
-      console.log("[GPSDEBUG] sendHeartbeat mengirim:", point.lat, point.lng, point.t);
       const nextPath = [...store.tracker.path, point];
       lastSavedRef.current = point;
       store.tracker = { ...store.tracker, path: nextPath };
       updatePatrolSession(activePatrol.id, { path: nextPath, lastSeen: point.t });
       _notifyStore();
-    };
-    const hb = setInterval(sendHeartbeat, 20000);
-
-    const onVisible = () => {
-      if (document.visibilityState === "visible") {
-        console.log("[GPSDEBUG] visibilitychange -> visible, kirim heartbeat instan");
-        sendHeartbeat();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", onVisible);
-
-    // Cara paling reliable buat deteksi app kembali ke depan di Capacitor: plugin App bawaan
-    // (sudah include otomatis di @capacitor/android, tidak perlu install tambahan).
-    let appListenerHandle = null;
-    const isNativeApp = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-    if (isNativeApp && window.Capacitor.registerPlugin) {
-      const AppPlugin = window.Capacitor.registerPlugin("App");
-      AppPlugin.addListener("appStateChange", ({ isActive }) => {
-        console.log("[GPSDEBUG] App appStateChange, isActive:", isActive);
-        if (isActive) sendHeartbeat();
-      }).then(handle => { appListenerHandle = handle; });
-    }
-
-    return () => {
-      clearInterval(hb);
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", onVisible);
-      if (appListenerHandle) appListenerHandle.remove();
-    };
+    }, 20000);
+    return () => clearInterval(hb);
   }, [activePatrol?.id]);
 
   function handleNewPosition(lat, lng) {
@@ -3518,20 +3486,14 @@ function PatrolTracker({ user }) {
     const prevPath = store.tracker.path;
     const nextPath = [...prevPath, point];
 
-    // Simpan ke Firestore jika: (a) berpindah cukup jauh dari titik tersimpan terakhir (hemat penulisan),
-    // ATAU (b) sudah lewat >=20 detik sejak simpan terakhir (fungsi heartbeat).
-    // Poin (b) sengaja ditumpangkan di sini, BUKAN di setInterval terpisah, karena saat layar
-    // terkunci Android menahan antrean setTimeout/setInterval WebView meski foreground service
-    // jalan — sementara callback lokasi native ini (dipicu evaluateJavascript dari sisi native,
-    // bukan lewat antrean timer JS) terbukti tetap jalan teratur walau layar mati.
+    // Simpan ke Firestore hanya jika berpindah cukup jauh dari titik tersimpan terakhir (hemat penulisan)
     const lastSaved = lastSavedRef.current;
     const movedFar = !lastSaved || distanceMeters(lastSaved.lat, lastSaved.lng, lat, lng) >= 15;
-    const staleTimeout = !lastSaved || (Date.now() - new Date(lastSaved.t).getTime()) >= 20000;
-    if ((movedFar || staleTimeout) && activePatrol) {
+    if (movedFar && activePatrol) {
       lastSavedRef.current = point;
       let totalDist = activePatrol.totalDistanceMeters || 0;
       if (prevPath.length > 0) totalDist += distanceMeters(prevPath[prevPath.length - 1].lat, prevPath[prevPath.length - 1].lng, lat, lng);
-      updatePatrolSession(activePatrol.id, { path: nextPath, totalDistanceMeters: totalDist, lastSeen: point.t });
+      updatePatrolSession(activePatrol.id, { path: nextPath, totalDistanceMeters: totalDist });
     }
 
     // Cek kedekatan ke checkpoint yang belum dikunjungi (dilewati untuk sesi Piket Malam tanpa checkpoint)
@@ -4213,14 +4175,12 @@ function AdminPatrolMapPage() {
                       Durasi {formatDurationShort(elapsed)} · {(p.checkpointsVisited || []).length}/{checkpoints.length} checkpoint · ±{Math.round(p.totalDistanceMeters || 0)} m
                     </p>
                   </div>
-                  <span
-                    title={lastAgoSec != null && lastAgoSec >= 90 && lastAgoSec < 420 ? "Layar HP petugas terkunci — data GPS tetap tersimpan di HP dan akan otomatis sinkron begitu HP dibuka lagi." : undefined}
-                    style={{
-                      fontSize: 11, fontWeight: 700, flexShrink: 0, padding: "3px 8px", borderRadius: 999,
-                      color: lastAgoSec == null ? "#94a3b8" : lastAgoSec < 90 ? "var(--green)" : lastAgoSec < 420 ? "var(--amber)" : "var(--red)",
-                      background: lastAgoSec == null ? "rgba(148,163,184,.12)" : lastAgoSec < 90 ? "var(--green-soft)" : lastAgoSec < 420 ? "var(--amber-soft)" : "var(--red-soft)",
-                    }}>
-                    {lastAgoSec == null ? "-" : lastAgoSec < 90 ? "● Live" : lastAgoSec < 420 ? `🔄 Tertunda ${Math.floor(lastAgoSec / 60)}m` : `⛔ Terputus ${Math.floor(lastAgoSec / 60)}m`}
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, flexShrink: 0, padding: "3px 8px", borderRadius: 999,
+                    color: lastAgoSec == null ? "#94a3b8" : lastAgoSec < 90 ? "var(--green)" : lastAgoSec < 300 ? "var(--amber)" : "var(--red)",
+                    background: lastAgoSec == null ? "rgba(148,163,184,.12)" : lastAgoSec < 90 ? "var(--green-soft)" : lastAgoSec < 300 ? "var(--amber-soft)" : "var(--red-soft)",
+                  }}>
+                    {lastAgoSec == null ? "-" : lastAgoSec < 90 ? "● Live" : lastAgoSec < 300 ? `⚠ ${Math.floor(lastAgoSec / 60)}m lalu` : `⛔ Terputus ${Math.floor(lastAgoSec / 60)}m`}
                   </span>
                 </div>
               );
