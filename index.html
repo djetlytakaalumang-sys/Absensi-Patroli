@@ -3,7 +3,21 @@
 <head>
 <!-- Polyfill window.Capacitor.registerPlugin — dibutuhkan supaya plugin native (background-geolocation dkk)
      bisa dipanggil dengan benar tanpa proses bundling/build step. Aman dimuat di web biasa juga (no-op). -->
-<script src="https://unpkg.com/@capacitor/core@6.1.2/dist/capacitor.js"></script>
+<script>
+  console.log("[GPSDEBUG] SEBELUM script capacitor.js — window.Capacitor ada?", !!window.Capacitor, "registerPlugin ada?", !!(window.Capacitor && window.Capacitor.registerPlugin));
+</script>
+<script src="https://unpkg.com/@capacitor/core@6.1.2/dist/capacitor.js"
+        onload="console.log('[GPSDEBUG] capacitor.js BERHASIL load. registerPlugin ada?', !!(window.Capacitor && window.Capacitor.registerPlugin))"
+        onerror="console.log('[GPSDEBUG] capacitor.js GAGAL load (network/blocked)')"></script>
+<script>
+  console.log("[GPSDEBUG] SETELAH tag script (sync) — window.Capacitor ada?", !!window.Capacitor, "registerPlugin ada?", !!(window.Capacitor && window.Capacitor.registerPlugin));
+  window.addEventListener("load", () => {
+    console.log("[GPSDEBUG] window 'load' event — registerPlugin ada?", !!(window.Capacitor && window.Capacitor.registerPlugin));
+  });
+  document.addEventListener("deviceready", () => {
+    console.log("[GPSDEBUG] deviceready event — registerPlugin ada?", !!(window.Capacitor && window.Capacitor.registerPlugin));
+  });
+</script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#e4142b" />
