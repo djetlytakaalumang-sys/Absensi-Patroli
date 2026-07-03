@@ -3471,8 +3471,9 @@ function PatrolTracker({ user }) {
     if (!activePatrol) return;
     const sendHeartbeat = () => {
       const cur = currentPosRef.current;
-      if (!cur) return;
+      if (!cur) { console.log("[GPSDEBUG] sendHeartbeat dipanggil tapi currentPosRef masih null, dilewati"); return; }
       const point = { lat: cur.lat, lng: cur.lng, t: new Date().toISOString() };
+      console.log("[GPSDEBUG] sendHeartbeat mengirim:", point.lat, point.lng, point.t);
       const nextPath = [...store.tracker.path, point];
       lastSavedRef.current = point;
       store.tracker = { ...store.tracker, path: nextPath };
@@ -3481,18 +3482,32 @@ function PatrolTracker({ user }) {
     };
     const hb = setInterval(sendHeartbeat, 20000);
 
-    const onVisible = () => { if (document.visibilityState === "visible") sendHeartbeat(); };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        console.log("[GPSDEBUG] visibilitychange -> visible, kirim heartbeat instan");
+        sendHeartbeat();
+      }
+    };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
-    // Capacitor App plugin juga memancarkan event 'resume' saat app dibawa ke depan lagi
-    // (mis. via notifikasi/recent apps) — dengar juga event ini kalau tersedia.
-    document.addEventListener("resume", onVisible);
+
+    // Cara paling reliable buat deteksi app kembali ke depan di Capacitor: plugin App bawaan
+    // (sudah include otomatis di @capacitor/android, tidak perlu install tambahan).
+    let appListenerHandle = null;
+    const isNativeApp = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+    if (isNativeApp && window.Capacitor.registerPlugin) {
+      const AppPlugin = window.Capacitor.registerPlugin("App");
+      AppPlugin.addListener("appStateChange", ({ isActive }) => {
+        console.log("[GPSDEBUG] App appStateChange, isActive:", isActive);
+        if (isActive) sendHeartbeat();
+      }).then(handle => { appListenerHandle = handle; });
+    }
 
     return () => {
       clearInterval(hb);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
-      document.removeEventListener("resume", onVisible);
+      if (appListenerHandle) appListenerHandle.remove();
     };
   }, [activePatrol?.id]);
 
