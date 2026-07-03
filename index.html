@@ -3338,6 +3338,40 @@ function PatrolTracker({ user }) {
   const watchIdRef = useRef(null);
   const lastSavedRef = useRef(null);
   const currentPosRef = useRef(null);
+  const wakeLockRef = useRef(null);
+
+  // Wake Lock: cegah layar mati sendiri (idle timeout) selama sesi patroli aktif.
+  // Catatan: ini TIDAK mencegah user mengunci HP secara manual (tombol power), dan
+  // wake lock otomatis dilepas browser saat tab disembunyikan — makanya kita coba
+  // minta ulang begitu tab terlihat lagi (event visibilitychange di bawah).
+  useEffect(() => {
+    let cancelled = false;
+    async function acquireWakeLock() {
+      if (!("wakeLock" in navigator)) return;
+      try {
+        const lock = await navigator.wakeLock.request("screen");
+        if (cancelled) { lock.release().catch(() => {}); return; }
+        wakeLockRef.current = lock;
+      } catch (e) {
+        // Gagal (mis. baterai hemat daya aktif, atau browser tidak izinkan) — diamkan saja,
+        // fitur ini best-effort dan tidak boleh mengganggu jalannya tracking GPS.
+      }
+    }
+    function handleVisibilityChange() {
+      if (activePatrol && document.visibilityState === "visible" && wakeLockRef.current == null) {
+        acquireWakeLock();
+      }
+    }
+    if (activePatrol) {
+      acquireWakeLock();
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (wakeLockRef.current) { wakeLockRef.current.release().catch(() => {}); wakeLockRef.current = null; }
+    };
+  }, [activePatrol?.id]);
 
   // Muat ulang path dari sesi aktif (mis. setelah refresh halaman)
   useEffect(() => {
@@ -3439,6 +3473,13 @@ function PatrolPage({ user }) {
   const [justFinished, setJustFinished] = useState(null);
   const [showIncidentModal, setShowIncidentModal] = useState(false);
   const [incidentToast, setIncidentToast] = useState("");
+  const [showBatteryTip, setShowBatteryTip] = useState(() => {
+    try { return localStorage.getItem("hideBatteryTip") !== "1"; } catch (e) { return true; }
+  });
+  function dismissBatteryTip() {
+    setShowBatteryTip(false);
+    try { localStorage.setItem("hideBatteryTip", "1"); } catch (e) {}
+  }
 
   // Posisi/jejak/error GPS sekarang dikelola secara global oleh <PatrolTracker/> (lihat App()),
   // supaya tetap berjalan walau petugas pindah tab. Di sini cukup dibaca saja.
@@ -3512,6 +3553,21 @@ function PatrolPage({ user }) {
       )}
 
       {gpsError && <div style={{ marginBottom: 16, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 }}>{gpsError}</div>}
+
+      {activePatrol && showBatteryTip && (
+        <div className="card" style={{ padding: "14px 16px", marginBottom: 16, background: "var(--amber-soft)", border: "none", display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <Icon name="battery-warning" size={18} style={{ color: "var(--amber)", flexShrink: 0, marginTop: 1 }} />
+          <div style={{ flex: 1 }}>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "var(--amber)", marginBottom: 2 }}>Supaya lokasi tidak terputus</p>
+            <p style={{ fontSize: 12.5, color: "#78500a", lineHeight: 1.5 }}>
+              Jangan tutup paksa aplikasi ini selama patroli, dan matikan "Optimisasi Baterai" untuk aplikasi ini di Pengaturan HP Anda (Setelan → Aplikasi → cari aplikasi ini → Baterai → Tanpa Batasan).
+            </p>
+          </div>
+          <button onClick={dismissBatteryTip} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--amber)", flexShrink: 0, padding: 2 }}>
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+      )}
 
       {!hasCheckpoints && !activePatrol && (
         <div className="card" style={{ padding: 20, marginBottom: 20, textAlign: "center", color: "#94a3b8" }}>
@@ -4063,8 +4119,12 @@ function AdminPatrolMapPage() {
                       Durasi {formatDurationShort(elapsed)} · {(p.checkpointsVisited || []).length}/{checkpoints.length} checkpoint · ±{Math.round(p.totalDistanceMeters || 0)} m
                     </p>
                   </div>
-                  <span style={{ fontSize: 11, color: lastAgoSec != null && lastAgoSec < 60 ? "var(--green)" : "#94a3b8", fontWeight: 600, flexShrink: 0 }}>
-                    {lastAgoSec != null ? (lastAgoSec < 60 ? "● Live" : `${Math.floor(lastAgoSec / 60)}m lalu`) : "-"}
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, flexShrink: 0, padding: "3px 8px", borderRadius: 999,
+                    color: lastAgoSec == null ? "#94a3b8" : lastAgoSec < 90 ? "var(--green)" : lastAgoSec < 300 ? "var(--amber)" : "var(--red)",
+                    background: lastAgoSec == null ? "rgba(148,163,184,.12)" : lastAgoSec < 90 ? "var(--green-soft)" : lastAgoSec < 300 ? "var(--amber-soft)" : "var(--red-soft)",
+                  }}>
+                    {lastAgoSec == null ? "-" : lastAgoSec < 90 ? "● Live" : lastAgoSec < 300 ? `⚠ ${Math.floor(lastAgoSec / 60)}m lalu` : `⛔ Terputus ${Math.floor(lastAgoSec / 60)}m`}
                   </span>
                 </div>
               );
