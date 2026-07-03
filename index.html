@@ -3388,21 +3388,70 @@ function PatrolTracker({ user }) {
     }
   }, [activePatrol?.id]);
 
-  // Mulai/berhentikan watchPosition sesuai status sesi aktif
+  // Mulai/berhentikan watchPosition sesuai status sesi aktif.
+  // Kalau app ini jalan dibungkus Capacitor (APK) DAN plugin background-geolocation
+  // terpasang, pakai foreground service supaya GPS tetap live walau layar terkunci.
+  // Kalau tidak (masih dibuka lewat browser biasa), fallback ke navigator.geolocation
+  // seperti sebelumnya — perilakunya sama seperti sekarang (berhenti saat tab/layar mati).
   useEffect(() => {
-    if (activePatrol && watchIdRef.current == null && "geolocation" in navigator) {
-      watchIdRef.current = navigator.geolocation.watchPosition(
-        pos => handleNewPosition(pos.coords.latitude, pos.coords.longitude),
-        err => { store.tracker = { ...store.tracker, gpsError: _friendlyGeoError(err) }; _notifyStore(); },
-        { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
-      );
+    const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+    // Penting: HARUS lewat registerPlugin (bukan window.Capacitor.Plugins.X langsung),
+    // supaya method addWatcher balikin Promise seperti di dokumentasi resmi plugin ini.
+    const BgGeo = isNative && window.Capacitor.registerPlugin && window.Capacitor.registerPlugin("BackgroundGeolocation");
+
+    if (activePatrol && watchIdRef.current == null) {
+      if (BgGeo) {
+        BgGeo.addWatcher(
+          {
+            backgroundMessage: "Melacak lokasi patroli…",
+            backgroundTitle: "Portal NIT aktif",
+            requestPermissions: true,
+            stale: false,
+            distanceFilter: 10
+          },
+          (location, error) => {
+            if (error) {
+              store.tracker = { ...store.tracker, gpsError: error.message || "Gagal mengambil lokasi GPS" };
+              _notifyStore();
+              return;
+            }
+            if (location) handleNewPosition(location.latitude, location.longitude);
+          }
+        ).then(id => { watchIdRef.current = id; }).catch(err => {
+          // Kalau plugin native belum terpasang benar (mis. lupa `npm install` + `npx cap sync`),
+          // addWatcher akan gagal di sini. Tanpa .catch ini, kegagalannya diam-diam tanpa jejak.
+          const msg = "Background location plugin gagal dijalankan: " + (err && err.message ? err.message : String(err));
+          console.error(msg, err);
+          store.tracker = { ...store.tracker, gpsError: msg };
+          _notifyStore();
+          // Fallback: tetap coba geolocation biasa supaya tracking foreground tidak ikut mati total.
+          if ("geolocation" in navigator && watchIdRef.current == null) {
+            watchIdRef.current = navigator.geolocation.watchPosition(
+              pos => handleNewPosition(pos.coords.latitude, pos.coords.longitude),
+              err2 => { store.tracker = { ...store.tracker, gpsError: _friendlyGeoError(err2) }; _notifyStore(); },
+              { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
+            );
+          }
+        });
+      } else if ("geolocation" in navigator) {
+        watchIdRef.current = navigator.geolocation.watchPosition(
+          pos => handleNewPosition(pos.coords.latitude, pos.coords.longitude),
+          err => { store.tracker = { ...store.tracker, gpsError: _friendlyGeoError(err) }; _notifyStore(); },
+          { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
+        );
+      }
     }
     if (!activePatrol && watchIdRef.current != null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
+      if (BgGeo) BgGeo.removeWatcher({ id: watchIdRef.current });
+      else navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
     return () => {
-      if (watchIdRef.current != null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
+      if (watchIdRef.current != null) {
+        if (BgGeo) BgGeo.removeWatcher({ id: watchIdRef.current });
+        else navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
     };
   }, [activePatrol?.id]);
 
