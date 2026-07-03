@@ -3,21 +3,7 @@
 <head>
 <!-- Polyfill window.Capacitor.registerPlugin — dibutuhkan supaya plugin native (background-geolocation dkk)
      bisa dipanggil dengan benar tanpa proses bundling/build step. Aman dimuat di web biasa juga (no-op). -->
-<script>
-  console.log("[GPSDEBUG] SEBELUM script capacitor.js — window.Capacitor ada?", !!window.Capacitor, "registerPlugin ada?", !!(window.Capacitor && window.Capacitor.registerPlugin));
-</script>
-<script src="https://unpkg.com/@capacitor/core@6.1.2/dist/capacitor.js"
-        onload="console.log('[GPSDEBUG] capacitor.js BERHASIL load. registerPlugin ada?', !!(window.Capacitor && window.Capacitor.registerPlugin))"
-        onerror="console.log('[GPSDEBUG] capacitor.js GAGAL load (network/blocked)')"></script>
-<script>
-  console.log("[GPSDEBUG] SETELAH tag script (sync) — window.Capacitor ada?", !!window.Capacitor, "registerPlugin ada?", !!(window.Capacitor && window.Capacitor.registerPlugin));
-  window.addEventListener("load", () => {
-    console.log("[GPSDEBUG] window 'load' event — registerPlugin ada?", !!(window.Capacitor && window.Capacitor.registerPlugin));
-  });
-  document.addEventListener("deviceready", () => {
-    console.log("[GPSDEBUG] deviceready event — registerPlugin ada?", !!(window.Capacitor && window.Capacitor.registerPlugin));
-  });
-</script>
+<script src="https://unpkg.com/@capacitor/core@6.1.2/dist/capacitor.js"></script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#e4142b" />
@@ -3415,11 +3401,9 @@ function PatrolTracker({ user }) {
     // Penting: HARUS lewat registerPlugin (bukan window.Capacitor.Plugins.X langsung),
     // supaya method addWatcher balikin Promise seperti di dokumentasi resmi plugin ini.
     const BgGeo = isNative && window.Capacitor.registerPlugin && window.Capacitor.registerPlugin("BackgroundGeolocation");
-    console.log("[GPSDEBUG] useEffect jalan. activePatrol:", !!activePatrol, "isNative:", isNative, "BgGeo tersedia:", !!BgGeo, "watchIdRef sudah ada:", watchIdRef.current != null);
 
     if (activePatrol && watchIdRef.current == null) {
       if (BgGeo) {
-        console.log("[GPSDEBUG] Memanggil BgGeo.addWatcher...");
         BgGeo.addWatcher(
           {
             backgroundMessage: "Melacak lokasi patroli…",
@@ -3430,17 +3414,15 @@ function PatrolTracker({ user }) {
           },
           (location, error) => {
             if (error) {
-              console.log("[GPSDEBUG] Callback error:", JSON.stringify(error));
               store.tracker = { ...store.tracker, gpsError: error.message || "Gagal mengambil lokasi GPS" };
               _notifyStore();
               return;
             }
-            if (location) { console.log("[GPSDEBUG] Lokasi diterima:", location.latitude, location.longitude); handleNewPosition(location.latitude, location.longitude); }
+            if (location) handleNewPosition(location.latitude, location.longitude);
           }
-        ).then(id => { console.log("[GPSDEBUG] addWatcher berhasil, watcher id:", id); watchIdRef.current = id; })
-         .catch(err => { console.log("[GPSDEBUG] addWatcher GAGAL (promise rejected):", JSON.stringify(err), err && err.message); });
+        ).then(id => { watchIdRef.current = id; })
+         .catch(err => { console.error("addWatcher GAGAL:", err); });
       } else if ("geolocation" in navigator) {
-        console.log("[GPSDEBUG] Fallback ke navigator.geolocation.watchPosition (BgGeo tidak tersedia)");
         watchIdRef.current = navigator.geolocation.watchPosition(
           pos => handleNewPosition(pos.coords.latitude, pos.coords.longitude),
           err => { store.tracker = { ...store.tracker, gpsError: _friendlyGeoError(err) }; _notifyStore(); },
