@@ -3518,14 +3518,20 @@ function PatrolTracker({ user }) {
     const prevPath = store.tracker.path;
     const nextPath = [...prevPath, point];
 
-    // Simpan ke Firestore hanya jika berpindah cukup jauh dari titik tersimpan terakhir (hemat penulisan)
+    // Simpan ke Firestore jika: (a) berpindah cukup jauh dari titik tersimpan terakhir (hemat penulisan),
+    // ATAU (b) sudah lewat >=20 detik sejak simpan terakhir (fungsi heartbeat).
+    // Poin (b) sengaja ditumpangkan di sini, BUKAN di setInterval terpisah, karena saat layar
+    // terkunci Android menahan antrean setTimeout/setInterval WebView meski foreground service
+    // jalan — sementara callback lokasi native ini (dipicu evaluateJavascript dari sisi native,
+    // bukan lewat antrean timer JS) terbukti tetap jalan teratur walau layar mati.
     const lastSaved = lastSavedRef.current;
     const movedFar = !lastSaved || distanceMeters(lastSaved.lat, lastSaved.lng, lat, lng) >= 15;
-    if (movedFar && activePatrol) {
+    const staleTimeout = !lastSaved || (Date.now() - new Date(lastSaved.t).getTime()) >= 20000;
+    if ((movedFar || staleTimeout) && activePatrol) {
       lastSavedRef.current = point;
       let totalDist = activePatrol.totalDistanceMeters || 0;
       if (prevPath.length > 0) totalDist += distanceMeters(prevPath[prevPath.length - 1].lat, prevPath[prevPath.length - 1].lng, lat, lng);
-      updatePatrolSession(activePatrol.id, { path: nextPath, totalDistanceMeters: totalDist });
+      updatePatrolSession(activePatrol.id, { path: nextPath, totalDistanceMeters: totalDist, lastSeen: point.t });
     }
 
     // Cek kedekatan ke checkpoint yang belum dikunjungi (dilewati untuk sesi Piket Malam tanpa checkpoint)
