@@ -3426,7 +3426,7 @@ function PatrolTracker({ user }) {
             backgroundTitle: "Portal NIT aktif",
             requestPermissions: true,
             stale: false,
-            distanceFilter: 10
+            distanceFilter: 0
           },
           (location, error) => {
             if (error) {
@@ -3475,7 +3475,7 @@ function PatrolTracker({ user }) {
       store.tracker = { ...store.tracker, path: nextPath };
       updatePatrolSession(activePatrol.id, { path: nextPath, lastSeen: point.t });
       _notifyStore();
-    }, 45000);
+    }, 20000);
     return () => clearInterval(hb);
   }, [activePatrol?.id]);
 
