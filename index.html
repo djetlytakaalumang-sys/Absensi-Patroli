@@ -3457,7 +3457,7 @@ function PatrolTracker({ user }) {
       store.tracker = { ...store.tracker, path: nextPath };
       updatePatrolSession(activePatrol.id, { path: nextPath, lastSeen: point.t });
       _notifyStore();
-    }, 7000);
+    }, 15000);
     return () => clearInterval(hb);
   }, [activePatrol?.id]);
 
