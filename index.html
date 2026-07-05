@@ -7,6 +7,11 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#e4142b" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Presensi Piket" />
+<meta name="format-detection" content="telephone=no" />
 <!-- Izin kamera & lokasi untuk WebView Android (WebIntoApp/GoNative) -->
 <meta name="permissions-policy" content="geolocation=*, camera=*" />
 <meta http-equiv="Permissions-Policy" content="geolocation=*, camera=*" />
@@ -65,12 +70,12 @@ html,body,#root{height:100%;}
 body{
   margin:0; font-family:var(--font-body); color:var(--navy-900);
   -webkit-font-smoothing:antialiased; overscroll-behavior-y:none;
+  -webkit-tap-highlight-color:transparent; -webkit-touch-callout:none;
   background:
     radial-gradient(ellipse 900px 500px at 12% -8%, rgba(228,20,43,.08), transparent 60%),
     radial-gradient(ellipse 800px 500px at 100% 10%, rgba(228,20,43,.05), transparent 55%),
     radial-gradient(ellipse 700px 500px at 50% 100%, rgba(228,20,43,.04), transparent 55%),
     var(--page-bg);
-  background-attachment:fixed;
 }
 h1,h2,h3,h4{font-family:var(--font-display); letter-spacing:-0.01em; margin:0;}
 ::selection{background:var(--accent-600); color:#fff;}
@@ -141,14 +146,14 @@ img{max-width:100%; display:block;}
 .badge-piket-malam{background:var(--indigo-soft); color:var(--indigo);}
 .badge-neutral{background:rgba(0,0,0,.05); color:var(--navy-700);}
 
-.input{width:100%; border:1px solid var(--line); background:#ffffff; border-radius:12px; padding:12px 16px; font-size:14px; color:var(--navy-900); transition:.15s;}
+.input{width:100%; border:1px solid var(--line); background:#ffffff; border-radius:12px; padding:12px 16px; font-size:16px; color:var(--navy-900); transition:.15s;}
 .input::placeholder{color:var(--navy-600);}
 .input:focus{border-color:var(--accent-600); outline:none; box-shadow:0 0 0 3px rgba(228,20,43,.15);}
 .label{display:block; font-size:14px; font-weight:500; color:var(--navy-800); margin-bottom:6px;}
 
 .avatar{border-radius:999px; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600; font-family:var(--font-display); flex-shrink:0; object-fit:cover;}
 
-.login-wrap{min-height:100vh; width:100%; background:transparent; display:grid;}
+.login-wrap{min-height:100vh; min-height:100dvh; width:100%; background:transparent; display:grid;}
 @media (min-width:1024px){.login-wrap{grid-template-columns:1fr 1fr;}}
 .login-brand{display:none; flex-direction:column; justify-content:space-between; padding:48px; position:relative; overflow:hidden; color:var(--navy-900); background:transparent;}
 @media (min-width:1024px){.login-brand{display:flex;}}
@@ -162,7 +167,7 @@ img{max-width:100%; display:block;}
 .nav-item:hover{background:var(--accent-50); color:var(--accent-600);}
 .nav-item.active{background:linear-gradient(135deg, var(--accent-700), var(--accent-500)); color:#fff;}
 
-.topbar-mobile{display:flex; align-items:center; justify-content:space-between; padding:6px 16px; background:rgba(255,255,255,.85); color:var(--navy-900); position:sticky; top:0; z-index:30; border-bottom:1px solid var(--line); backdrop-filter:blur(14px);}
+.topbar-mobile{display:flex; align-items:center; justify-content:space-between; padding:calc(6px + env(safe-area-inset-top)) 16px 6px; background:rgba(255,255,255,.85); color:var(--navy-900); position:sticky; top:0; z-index:30; border-bottom:1px solid var(--line); backdrop-filter:blur(14px);}
 @media (min-width:1024px){.topbar-mobile{display:none;}}
 .bottomnav-mobile{display:flex; position:fixed; bottom:0; left:0; right:0; background:rgba(255,255,255,.92); border-top:1px solid var(--line); z-index:30; padding-bottom:env(safe-area-inset-bottom); backdrop-filter:blur(14px);}
 @media (min-width:1024px){.bottomnav-mobile{display:none;}}
@@ -1622,7 +1627,7 @@ function AuthProvider({ children }) {
   const refreshCurrentUser = useCallback(() => { setUser(u => (u ? getUserById(u.id) : u)); }, []);
 
   if (initError) return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#fef2f2", padding: 24 }}>
+    <div style={{ minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", background: "#fef2f2", padding: 24 }}>
       <div style={{ maxWidth: 480, background: "#fff", borderRadius: 16, padding: 32, boxShadow: "0 4px 24px rgba(0,0,0,.08)", textAlign: "center" }}>
         <div style={{ fontSize: 40, marginBottom: 16 }}>🔥</div>
         <h2 style={{ fontWeight: 700, color: "#1e293b", marginBottom: 8 }}>Koneksi Firebase Gagal</h2>
@@ -3457,7 +3462,7 @@ function PatrolTracker({ user }) {
       store.tracker = { ...store.tracker, path: nextPath };
       updatePatrolSession(activePatrol.id, { path: nextPath, lastSeen: point.t });
       _notifyStore();
-    }, 15000);
+    }, 7000);
     return () => clearInterval(hb);
   }, [activePatrol?.id]);
 
@@ -4714,7 +4719,7 @@ function App() {
 
   if (loading) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, background: "var(--slate-mist)" }}>
+      <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, background: "var(--slate-mist)" }}>
         <div className="spinner" />
         <p style={{ fontSize: 13, color: "#94a3b8", fontWeight: 500 }}>Menghubungkan ke server…</p>
       </div>
@@ -4744,7 +4749,7 @@ function App() {
   }
 
   return (
-    <div className="lg-flex" style={{ minHeight: "100vh", background: "var(--slate-mist)" }}>
+    <div className="lg-flex" style={{ minHeight: "100dvh", background: "var(--slate-mist)" }}>
       {!isAdmin && <PatrolTracker user={user} />}
       <Sidebar user={user} navItems={navItems} activeKey={page} onNavigate={setPage} onLogout={logout} />
       <main style={{ flex: 1, paddingBottom: 80 }}>{renderPage()}</main>
