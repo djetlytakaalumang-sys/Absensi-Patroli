@@ -228,6 +228,7 @@ const ROLES = { ADMIN: "admin", EMPLOYEE: "employee" };
 const STATUS = { HADIR: "Hadir", TERLAMBAT: "Terlambat", ALPHA: "Alpha", IZIN: "Izin", PIKET_MALAM: "Piket Malam" };
 const DEFAULT_SETTINGS = {
   checkInDeadline: "08:00",
+  shiftEndTime: "17:00",
   nightShiftStart: "17:01",
   nightShiftEnd: "05:59",
   officeLocations: [],
@@ -264,6 +265,7 @@ const COL = {
   CHECKPOINTS: "checkpoints",
   PATROLS:     "patrols",
   KEJADIAN:    "laporan_kejadian",
+  SCHEDULES:   "schedules",
 };
 
 const store = {
@@ -274,6 +276,7 @@ const store = {
   checkpoints: [],
   patrols:     [],
   kejadian:    [],
+  schedules:   [],
   ready:       false,
   tracker:     { position: null, path: [], gpsError: "" },
 };
@@ -284,7 +287,7 @@ function _notifyStore() { _storeListeners.forEach(fn => fn()); }
 async function initFirestore() {
   if (store.ready) return;
 
-  const [usersSnap, recordsSnap, leavesSnap, settingsSnap, checkpointsSnap, patrolsSnap, kejadianSnap] = await Promise.all([
+  const [usersSnap, recordsSnap, leavesSnap, settingsSnap, checkpointsSnap, patrolsSnap, kejadianSnap, schedulesSnap] = await Promise.all([
     db.collection(COL.USERS).get(),
     db.collection(COL.RECORDS).get(),
     db.collection(COL.LEAVES).orderBy("createdAt", "desc").get(),
@@ -292,6 +295,7 @@ async function initFirestore() {
     db.collection(COL.CHECKPOINTS).get(),
     db.collection(COL.PATROLS).get(),
     db.collection(COL.KEJADIAN).get(),
+    db.collection(COL.SCHEDULES).get(),
   ]);
 
   store.users       = usersSnap.docs.map(d => d.data());
@@ -301,6 +305,7 @@ async function initFirestore() {
   store.checkpoints = checkpointsSnap.docs.map(d => d.data()).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   store.patrols     = patrolsSnap.docs.map(d => d.data());
   store.kejadian    = kejadianSnap.docs.map(d => d.data());
+  store.schedules   = schedulesSnap.docs.map(d => d.data());
   store.ready       = true;
 
   if (store.users.length === 0) {
@@ -336,6 +341,10 @@ async function initFirestore() {
   });
   db.collection(COL.KEJADIAN).onSnapshot(snap => {
     store.kejadian = snap.docs.map(d => d.data());
+    _notifyStore();
+  });
+  db.collection(COL.SCHEDULES).onSnapshot(snap => {
+    store.schedules = snap.docs.map(d => d.data());
     _notifyStore();
   });
 }
@@ -524,6 +533,94 @@ function deleteCheckpoint(id) {
   return true;
 }
 
+/* ======================= JADWAL KERJA (IMPORT EXCEL) =======================
+   Setiap dokumen jadwal berbentuk { id, userId, userName, date: "YYYY-MM-DD", type }
+   type salah satu dari SCHEDULE_TYPE. Dipakai untuk:
+   1) Menentukan apakah karyawan seharusnya presensi pada tanggal tsb (Masuk/Piket Malam) atau libur (Off).
+   2) Menandai siapa yang belum presensi padahal terjadwal Masuk/Piket Malam (lihat getTodayScheduleStatus). */
+const SCHEDULE_TYPE = { MASUK: "Masuk", PIKET_MALAM: "Piket Malam", OFF: "Off" };
+
+function getSchedules() { return store.schedules; }
+function getScheduleFor(userId, dateStr) {
+  return store.schedules.find(s => s.userId === userId && s.date === dateStr) || null;
+}
+function getSchedulesForDate(dateStr) { return store.schedules.filter(s => s.date === dateStr); }
+function getSchedulesForUserMonth(userId, monthKey) {
+  return store.schedules.filter(s => s.userId === userId && s.date.startsWith(monthKey));
+}
+
+// Normalisasi nilai bebas dari Excel ("masuk", "MASUK", "piket malam", "off", "libur", dst.) ke SCHEDULE_TYPE
+function normalizeScheduleType(raw) {
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return null;
+  if (v.includes("piket") || v.includes("malam")) return SCHEDULE_TYPE.PIKET_MALAM;
+  if (v.includes("off") || v.includes("libur")) return SCHEDULE_TYPE.OFF;
+  if (v.includes("masuk") || v.includes("hadir")) return SCHEDULE_TYPE.MASUK;
+  return null;
+}
+
+// Import jadwal massal dari hasil parsing Excel (lihat parseScheduleExcelRows).
+// entries: [{ userId, userName, date, type }]. Menimpa (upsert) jadwal yang sudah ada pada tanggal yang sama.
+async function importSchedules(entries) {
+  const batchSize = 400; // batas aman Firestore batch write
+  let written = 0;
+  for (let i = 0; i < entries.length; i += batchSize) {
+    const chunk = entries.slice(i, i + batchSize);
+    const batch = db.batch();
+    chunk.forEach(entry => {
+      const id = `sch-${entry.userId}-${entry.date}`;
+      const doc = { id, userId: entry.userId, userName: entry.userName, date: entry.date, type: entry.type };
+      batch.set(db.collection(COL.SCHEDULES).doc(id), doc);
+      const idx = store.schedules.findIndex(s => s.id === id);
+      if (idx === -1) store.schedules.push(doc); else store.schedules[idx] = doc;
+    });
+    await batch.commit();
+    written += chunk.length;
+  }
+  store.schedules = [...store.schedules];
+  return written;
+}
+
+// Mengubah baris hasil SheetJS (header: No, Nama Karyawan, Username, 1, 2, ... 31) menjadi entries siap-import.
+// monthKey format "YYYY-MM". Baris dengan username yang tidak cocok dengan karyawan terdaftar akan dikembalikan di `unmatched`.
+function parseScheduleExcelRows(rows, monthKey) {
+  const entries = [];
+  const unmatched = [];
+  const [y, m] = monthKey.split("-").map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  rows.forEach(row => {
+    const username = String(row["Username"] || "").trim();
+    if (!username) return;
+    const user = getUsers().find(u => (u.username || "").toLowerCase() === username.toLowerCase());
+    if (!user) { unmatched.push(username); return; }
+    for (let day = 1; day <= daysInMonth; day++) {
+      const type = normalizeScheduleType(row[String(day)]);
+      if (!type) continue;
+      const dateStr = `${monthKey}-${String(day).padStart(2, "0")}`;
+      entries.push({ userId: user.id, userName: user.name, date: dateStr, type });
+    }
+  });
+  return { entries, unmatched };
+}
+
+// Status jadwal + kehadiran hari ini untuk semua karyawan (dipakai di halaman Jadwal Admin)
+function getTodayScheduleStatus() {
+  const todayStr = todayDateStr();
+  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE);
+  return employees.map(u => {
+    const sch = getScheduleFor(u.id, todayStr);
+    const scheduledType = sch ? sch.type : null;
+    const record = getRecordsByUser(u.id).find(r => r.date === todayStr);
+    const hasCheckedIn = !!(record && record.checkInTime);
+    const requiresPresensi = scheduledType === SCHEDULE_TYPE.MASUK || scheduledType === SCHEDULE_TYPE.PIKET_MALAM;
+    return {
+      userId: u.id, userName: u.name, position: u.position, avatarColor: u.avatarColor,
+      scheduledType, hasCheckedIn,
+      isMissing: requiresPresensi && !hasCheckedIn, // terjadwal masuk/piket malam tapi belum presensi
+    };
+  });
+}
+
 function getPatrols()                  { return store.patrols; }
 function getPatrolsByUser(userId)      { return store.patrols.filter(p => p.userId === userId).sort((a, b) => (a.startTime < b.startTime ? 1 : -1)); }
 function getActivePatrolForUser(userId) { return store.patrols.find(p => p.userId === userId && p.status === PATROL_STATUS.ACTIVE) || null; }
@@ -600,26 +697,105 @@ function updateKejadianStatus(id, status, extra = {}) {
 }
 
 /* ======================= PENILAIAN TIM (SKOR OTOMATIS & LEADERBOARD) ======================= */
-const ATTENDANCE_POINTS = { [STATUS.HADIR]: 100, [STATUS.PIKET_MALAM]: 100, [STATUS.TERLAMBAT]: 70, [STATUS.ALPHA]: 0 };
+const ATTENDANCE_POINTS = { [STATUS.HADIR]: 100, [STATUS.PIKET_MALAM]: 100, [STATUS.ALPHA]: 0 };
 const SCORE_WEIGHT_ATTENDANCE = 0.6;
 const SCORE_WEIGHT_PATROL     = 0.4;
+const EARLY_CHECKOUT_TOLERANCE_MIN = 10; // toleransi pulang lebih awal sebelum dianggap pelanggaran
+const EARLY_CHECKOUT_PENALTY = 15;       // poin yang dipotong jika pulang lebih awal dari jadwal
 
-// Skor kehadiran: rata-rata poin status harian bulan berjalan (Izin dikecualikan, tidak memberatkan skor)
+// Menghitung berapa menit keterlambatan check-in dibanding batas jam masuk (0 jika tidak terlambat)
+function getLateMinutes(record) {
+  if (!record || record.status !== STATUS.TERLAMBAT || !record.checkInTime) return 0;
+  const [dh, dm] = getSettings().checkInDeadline.split(":").map(Number);
+  const [ch, cm] = record.checkInTime.split(":").map(Number);
+  return Math.max(0, (ch * 60 + cm) - (dh * 60 + dm));
+}
+
+// Poin bertingkat berdasarkan menit keterlambatan: makin lama terlambat, makin besar potongan nilai
+function latePointFromMinutes(min) {
+  if (min <= 15) return 90;
+  if (min <= 30) return 80;
+  if (min <= 60) return 65;
+  return 50;
+}
+
+// Deteksi pulang lebih awal dari jadwal shift (Hadir/Terlambat pakai jam pulang normal, Piket Malam pakai jam selesai piket malam)
+function isEarlyCheckout(record) {
+  if (!record || !record.checkOutTime) return false;
+  if (record.status !== STATUS.HADIR && record.status !== STATUS.TERLAMBAT && record.status !== STATUS.PIKET_MALAM) return false;
+  const s = getSettings();
+  const expectedEnd = record.status === STATUS.PIKET_MALAM ? s.nightShiftEnd : s.shiftEndTime;
+  if (!expectedEnd) return false;
+  const [eh, em] = expectedEnd.split(":").map(Number);
+  const [ch, cm] = record.checkOutTime.split(":").map(Number);
+  // Piket malam lintas tengah malam: jam pulang di atas siang berarti masih di hari yang sama (belum lewat tengah malam), bukan "pulang cepat"
+  if (record.status === STATUS.PIKET_MALAM && ch * 60 + cm > 12 * 60) return false;
+  return (eh * 60 + em) - (ch * 60 + cm) > EARLY_CHECKOUT_TOLERANCE_MIN;
+}
+
+// Skor kehadiran harian: mempertimbangkan (1) status dasar, (2) gradasi menit terlambat, (3) potongan pulang lebih awal
 function computeAttendanceScore(userId, monthKey) {
   const user = getUserById(userId);
   if (!user) return null;
   const records = getEffectiveRecordsForUserMonth(userId, user.name, monthKey).filter(r => r.status !== STATUS.IZIN);
   if (records.length === 0) return null;
-  const total = records.reduce((sum, r) => sum + (ATTENDANCE_POINTS[r.status] ?? 0), 0);
+  const total = records.reduce((sum, r) => {
+    let point = r.status === STATUS.TERLAMBAT ? latePointFromMinutes(getLateMinutes(r)) : (ATTENDANCE_POINTS[r.status] ?? 0);
+    if (isEarlyCheckout(r)) point = Math.max(0, point - EARLY_CHECKOUT_PENALTY);
+    return sum + point;
+  }, 0);
   return Math.round(total / records.length);
 }
 
+// Rasio kehadiran bulanan: hari benar-benar hadir (Hadir/Terlambat/Piket Malam) dibanding hari kerja terjadwal (Izin dikecualikan dari penyebut)
+function computeAttendanceRatio(userId, monthKey) {
+  const user = getUserById(userId);
+  if (!user) return null;
+  const scheduled = getEffectiveRecordsForUserMonth(userId, user.name, monthKey).filter(r => r.status !== STATUS.IZIN);
+  if (scheduled.length === 0) return null;
+  const present = scheduled.filter(r => r.status === STATUS.HADIR || r.status === STATUS.TERLAMBAT || r.status === STATUS.PIKET_MALAM).length;
+  return Math.round((present / scheduled.length) * 100);
+}
+
+// Rincian kehadiran per bulan untuk ditampilkan sebagai chart (jumlah per status + rata-rata menit terlambat + jumlah pulang cepat)
+function getAttendanceBreakdown(userId, monthKey) {
+  const user = getUserById(userId);
+  if (!user) return null;
+  const records = getEffectiveRecordsForUserMonth(userId, user.name, monthKey);
+  const lateRecords = records.filter(r => r.status === STATUS.TERLAMBAT);
+  const avgLateMinutes = lateRecords.length
+    ? Math.round(lateRecords.reduce((sum, r) => sum + getLateMinutes(r), 0) / lateRecords.length)
+    : 0;
+  return {
+    hadir: records.filter(r => r.status === STATUS.HADIR).length,
+    terlambat: lateRecords.length,
+    pikMalam: records.filter(r => r.status === STATUS.PIKET_MALAM).length,
+    alpha: records.filter(r => r.status === STATUS.ALPHA).length,
+    izin: records.filter(r => r.status === STATUS.IZIN).length,
+    avgLateMinutes,
+    earlyCheckoutCount: records.filter(isEarlyCheckout).length,
+    ratio: computeAttendanceRatio(userId, monthKey),
+  };
+}
+
 // Skor patroli: rata-rata persentase checkpoint yang dikunjungi dari setiap sesi patroli yang selesai bulan berjalan
+//
+// CATATAN SEMENTARA (hapus/kembalikan ke versi murni setelah tracking GPS latar belakang stabil):
+// Selama heartbeat GPS masih terhenti saat layar HP terkunci, sesi patroli yang SUDAH dijalankan
+// petugas bisa kehilangan sebagian besar data checkpoint bukan karena petugas lalai, tapi karena
+// keterbatasan aplikasi. Supaya petugas tidak dirugikan, setiap sesi yang benar-benar dimulai &
+// diselesaikan (status COMPLETED) diberi nilai dasar (baseline), lalu checkpoint yang berhasil
+// tercatat menambah sisa nilainya. Sesi yang tidak pernah dijalankan sama sekali tetap tidak dihitung.
+const PATROL_SESSION_BASELINE = 0.5; // 0.5 = 50% nilai dasar untuk sesi yang dijalankan, sisanya dari checkpoint
 function computePatrolScore(userId, monthKey) {
   const sessions = getPatrolsByUser(userId).filter(p => p.status === PATROL_STATUS.COMPLETED && p.date.startsWith(monthKey));
   if (sessions.length === 0) return null;
   const totalCp = Math.max(1, getCheckpoints().length);
-  const total = sessions.reduce((sum, p) => sum + Math.min(1, (p.checkpointsVisited || []).length / totalCp), 0);
+  const total = sessions.reduce((sum, p) => {
+    if (p.usesCheckpoints === false) return sum + 1; // Piket Malam tanpa checkpoint = penuh
+    const ratio = Math.min(1, (p.checkpointsVisited || []).length / totalCp);
+    return sum + PATROL_SESSION_BASELINE + ratio * (1 - PATROL_SESSION_BASELINE);
+  }, 0);
   return Math.round((total / sessions.length) * 100);
 }
 
@@ -647,7 +823,8 @@ function getLeaderboard(monthKey) {
     const attendance = computeAttendanceScore(u.id, monthKey);
     const patrol = computePatrolScore(u.id, monthKey);
     const total = computeTeamScore(u.id, monthKey);
-    return { userId: u.id, userName: u.name, avatarColor: u.avatarColor, position: u.position, attendance, patrol, total };
+    const breakdown = getAttendanceBreakdown(u.id, monthKey);
+    return { userId: u.id, userName: u.name, avatarColor: u.avatarColor, position: u.position, attendance, patrol, total, breakdown };
   });
   rows.sort((a, b) => (b.total ?? -1) - (a.total ?? -1));
   let rank = 0, prevScore = null;
@@ -716,8 +893,15 @@ function getEffectiveRecordsForUserMonth(userId, userName, monthKey) {
     if (dateStr >= todayStr) break;
     if (joinDate && dateStr < joinDate) continue;
     if (realDates.has(dateStr)) continue;
-    const dow = new Date(dateStr + "T00:00:00").getDay();
-    if (dow === 0 || dow === 6) continue;
+    const sch = getScheduleFor(userId, dateStr);
+    if (sch) {
+      // Ada jadwal resmi: "Off" tidak pernah dihitung Alpha; "Masuk"/"Piket Malam" tanpa presensi = Alpha.
+      if (sch.type === SCHEDULE_TYPE.OFF) continue;
+    } else {
+      // Belum ada jadwal untuk tanggal ini: pakai aturan lama (Sabtu/Minggu dianggap libur).
+      const dow = new Date(dateStr + "T00:00:00").getDay();
+      if (dow === 0 || dow === 6) continue;
+    }
     synthetic.push({
       id: `synthetic-${userId}-${dateStr}`, userId, userName, date: dateStr,
       status: STATUS.ALPHA, synthetic: true,
@@ -3748,12 +3932,14 @@ function PatrolPage({ user }) {
 }
 
 function EmployeesPage() {
+  useStoreSync();
   const [refreshKey, setRefreshKey] = useState(0);
   const [formTarget, setFormTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
   const employees = useMemo(() => getUsers().filter(u => u.role === ROLES.EMPLOYEE), [refreshKey]);
   const mk = currentMonthKey();
+  const todayStr = todayDateStr();
 
   function refresh() { setRefreshKey(k => k + 1); }
   function handleSaved() { setFormTarget(null); refresh(); }
@@ -3787,11 +3973,15 @@ function EmployeesPage() {
           const hadir = records.filter(r => r.status === "Hadir").length;
           const terlambat = records.filter(r => r.status === "Terlambat").length;
           const pikMalam = records.filter(r => r.status === "Piket Malam").length;
+          const todaySched = getScheduleFor(emp.id, todayStr);
           return (
             <div key={emp.id} className="card flex" style={{ padding: 16, alignItems: "center", gap: 14 }}>
               <Avatar name={emp.name} color={emp.avatarColor} size={48} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontWeight: 600, color: "var(--navy-900)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{emp.name}</p>
+                <div className="flex" style={{ alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <p style={{ fontWeight: 600, color: "var(--navy-900)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{emp.name}</p>
+                  <ScheduleBadge type={todaySched ? todaySched.type : null} />
+                </div>
                 <p style={{ fontSize: 12, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{emp.position} · {emp.department}</p>
                 {emp.phone && (
                   <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -4259,6 +4449,20 @@ function PenilaianPage({ user }) {
   const rows = useMemo(() => getLeaderboard(monthKey), [monthKey, store.records, store.leaves, store.patrols, store.users, store.checkpoints]);
   const myRow = rows.find(r => r.userId === user.id);
   const myGrade = scoreGrade(myRow ? myRow.total : null);
+  const b = myRow && myRow.breakdown;
+
+  const myChartData = useMemo(() => {
+    if (!b) return [];
+    return [
+      { name: "Hadir", value: b.hadir, fill: "#16A34A" },
+      { name: "Terlambat", value: b.terlambat, fill: "#D97706" },
+      { name: "Piket Malam", value: b.pikMalam, fill: "#4338CA" },
+      { name: "Alpha", value: b.alpha, fill: "#DC2626" },
+      { name: "Izin", value: b.izin, fill: "#7c3aed" },
+    ];
+  }, [b]);
+
+  const { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } = Recharts;
 
   return (
     <div className="container-app">
@@ -4287,6 +4491,31 @@ function PenilaianPage({ user }) {
         </div>
       )}
 
+      {b && (
+        <>
+          <div className="grid-3" style={{ marginBottom: 20 }}>
+            <StatCard icon="calendar-check" label="Rasio Kehadiran" value={b.ratio != null ? `${b.ratio}%` : "-"} colorVar="var(--green)" softVar="var(--green-soft)" />
+            <StatCard icon="clock" label="Rata-rata Terlambat" value={`${b.avgLateMinutes} mnt`} colorVar="var(--amber)" softVar="var(--amber-soft)" />
+            <StatCard icon="log-out" label="Pulang Lebih Awal" value={`${b.earlyCheckoutCount}x`} colorVar="var(--red)" softVar="var(--red-soft)" />
+          </div>
+
+          <div className="card" style={{ padding: 20, marginBottom: 20 }}>
+            <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--navy-900)", marginBottom: 16 }}>Distribusi Kehadiran Bulan Ini</h2>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={myChartData}>
+                <CartesianGrid vertical={false} stroke="#E2E6EC" />
+                <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E2E6EC", fontSize: 12 }} />
+                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                  {myChartData.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </>
+      )}
+
       <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--navy-900)", marginBottom: 12 }}>Papan Peringkat Tim</h2>
       <Leaderboard rows={rows} highlightUserId={user.id} />
     </div>
@@ -4299,6 +4528,26 @@ function PenilaianAdminPage() {
   const rows = useMemo(() => getLeaderboard(monthKey), [monthKey, store.records, store.leaves, store.patrols, store.users, store.checkpoints]);
   const scored = rows.filter(r => r.total != null);
   const avgScore = scored.length ? Math.round(scored.reduce((s, r) => s + r.total, 0) / scored.length) : null;
+
+  const teamChartData = useMemo(() => {
+    const agg = { hadir: 0, terlambat: 0, pikMalam: 0, alpha: 0, izin: 0 };
+    rows.forEach(r => {
+      if (!r.breakdown) return;
+      agg.hadir += r.breakdown.hadir; agg.terlambat += r.breakdown.terlambat;
+      agg.pikMalam += r.breakdown.pikMalam; agg.alpha += r.breakdown.alpha; agg.izin += r.breakdown.izin;
+    });
+    return [
+      { name: "Hadir", value: agg.hadir, fill: "#16A34A" },
+      { name: "Terlambat", value: agg.terlambat, fill: "#D97706" },
+      { name: "Piket Malam", value: agg.pikMalam, fill: "#4338CA" },
+      { name: "Alpha", value: agg.alpha, fill: "#DC2626" },
+      { name: "Izin", value: agg.izin, fill: "#7c3aed" },
+    ];
+  }, [rows]);
+
+  const compareData = useMemo(() => rows.map(r => ({ name: r.userName.split(" ")[0], Kehadiran: r.attendance ?? 0, Patroli: r.patrol ?? 0 })), [rows]);
+
+  const { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid, Cell } = Recharts;
 
   return (
     <div className="container-app">
@@ -4316,12 +4565,342 @@ function PenilaianAdminPage() {
         <StatCard icon="trophy" label="Skor Tertinggi" value={rows[0]?.total ?? "-"} colorVar="var(--amber)" softVar="var(--amber-soft)" />
       </div>
 
+      <div className="card" style={{ padding: 20, marginBottom: 20 }}>
+        <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--navy-900)", marginBottom: 16 }}>Distribusi Kehadiran Tim Bulan Ini</h2>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={teamChartData}>
+            <CartesianGrid vertical={false} stroke="#E2E6EC" />
+            <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} allowDecimals={false} />
+            <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E2E6EC", fontSize: 12 }} />
+            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+              {teamChartData.map((d, i) => <Cell key={i} fill={d.fill} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {compareData.length > 0 && (
+        <div className="card" style={{ padding: 20, marginBottom: 20 }}>
+          <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--navy-900)", marginBottom: 16 }}>Skor Kehadiran vs Patroli per Karyawan</h2>
+          <div style={{ overflowX: "auto" }}>
+            <div style={{ minWidth: Math.max(480, compareData.length * 70) }}>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={compareData}>
+                  <CartesianGrid vertical={false} stroke="#E2E6EC" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} domain={[0, 100]} />
+                  <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E2E6EC", fontSize: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="Kehadiran" fill="var(--accent-600)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Patroli" fill="var(--indigo)" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Leaderboard rows={rows} highlightUserId={null} />
     </div>
   );
 }
 
-/* ======================= HALAMAN PENGATURAN (ADMIN) ======================= */
+/* ======================= HALAMAN JADWAL KERJA ======================= */
+const SCHEDULE_BADGE = {
+  [SCHEDULE_TYPE.MASUK]:       { bg: "var(--green-soft)", color: "var(--green)" },
+  [SCHEDULE_TYPE.PIKET_MALAM]: { bg: "var(--indigo-soft)", color: "var(--indigo)" },
+  [SCHEDULE_TYPE.OFF]:         { bg: "var(--slate-mist)", color: "#64748b" },
+};
+function ScheduleBadge({ type }) {
+  if (!type) return <span style={{ fontSize: 11, color: "#c2c8d1" }}>—</span>;
+  const s = SCHEDULE_BADGE[type] || SCHEDULE_BADGE[SCHEDULE_TYPE.OFF];
+  return <span className="badge" style={{ background: s.bg, color: s.color }}>{type}</span>;
+}
+
+// Buat & unduh file .xlsx template import jadwal, formatnya PERSIS yang dibaca parseScheduleExcelRows:
+// header "No", "Nama Karyawan", "Username", lalu kolom tanggal "1".."31" berisi Masuk/Piket Malam/Off.
+// Kalau sudah ada data karyawan, baris diisi otomatis dari daftar karyawan supaya admin tinggal isi jadwalnya.
+function downloadScheduleTemplate() {
+  const DAYS = 31;
+  const dayHeaders = Array.from({ length: DAYS }, (_, i) => String(i + 1));
+  const header = ["No", "Nama Karyawan", "Username", ...dayHeaders];
+
+  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE);
+  const dataRows = (employees.length > 0 ? employees : [{ name: "Nama Karyawan", username: "username" }])
+    .map((u, i) => [i + 1, u.name, u.username, ...dayHeaders.map(() => "")]);
+
+  const wsJadwal = XLSX.utils.aoa_to_sheet([header, ...dataRows]);
+  wsJadwal["!cols"] = [{ wch: 5 }, { wch: 24 }, { wch: 16 }, ...dayHeaders.map(() => ({ wch: 6 }))];
+
+  const petunjuk = [
+    ["Template Import Jadwal Kerja — Presensi Piket"],
+    [""],
+    ["Cara pakai:"],
+    ["1. Buka sheet \"Jadwal\". Kolom Username sudah otomatis diisi dari data karyawan saat ini."],
+    ["2. Kolom \"Username\" harus PERSIS SAMA dengan username karyawan yang terdaftar di sistem."],
+    ["3. Kolom \"No\" dan \"Nama Karyawan\" hanya untuk memudahkan membaca; sistem tidak membacanya"],
+    ["   saat impor (hanya Username yang dipakai untuk mencocokkan karyawan)."],
+    ["4. Kolom 1, 2, 3, ... 31 mewakili tanggal pada bulan yang akan diimpor. Isi tiap sel dengan"],
+    ["   salah satu dari 3 nilai berikut (harus diketik apa adanya):"],
+    ["      - Masuk         -> karyawan wajib presensi shift normal pada tanggal tsb"],
+    ["      - Piket Malam   -> karyawan wajib presensi shift piket malam (tanpa checkpoint patroli)"],
+    ["      - Off           -> karyawan libur pada tanggal tsb (tidak dianggap alpha)"],
+    ["   Kosongkan sel jika belum ada jadwal untuk tanggal tersebut."],
+    ["5. Untuk bulan dengan kurang dari 31 hari (mis. Februari, April), biarkan kolom tanggal yang"],
+    ["   melebihi jumlah hari di bulan itu tetap kosong — sistem otomatis mengabaikannya."],
+    ["6. Simpan file dalam format .xlsx, lalu di halaman ini pilih bulan yang sesuai dan unggah file ini."],
+    ["7. Import bersifat menimpa (upsert): jika karyawan+tanggal yang sama sudah ada jadwalnya,"],
+    ["   jadwal lama akan digantikan dengan nilai baru dari file ini."],
+    [""],
+    ["Catatan:"],
+    ["- Username yang tidak dikenali sistem akan dilewati (ditampilkan sebagai \"tidak cocok\")."],
+    ["- Nama sheet boleh apa saja; sistem mencari sheet bernama \"Jadwal\" (tidak case-sensitive),"],
+    ["  jika tidak ditemukan sistem memakai sheet pertama pada file."],
+  ];
+  const wsPetunjuk = XLSX.utils.aoa_to_sheet(petunjuk);
+  wsPetunjuk["!cols"] = [{ wch: 100 }];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, wsJadwal, "Jadwal");
+  XLSX.utils.book_append_sheet(wb, wsPetunjuk, "Petunjuk");
+  XLSX.writeFile(wb, "Template_Import_Jadwal_Kerja.xlsx");
+}
+
+function JadwalAdminPage() {
+  useStoreSync();
+  const fileRef = useRef(null);
+  const [importMonth, setImportMonth] = useState(currentMonthKey());
+  const [viewMonth, setViewMonth] = useState(currentMonthKey());
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null); // { written, unmatched }
+  const [error, setError] = useState("");
+
+  const employees = useMemo(() => getUsers().filter(u => u.role === ROLES.EMPLOYEE), [store.users]);
+  const todayStatus = useMemo(() => getTodayScheduleStatus(), [store.schedules, store.records, store.users]);
+  const missingToday = todayStatus.filter(s => s.isMissing);
+
+  const [y, m] = viewMonth.split("-").map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const dayList = useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth]);
+
+  async function handleFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setBusy(true); setError(""); setResult(null);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const sheetName = wb.SheetNames.find(n => n.toLowerCase() === "jadwal") || wb.SheetNames[0];
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: "" });
+      const { entries, unmatched } = parseScheduleExcelRows(rows, importMonth);
+      if (entries.length === 0) {
+        setError("Tidak ada baris yang bisa diimpor. Pastikan kolom 'Username' terisi dan sesuai dengan data karyawan.");
+      } else {
+        const written = await importSchedules(entries);
+        setResult({ written, unmatched: [...new Set(unmatched)] });
+        setViewMonth(importMonth);
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Gagal membaca file. Pastikan file berformat .xlsx sesuai template.");
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  return (
+    <div className="container-app">
+      <div style={{ marginBottom: 20 }}>
+        <h1 style={{ fontSize: 20, fontWeight: 700, color: "var(--navy-900)" }}>Jadwal Kerja</h1>
+        <p style={{ color: "#64748b", fontSize: 14, marginTop: 2 }}>Import jadwal bulanan dari Excel & pantau siapa yang belum presensi sesuai jadwal.</p>
+      </div>
+
+      <div className="card" style={{ padding: 20, marginBottom: 20 }}>
+        <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--navy-900)", marginBottom: 12 }}>Import Jadwal dari Excel</h2>
+        <div className="flex" style={{ gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div style={{ minWidth: 160 }}>
+            <label className="label">Berlaku untuk bulan</label>
+            <input type="month" value={importMonth} onChange={e => setImportMonth(e.target.value)} className="input" />
+          </div>
+          <Button variant="outline" size="sm" onClick={downloadScheduleTemplate}>
+            <Icon name="download" size={15} /> Unduh Template
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => fileRef.current && fileRef.current.click()} disabled={busy}>
+            <Icon name="upload" size={15} /> {busy ? "Memproses…" : "Pilih File Excel (.xlsx)"}
+          </Button>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={handleFile} />
+        </div>
+        <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 10 }}>
+          Kolom yang dibaca: <strong>Username</strong> (harus sama dengan username karyawan) dan kolom tanggal <strong>1–31</strong> berisi "Masuk", "Piket Malam", atau "Off".
+        </p>
+        {error && <div style={{ marginTop: 12, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 }}>{error}</div>}
+        {result && (
+          <div style={{ marginTop: 12, background: "var(--green-soft)", color: "var(--green)", fontSize: 13, padding: "10px 14px", borderRadius: 10 }}>
+            Berhasil mengimpor {result.written} entri jadwal untuk bulan{" "}
+            {new Date(importMonth + "-01").toLocaleDateString("id-ID", { month: "long", year: "numeric" })}.
+            {result.unmatched.length > 0 && (
+              <div style={{ marginTop: 6, color: "var(--amber)" }}>
+                Username tidak ditemukan (dilewati): {result.unmatched.join(", ")}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="card" style={{ padding: 20, marginBottom: 20 }}>
+        <div className="flex" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+          <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--navy-900)" }}>Jadwal & Presensi Hari Ini</h2>
+          {missingToday.length > 0 && <span className="badge" style={{ background: "var(--red-soft)", color: "var(--red)" }}>{missingToday.length} belum presensi</span>}
+        </div>
+        {todayStatus.length === 0 ? (
+          <p style={{ color: "#94a3b8", fontSize: 13 }}>Belum ada data karyawan.</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {todayStatus.map(s => (
+              <div key={s.userId} className="flex" style={{ alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 12, background: s.isMissing ? "var(--red-soft)" : "var(--slate-mist)" }}>
+                <Avatar name={s.userName} color={s.avatarColor} size={30} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: "var(--navy-900)" }}>{s.userName}</p>
+                  <p style={{ fontSize: 11, color: "#94a3b8" }}>{s.position}</p>
+                </div>
+                <ScheduleBadge type={s.scheduledType} />
+                {s.scheduledType === SCHEDULE_TYPE.MASUK || s.scheduledType === SCHEDULE_TYPE.PIKET_MALAM ? (
+                  s.hasCheckedIn
+                    ? <span className="badge" style={{ background: "var(--green-soft)", color: "var(--green)" }}><Icon name="check" size={12} /> Presensi</span>
+                    : <span className="badge" style={{ background: "var(--red-soft)", color: "var(--red)" }}><Icon name="x" size={12} /> Belum</span>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="card" style={{ padding: 20 }}>
+        <div className="flex" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+          <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--navy-900)" }}>Grid Jadwal Bulanan</h2>
+          <input type="month" value={viewMonth} onChange={e => setViewMonth(e.target.value)} className="input" style={{ width: "auto" }} />
+        </div>
+        {employees.length === 0 ? (
+          <p style={{ color: "#94a3b8", fontSize: 13 }}>Belum ada data karyawan.</p>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ borderCollapse: "collapse", minWidth: Math.max(600, dayList.length * 34 + 160) }}>
+              <thead>
+                <tr>
+                  <th style={{ position: "sticky", left: 0, background: "#fff", textAlign: "left", padding: "6px 10px", fontSize: 11, color: "#64748b", borderBottom: "1px solid var(--line)" }}>Karyawan</th>
+                  {dayList.map(d => (
+                    <th key={d} style={{ padding: "6px 4px", fontSize: 10, color: "#64748b", borderBottom: "1px solid var(--line)", minWidth: 30 }}>{d}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {employees.map(u => {
+                  const scheds = getSchedulesForUserMonth(u.id, viewMonth);
+                  const byDay = {};
+                  scheds.forEach(s => { byDay[Number(s.date.slice(-2))] = s.type; });
+                  return (
+                    <tr key={u.id}>
+                      <td style={{ position: "sticky", left: 0, background: "#fff", padding: "6px 10px", fontSize: 12, fontWeight: 600, color: "var(--navy-900)", whiteSpace: "nowrap", borderBottom: "1px solid var(--line)" }}>{u.name}</td>
+                      {dayList.map(d => {
+                        const type = byDay[d];
+                        const s = type ? (SCHEDULE_BADGE[type] || SCHEDULE_BADGE[SCHEDULE_TYPE.OFF]) : null;
+                        return (
+                          <td key={d} style={{ textAlign: "center", padding: 2, borderBottom: "1px solid var(--line)" }}>
+                            <div style={{ width: 24, height: 24, margin: "0 auto", borderRadius: 6, background: s ? s.bg : "transparent", color: s ? s.color : "#c2c8d1", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700 }}>
+                              {type ? type[0] : "-"}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 10 }}>
+              <ScheduleBadge type={SCHEDULE_TYPE.MASUK} /> Masuk (M) &nbsp;
+              <ScheduleBadge type={SCHEDULE_TYPE.PIKET_MALAM} /> Piket Malam (P) &nbsp;
+              <ScheduleBadge type={SCHEDULE_TYPE.OFF} /> Off (O)
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const TODAY_SCHEDULE_STYLE = {
+  [SCHEDULE_TYPE.MASUK]:       { bg: "var(--green-soft)",  color: "var(--green)",  icon: "sun",    label: "Jadwal Masuk" },
+  [SCHEDULE_TYPE.PIKET_MALAM]: { bg: "var(--indigo-soft)", color: "var(--indigo)", icon: "moon",   label: "Jadwal Piket Malam" },
+  [SCHEDULE_TYPE.OFF]:         { bg: "var(--slate-mist)",  color: "#64748b",       icon: "coffee", label: "Jadwal Off / Libur" },
+};
+function TodayScheduleCard({ type }) {
+  const s = type ? TODAY_SCHEDULE_STYLE[type] : null;
+  return (
+    <div className="card" style={{ padding: 20, marginBottom: 20, background: s ? s.bg : "var(--slate-mist)" }}>
+      <div className="flex" style={{ alignItems: "center", gap: 14 }}>
+        <div style={{ width: 44, height: 44, borderRadius: 12, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", color: s ? s.color : "#94a3b8", flexShrink: 0 }}>
+          <Icon name={s ? s.icon : "help-circle"} size={22} />
+        </div>
+        <div>
+          <p style={{ fontSize: 12, color: s ? s.color : "#94a3b8", fontWeight: 700, marginBottom: 2 }}>Jadwal hari ini</p>
+          <p style={{ fontSize: 16, fontWeight: 800, color: "var(--navy-900)" }}>
+            {s ? s.label : "Belum ada jadwal resmi"}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function JadwalSayaPage({ user }) {
+  useStoreSync();
+  const [monthKey, setMonthKey] = useState(currentMonthKey());
+  const todayStr = todayDateStr();
+  const todaySchedule = getScheduleFor(user.id, todayStr);
+  const scheds = useMemo(() => getSchedulesForUserMonth(user.id, monthKey), [monthKey, store.schedules, user.id]);
+  const [y, m] = monthKey.split("-").map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const byDay = {};
+  scheds.forEach(s => { byDay[Number(s.date.slice(-2))] = s.type; });
+
+  return (
+    <div className="container-app">
+      <div style={{ marginBottom: 20 }}>
+        <h1 style={{ fontSize: 20, fontWeight: 700, color: "var(--navy-900)" }}>Jadwal Saya</h1>
+        <p style={{ color: "#64748b", fontSize: 14, marginTop: 2 }}>Lihat jadwal kerja Anda sesuai yang ditetapkan admin.</p>
+      </div>
+
+      <TodayScheduleCard type={todaySchedule ? todaySchedule.type : null} />
+
+      <div className="card" style={{ padding: 20 }}>
+        <div className="flex" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+          <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--navy-900)" }}>Jadwal Bulan Ini</h2>
+          <input type="month" value={monthKey} onChange={e => setMonthKey(e.target.value)} className="input" style={{ width: "auto" }} />
+        </div>
+        {scheds.length === 0 ? (
+          <p style={{ color: "#94a3b8", fontSize: 13 }}>Jadwal belum diinput admin untuk bulan ini.</p>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(70px, 1fr))", gap: 8 }}>
+            {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => {
+              const type = byDay[d];
+              const s = type ? (SCHEDULE_BADGE[type] || SCHEDULE_BADGE[SCHEDULE_TYPE.OFF]) : null;
+              const isToday = `${monthKey}-${String(d).padStart(2, "0")}` === todayStr;
+              return (
+                <div key={d} style={{ padding: "8px 6px", borderRadius: 10, textAlign: "center", background: s ? s.bg : "var(--slate-mist)", border: isToday ? "1.5px solid var(--accent-600)" : "none" }}>
+                  <p style={{ fontSize: 11, color: "#64748b", marginBottom: 2 }}>{d}</p>
+                  <p style={{ fontSize: 10, fontWeight: 700, color: s ? s.color : "#c2c8d1" }}>{type || "-"}</p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 const MAX_OFFICE_LOCATIONS = 5;
 
 function SettingsPage() {
@@ -4336,6 +4915,7 @@ function SettingsPage() {
     e.preventDefault();
     const next = updateSettings({
       checkInDeadline: settings.checkInDeadline,
+      shiftEndTime: settings.shiftEndTime,
       nightShiftStart: settings.nightShiftStart,
       nightShiftEnd: settings.nightShiftEnd,
     });
@@ -4414,7 +4994,12 @@ function SettingsPage() {
             <label className="label">Batas jam masuk</label>
             <input className="input" type="time" value={settings.checkInDeadline} onChange={e => setSettingsState(s => ({ ...s, checkInDeadline: e.target.value }))} />
           </div>
+          <div style={{ minWidth: 160 }}>
+            <label className="label">Jam pulang normal</label>
+            <input className="input" type="time" value={settings.shiftEndTime} onChange={e => setSettingsState(s => ({ ...s, shiftEndTime: e.target.value }))} />
+          </div>
         </div>
+        <p style={{ fontSize: 12, color: "#94a3b8", marginTop: -8, marginBottom: 16 }}>"Jam pulang normal" dipakai untuk mendeteksi karyawan yang check-out jauh lebih awal dari jadwal (di luar Piket Malam).</p>
         <p style={{ fontSize: 13, color: "#64748b", marginBottom: 4, fontWeight: 600 }}>Presensi Piket Malam</p>
         <p style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>Presensi yang dilakukan dalam rentang waktu di bawah ini otomatis dikategorikan sebagai "Piket Malam" (berlaku hingga hari berikutnya).</p>
         <div className="flex" style={{ gap: 12, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 16 }}>
@@ -4686,6 +5271,7 @@ function PatrolCheckpointSettings() {
 const EMPLOYEE_NAV = [
   { key: "home", label: "Presensi", icon: "layout-dashboard" },
   { key: "patrol", label: "Patroli", icon: "footprints" },
+  { key: "jadwal", label: "Jadwal", icon: "calendar-days" },
   { key: "penilaian", label: "Penilaian", icon: "trophy" },
   { key: "history", label: "Riwayat", icon: "history" },
   { key: "leave", label: "Izin", icon: "calendar-plus" },
@@ -4710,6 +5296,7 @@ function App() {
   const adminNav = useMemo(() => [
     { key: "home", label: "Dashboard", icon: "clipboard-list" },
     { key: "patrol-map", label: "Peta Live Patroli", icon: "map" },
+    { key: "jadwal", label: "Jadwal Kerja", icon: "calendar-days" },
     { key: "penilaian", label: "Penilaian Tim", icon: "trophy" },
     { key: "employees", label: "Karyawan", icon: "users" },
     { key: "kejadian", label: "Laporan Kejadian", icon: "siren", badge: baruKejadianCount },
@@ -4734,6 +5321,7 @@ function App() {
     if (isAdmin) {
       if (page === "employees") return <EmployeesPage />;
       if (page === "patrol-map") return <AdminPatrolMapPage />;
+      if (page === "jadwal") return <JadwalAdminPage />;
       if (page === "penilaian") return <PenilaianAdminPage />;
       if (page === "kejadian") return <KejadianPage />;
       if (page === "leaves") return <LeaveRequestsPage onChanged={() => setLeaveTick(t => t + 1)} />;
@@ -4741,6 +5329,7 @@ function App() {
       return <AdminDashboard onNavigate={setPage} />;
     }
     if (page === "patrol") return <PatrolPage user={user} />;
+    if (page === "jadwal") return <JadwalSayaPage user={user} />;
     if (page === "penilaian") return <PenilaianPage user={user} />;
     if (page === "history") return <HistoryPage user={user} />;
     if (page === "leave") return <EmployeeLeavePage user={user} />;
