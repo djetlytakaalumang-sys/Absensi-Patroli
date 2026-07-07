@@ -49,19 +49,19 @@
 
 <style>
 :root{
-  /* ===== Tema gelap dashboard, aksen teal/mint (terinspirasi referensi Nickelfox) ===== */
-  --navy-950:#0a0a0a; --navy-900:#f2f0ef; --navy-800:#d8d3d1; --navy-700:#a8a29e;
-  --navy-600:#78716c; --navy-100:#1c1b1a; --navy-50:#232221;
-  --slate-mist:rgba(255,255,255,.04); --line:rgba(255,255,255,.09);
-  --accent-900:#0d3d36; --accent-700:#2dd4bf; --accent-600:#5eead4; --accent-500:#99f6e4;
-  --accent-100:rgba(45,212,191,.22); --accent-50:rgba(45,212,191,.14);
-  --accent-ink:#0b2b26;
-  --green:#34d399; --green-soft:rgba(52,211,153,.14);
-  --amber:#fbbf24; --amber-soft:rgba(251,191,36,.14);
-  --red:#f87171; --red-soft:rgba(248,113,113,.14);
-  --violet:#a78bfa; --violet-soft:rgba(167,139,250,.14);
-  --indigo:#818cf8; --indigo-soft:rgba(129,140,248,.14);
-  --page-bg:#131211;
+  /* ===== Tema terang aksen merah NIT ===== */
+  --navy-950:#f3eef0; --navy-900:#1c1418; --navy-800:#4a3d43; --navy-700:#6b5d63;
+  --navy-600:#948890; --navy-100:#ffffff; --navy-50:#00000008;
+  --slate-mist:#0000000a; --line:#00000014;
+  --accent-900:#7a0d17; --accent-700:#e4142b; --accent-600:#ef2338; --accent-500:#f5495c;
+  --accent-100:#e4142b26; --accent-50:#e4142b12;
+  --accent-ink:#ffffff;
+  --green:#0ea968; --green-soft:#e3f9ef;
+  --amber:#d97706; --amber-soft:#fdf1dd;
+  --red:#e4142b; --red-soft:#fde7e9;
+  --violet:#7c3aed; --violet-soft:#f1e9fe;
+  --indigo:#4f5fd4; --indigo-soft:#eaecfb;
+  --page-bg:#faf7f8;
   --font-display:"Manrope","Inter",sans-serif;
   --font-body:"Inter",sans-serif;
   --font-mono:"JetBrains Mono",monospace;
@@ -78,8 +78,8 @@ h1,h2,h3,h4{font-family:var(--font-display); letter-spacing:-0.01em; margin:0;}
 ::selection{background:var(--accent-600); color:#fff;}
 ::-webkit-scrollbar{width:8px; height:8px;}
 ::-webkit-scrollbar-track{background:transparent;}
-::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14); border-radius:8px;}
-::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.22);}
+::-webkit-scrollbar-thumb{background:#d8ccd0; border-radius:8px;}
+::-webkit-scrollbar-thumb:hover{background:#c2b3b8;}
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible{
   outline:2px solid var(--accent-600); outline-offset:2px;
 }
@@ -119,7 +119,7 @@ img{max-width:100%; display:block;}
 .card{
   background:var(--navy-100);
   border:1px solid var(--line); border-radius:14px;
-  box-shadow:0 1px 2px rgba(0,0,0,.2);
+  box-shadow:0 1px 2px rgba(28,20,24,.05);
 }
 .btn{display:inline-flex; align-items:center; justify-content:center; gap:8px; font-weight:600; border-radius:10px; transition:all .15s; font-size:14px; padding:10px 16px;}
 .btn:active{transform:scale(.98);}
@@ -168,9 +168,9 @@ img{max-width:100%; display:block;}
 .nav-item:hover{background:var(--accent-50); color:var(--accent-600);}
 .nav-item.active{background:var(--accent-700); color:var(--accent-ink); font-weight:700;}
 
-.topbar-mobile{display:flex; align-items:center; justify-content:space-between; padding:calc(6px + env(safe-area-inset-top)) 16px 6px; background:rgba(28,27,26,.85); color:var(--navy-900); position:sticky; top:0; z-index:30; border-bottom:1px solid var(--line); backdrop-filter:blur(14px);}
+.topbar-mobile{display:flex; align-items:center; justify-content:space-between; padding:calc(6px + env(safe-area-inset-top)) 16px 6px; background:rgba(255,255,255,.85); color:var(--navy-900); position:sticky; top:0; z-index:30; border-bottom:1px solid var(--line); backdrop-filter:blur(14px);}
 @media (min-width:1024px){.topbar-mobile{display:none;}}
-.bottomnav-mobile{display:flex; position:fixed; bottom:0; left:0; right:0; background:rgba(28,27,26,.92); border-top:1px solid var(--line); z-index:30; padding-bottom:env(safe-area-inset-bottom); backdrop-filter:blur(14px);}
+.bottomnav-mobile{display:flex; position:fixed; bottom:0; left:0; right:0; background:rgba(255,255,255,.92); border-top:1px solid var(--line); z-index:30; padding-bottom:env(safe-area-inset-bottom); backdrop-filter:blur(14px);}
 @media (min-width:1024px){.bottomnav-mobile{display:none;}}
 .bottomnav-item{flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; padding:10px 0; font-size:11px; font-weight:500; color:var(--navy-600);}
 .bottomnav-item.active{color:var(--accent-600);}
@@ -1643,7 +1643,7 @@ function PatrolMap({ checkpoints, position, path, height = 320 }) {
   useEffect(() => {
     if (!containerRef.current || mapRef.current || !window.L) return;
     const map = window.L.map(containerRef.current, { zoomControl: true, attributionControl: false });
-    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
+    window.L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", { maxZoom: 20, attribution: "©OpenStreetMap, ©CARTO", subdomains: "abcd" }).addTo(map);
     const initial = position || checkpoints.find(c => c.lat != null && c.lng != null) || { lat: -8.6, lng: 115.2 };
     map.setView([initial.lat, initial.lng], 16);
     mapRef.current = map;
@@ -1734,7 +1734,7 @@ function AdminLivePatrolMap({ patrols, checkpoints, height = 420, followUserId }
   useEffect(() => {
     if (!containerRef.current || mapRef.current || !window.L) return;
     const map = window.L.map(containerRef.current, { zoomControl: true, attributionControl: false });
-    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
+    window.L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", { maxZoom: 20, attribution: "©OpenStreetMap, ©CARTO", subdomains: "abcd" }).addTo(map);
     const firstPos = patrols.find(p => p.path?.length)?.path.slice(-1)[0] || checkpoints.find(c => c.lat != null);
     map.setView([firstPos?.lat ?? -8.6, firstPos?.lng ?? 115.2], 15);
     mapRef.current = map;
@@ -2627,17 +2627,17 @@ function HistoryPage({ user }) {
 
       <div className="card" style={{ padding: 20, marginBottom: 24 }}>
         <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--navy-900)", marginBottom: 16 }}>Grafik Kehadiran 6 Bulan Terakhir</h2>
-        <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={chartData}>
-            <CartesianGrid vertical={false} stroke="#E2E6EC" />
-            <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} allowDecimals={false} />
-            <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E2E6EC", fontSize: 12 }} />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Bar dataKey="Hadir" fill="#16A34A" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="Terlambat" fill="#D97706" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="Piket Malam" fill="#4338CA" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="Alpha" fill="#DC2626" radius={[4, 4, 0, 0]} />
+        <ResponsiveContainer width="100%" height={230}>
+          <BarChart data={chartData} barGap={3} barCategoryGap="24%" margin={{ top: 4, right: 4, left: -12, bottom: 0 }}>
+            <CartesianGrid vertical={false} stroke="var(--line)" strokeDasharray="3 3" />
+            <XAxis dataKey="month" tick={{ fontSize: 11, fill: "var(--navy-700)" }} axisLine={{ stroke: "var(--line)" }} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: "var(--navy-700)" }} axisLine={false} tickLine={false} allowDecimals={false} width={28} />
+            <Tooltip cursor={{ fill: "var(--slate-mist)" }} contentStyle={{ borderRadius: 10, border: "1px solid var(--line)", fontSize: 12, boxShadow: "0 8px 24px rgba(28,20,24,.1)" }} />
+            <Legend wrapperStyle={{ fontSize: 12 }} iconType="circle" iconSize={8} />
+            <Bar dataKey="Hadir" fill="var(--green)" radius={[4, 4, 0, 0]} maxBarSize={22} />
+            <Bar dataKey="Terlambat" fill="var(--amber)" radius={[4, 4, 0, 0]} maxBarSize={22} />
+            <Bar dataKey="Piket Malam" fill="var(--indigo)" radius={[4, 4, 0, 0]} maxBarSize={22} />
+            <Bar dataKey="Alpha" fill="var(--red)" radius={[4, 4, 0, 0]} maxBarSize={22} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -3479,6 +3479,13 @@ function AdminDashboard({ onNavigate }) {
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {kejadianFeed.map(k => (
                   <div key={k.id} className="flex" style={{ alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 10, background: "var(--slate-mist)" }}>
+                    {k.photo ? (
+                      <img src={k.photo} alt="Foto kejadian" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", flexShrink: 0, border: "1px solid var(--line)" }} />
+                    ) : (
+                      <div style={{ width: 44, height: 44, borderRadius: 8, background: "var(--navy-50)", border: "1px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <Icon name="image-off" size={16} style={{ color: "var(--navy-700)" }} />
+                      </div>
+                    )}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="flex" style={{ alignItems: "center", gap: 6 }}>
                         <p style={{ fontSize: 13, fontWeight: 600, color: "var(--navy-900)" }}>{k.userName}</p>
@@ -4587,22 +4594,43 @@ function AdminPatrolMapPage() {
               const elapsed = now - new Date(p.startTime).getTime();
               const lastPt = p.path?.[p.path.length - 1];
               const lastAgoSec = lastPt ? Math.floor((now - new Date(lastPt.t).getTime()) / 1000) : null;
+              const visited = p.checkpointsVisited || [];
+              const visitedIds = new Set(visited.map(v => v.checkpointId));
+              const pending = checkpoints.filter(cp => !visitedIds.has(cp.id));
               return (
-                <div key={p.id} className="flex" style={{ alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10, background: "var(--slate-mist)" }}>
-                  <Avatar name={p.userName} color={colorForUserId(p.userId)} size={36} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 13, fontWeight: 600, color: "var(--navy-900)" }}>{p.userName}</p>
-                    <p style={{ fontSize: 12, color: "#94a3b8" }}>
-                      Durasi {formatDurationShort(elapsed)} · {(p.checkpointsVisited || []).length}/{checkpoints.length} checkpoint · ±{Math.round(p.totalDistanceMeters || 0)} m
-                    </p>
+                <div key={p.id} style={{ padding: "10px 12px", borderRadius: 10, background: "var(--slate-mist)" }}>
+                  <div className="flex" style={{ alignItems: "center", gap: 12 }}>
+                    <Avatar name={p.userName} color={colorForUserId(p.userId)} size={36} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: "var(--navy-900)" }}>{p.userName}</p>
+                      <p style={{ fontSize: 12, color: "var(--navy-700)" }}>
+                        Durasi {formatDurationShort(elapsed)} · {visited.length}/{checkpoints.length} checkpoint · ±{Math.round(p.totalDistanceMeters || 0)} m
+                      </p>
+                    </div>
+                    <span style={{
+                      fontSize: 11, fontWeight: 700, flexShrink: 0, padding: "3px 8px", borderRadius: 999,
+                      color: lastAgoSec == null ? "var(--navy-700)" : lastAgoSec < 90 ? "var(--green)" : lastAgoSec < 300 ? "var(--amber)" : "var(--red)",
+                      background: lastAgoSec == null ? "var(--navy-50)" : lastAgoSec < 90 ? "var(--green-soft)" : lastAgoSec < 300 ? "var(--amber-soft)" : "var(--red-soft)",
+                    }}>
+                      {lastAgoSec == null ? "-" : lastAgoSec < 90 ? "● Live" : lastAgoSec < 300 ? `⚠ ${Math.floor(lastAgoSec / 60)}m lalu` : `⛔ Terputus ${Math.floor(lastAgoSec / 60)}m`}
+                    </span>
                   </div>
-                  <span style={{
-                    fontSize: 11, fontWeight: 700, flexShrink: 0, padding: "3px 8px", borderRadius: 999,
-                    color: lastAgoSec == null ? "#94a3b8" : lastAgoSec < 90 ? "var(--green)" : lastAgoSec < 300 ? "var(--amber)" : "var(--red)",
-                    background: lastAgoSec == null ? "rgba(148,163,184,.12)" : lastAgoSec < 90 ? "var(--green-soft)" : lastAgoSec < 300 ? "var(--amber-soft)" : "var(--red-soft)",
-                  }}>
-                    {lastAgoSec == null ? "-" : lastAgoSec < 90 ? "● Live" : lastAgoSec < 300 ? `⚠ ${Math.floor(lastAgoSec / 60)}m lalu` : `⛔ Terputus ${Math.floor(lastAgoSec / 60)}m`}
-                  </span>
+
+                  {checkpoints.length > 0 && (
+                    <div className="flex" style={{ gap: 6, flexWrap: "wrap", marginTop: 10, paddingLeft: 48 }}>
+                      {visited.map(v => (
+                        <span key={v.checkpointId} title={`Dikunjungi ${formatClock(new Date(v.time))}`}
+                          className="badge" style={{ background: "var(--green-soft)", color: "var(--green)" }}>
+                          <Icon name="check" size={11} /> {v.name} · {formatClock(new Date(v.time))}
+                        </span>
+                      ))}
+                      {pending.map(cp => (
+                        <span key={cp.id} className="badge" style={{ background: "var(--navy-50)", color: "var(--navy-700)", border: "1px solid var(--line)" }}>
+                          <Icon name="circle-dashed" size={11} /> {cp.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -4634,7 +4662,7 @@ function AdminPatrolMapPage() {
 }
 
 /* ======================= PENILAIAN TIM (LEADERBOARD) ======================= */
-const RANK_MEDAL = { 1: { bg: "rgba(251,191,36,.16)", color: "#fbbf24", icon: "🥇" }, 2: { bg: "rgba(203,213,225,.16)", color: "#cbd5e1", icon: "🥈" }, 3: { bg: "rgba(251,146,60,.16)", color: "#fb923c", icon: "🥉" } };
+const RANK_MEDAL = { 1: { bg: "#FEF3C7", color: "#B45309", icon: "🥇" }, 2: { bg: "#F1F5F9", color: "#475569", icon: "🥈" }, 3: { bg: "#FFEDD5", color: "#9A3412", icon: "🥉" } };
 
 function ScoreBar({ label, value }) {
   return (
@@ -4752,13 +4780,13 @@ function PenilaianPage({ user }) {
 
           <div className="card" style={{ padding: 20, marginBottom: 20 }}>
             <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--navy-900)", marginBottom: 16 }}>Distribusi Kehadiran Bulan Ini</h2>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={myChartData}>
-                <CartesianGrid vertical={false} stroke="#E2E6EC" />
-                <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} allowDecimals={false} />
-                <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E2E6EC", fontSize: 12 }} />
-                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+            <ResponsiveContainer width="100%" height={210}>
+              <BarChart data={myChartData} barCategoryGap="30%" margin={{ top: 4, right: 4, left: -12, bottom: 0 }}>
+                <CartesianGrid vertical={false} stroke="var(--line)" strokeDasharray="3 3" />
+                <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--navy-700)" }} axisLine={{ stroke: "var(--line)" }} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "var(--navy-700)" }} axisLine={false} tickLine={false} allowDecimals={false} width={28} />
+                <Tooltip cursor={{ fill: "var(--slate-mist)" }} contentStyle={{ borderRadius: 10, border: "1px solid var(--line)", fontSize: 12, boxShadow: "0 8px 24px rgba(28,20,24,.1)" }} />
+                <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={40}>
                   {myChartData.map((d, i) => <Cell key={i} fill={d.fill} />)}
                 </Bar>
               </BarChart>
@@ -4802,28 +4830,32 @@ function PenilaianAdminPage() {
 
   return (
     <div className="container-app">
-      <div className="flex" style={{ alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+      <div className="flex" style={{ alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: "var(--navy-900)" }}>Penilaian Tim</h1>
-          <p style={{ color: "#64748b", fontSize: 14, marginTop: 2 }}>Skor otomatis & papan peringkat seluruh karyawan.</p>
+          <p style={{ color: "var(--navy-700)", fontSize: 14, marginTop: 2 }}>Skor otomatis & papan peringkat seluruh karyawan.</p>
         </div>
         <div className="flex" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <input type="month" value={monthKey} onChange={e => setMonthKey(e.target.value)} className="input" style={{ width: "auto" }} />
           <Button variant="outline" size="sm" onClick={() => exportPenilaianToPDF(rows, monthKey)}><Icon name="file-badge" size={15} /> Cetak PDF</Button>
         </div>
+      </div>
+
+      <div className="grid-2" style={{ marginBottom: 20 }}>
         <StatCard icon="trending-up" label="Rata-rata Skor" value={avgScore ?? "-"} colorVar="var(--green)" softVar="var(--green-soft)" />
         <StatCard icon="trophy" label="Skor Tertinggi" value={rows[0]?.total ?? "-"} colorVar="var(--amber)" softVar="var(--amber-soft)" />
       </div>
 
-      <div className="card" style={{ padding: 20, marginBottom: 20 }}>
+      <div className="grid-2-responsive" style={{ marginBottom: 20 }}>
+      <div className="card" style={{ padding: 20 }}>
         <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--navy-900)", marginBottom: 16 }}>Distribusi Kehadiran Tim Bulan Ini</h2>
-        <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={teamChartData}>
-            <CartesianGrid vertical={false} stroke="#E2E6EC" />
-            <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} allowDecimals={false} />
-            <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E2E6EC", fontSize: 12 }} />
-            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+        <ResponsiveContainer width="100%" height={230}>
+          <BarChart data={teamChartData} barCategoryGap="30%" margin={{ top: 4, right: 4, left: -12, bottom: 0 }}>
+            <CartesianGrid vertical={false} stroke="var(--line)" strokeDasharray="3 3" />
+            <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--navy-700)" }} axisLine={{ stroke: "var(--line)" }} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: "var(--navy-700)" }} axisLine={false} tickLine={false} allowDecimals={false} width={28} />
+            <Tooltip cursor={{ fill: "var(--slate-mist)" }} contentStyle={{ borderRadius: 10, border: "1px solid var(--line)", fontSize: 12, boxShadow: "0 8px 24px rgba(28,20,24,.1)" }} />
+            <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={44}>
               {teamChartData.map((d, i) => <Cell key={i} fill={d.fill} />)}
             </Bar>
           </BarChart>
@@ -4831,25 +4863,26 @@ function PenilaianAdminPage() {
       </div>
 
       {compareData.length > 0 && (
-        <div className="card" style={{ padding: 20, marginBottom: 20 }}>
+        <div className="card" style={{ padding: 20 }}>
           <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--navy-900)", marginBottom: 16 }}>Skor Kehadiran vs Patroli per Karyawan</h2>
           <div style={{ overflowX: "auto" }}>
-            <div style={{ minWidth: Math.max(480, compareData.length * 70) }}>
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={compareData}>
-                  <CartesianGrid vertical={false} stroke="#E2E6EC" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} domain={[0, 100]} />
-                  <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E2E6EC", fontSize: 12 }} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="Kehadiran" fill="var(--accent-600)" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="Patroli" fill="var(--indigo)" radius={[4, 4, 0, 0]} />
+            <div style={{ minWidth: Math.max(320, compareData.length * 56) }}>
+              <ResponsiveContainer width="100%" height={230}>
+                <BarChart data={compareData} barGap={3} barCategoryGap="28%" margin={{ top: 4, right: 4, left: -12, bottom: 0 }}>
+                  <CartesianGrid vertical={false} stroke="var(--line)" strokeDasharray="3 3" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--navy-700)" }} axisLine={{ stroke: "var(--line)" }} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: "var(--navy-700)" }} axisLine={false} tickLine={false} domain={[0, 100]} width={28} />
+                  <Tooltip cursor={{ fill: "var(--slate-mist)" }} contentStyle={{ borderRadius: 10, border: "1px solid var(--line)", fontSize: 12, boxShadow: "0 8px 24px rgba(28,20,24,.1)" }} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} iconType="circle" iconSize={8} />
+                  <Bar dataKey="Kehadiran" fill="var(--accent-600)" radius={[4, 4, 0, 0]} maxBarSize={18} />
+                  <Bar dataKey="Patroli" fill="var(--indigo)" radius={[4, 4, 0, 0]} maxBarSize={18} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
         </div>
       )}
+      </div>
 
       <Leaderboard rows={rows} highlightUserId={null} />
     </div>
