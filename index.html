@@ -2349,13 +2349,41 @@ function LoginPage() {
 }
 
 /* ======================= SIDEBAR / NAVIGASI ======================= */
+// navItems mendukung 2 bentuk: item biasa {key,label,icon,badge} atau grup collapsible
+// {key,label,icon,children:[{key,label,icon,badge}, ...]} — grup dipakai untuk mengelompokkan
+// beberapa halaman terkait supaya daftar menu di sidebar tidak terlalu panjang.
 function Sidebar({ user, navItems, activeKey, onNavigate, onLogout, emergencyCount = 0 }) {
+  const flatItems = useMemo(() => navItems.flatMap(item => item.children ? item.children : [item]), [navItems]);
+
+  const [expandedGroups, setExpandedGroups] = useState(() => {
+    const initial = new Set();
+    navItems.forEach(item => { if (item.children && item.children.some(c => c.key === activeKey)) initial.add(item.key); });
+    return initial;
+  });
+
+  // Auto-expand grup yang memuat halaman aktif (mis. saat navigasi lewat notifikasi/link luar)
+  useEffect(() => {
+    navItems.forEach(item => {
+      if (item.children && item.children.some(c => c.key === activeKey)) {
+        setExpandedGroups(prev => prev.has(item.key) ? prev : new Set(prev).add(item.key));
+      }
+    });
+  }, [activeKey, navItems]);
+
+  function toggleGroup(key) {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
   return (
     <React.Fragment>
       <aside className="sidebar">
         <div className="sidebar-rail">
           <div style={{ marginBottom: 12 }}><LogoMark size={30} /></div>
-          {navItems.map(item => (
+          {flatItems.map(item => (
             <button key={item.key} onClick={() => onNavigate(item.key)} title={item.label}
               className={`sidebar-rail-item ${item.key === activeKey ? "active" : ""}`}>
               <Icon name={item.icon} size={18} />
@@ -2377,16 +2405,50 @@ function Sidebar({ user, navItems, activeKey, onNavigate, onLogout, emergencyCou
           </div>
 
           <nav style={{ flex: 1, padding: "8px 12px", display: "flex", flexDirection: "column", gap: 4 }}>
-            {navItems.map(item => (
-              <button key={item.key} onClick={() => onNavigate(item.key)} className={`nav-item ${item.key === activeKey ? "active" : ""}`} style={{ position: "relative" }}>
-                <Icon name={item.icon} size={18} /> {item.label}
-                {!!item.badge && (
-                  <span style={{ marginLeft: "auto", background: item.key === activeKey ? "rgba(11,43,38,.2)" : "var(--red)", color: item.key === activeKey ? "var(--accent-ink)" : "#fff", fontSize: 11, fontWeight: 700, borderRadius: 999, minWidth: 18, height: 18, padding: "0 5px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    {item.badge}
-                  </span>
-                )}
-              </button>
-            ))}
+            {navItems.map(item => {
+              if (item.children) {
+                const isExpanded = expandedGroups.has(item.key);
+                const childActive = item.children.some(c => c.key === activeKey);
+                const groupBadge = item.children.reduce((sum, c) => sum + (Number(c.badge) || 0), 0);
+                return (
+                  <div key={item.key}>
+                    <button onClick={() => toggleGroup(item.key)} className="nav-item" style={{ position: "relative", color: childActive ? "var(--accent-600)" : undefined }}>
+                      <Icon name={item.icon} size={18} /> {item.label}
+                      {!!groupBadge && !isExpanded && (
+                        <span style={{ marginLeft: "auto", background: "var(--red)", color: "#fff", fontSize: 11, fontWeight: 700, borderRadius: 999, minWidth: 18, height: 18, padding: "0 5px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          {groupBadge}
+                        </span>
+                      )}
+                      <Icon name={isExpanded ? "chevron-up" : "chevron-down"} size={15} style={{ marginLeft: groupBadge && !isExpanded ? 6 : "auto" }} />
+                    </button>
+                    {isExpanded && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4, marginBottom: 4 }}>
+                        {item.children.map(child => (
+                          <button key={child.key} onClick={() => onNavigate(child.key)} className={`nav-item ${child.key === activeKey ? "active" : ""}`} style={{ position: "relative", paddingLeft: 40, fontSize: 13.5 }}>
+                            {child.label}
+                            {!!child.badge && (
+                              <span style={{ marginLeft: "auto", background: child.key === activeKey ? "rgba(11,43,38,.2)" : "var(--red)", color: child.key === activeKey ? "var(--accent-ink)" : "#fff", fontSize: 11, fontWeight: 700, borderRadius: 999, minWidth: 18, height: 18, padding: "0 5px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                {child.badge}
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+              return (
+                <button key={item.key} onClick={() => onNavigate(item.key)} className={`nav-item ${item.key === activeKey ? "active" : ""}`} style={{ position: "relative" }}>
+                  <Icon name={item.icon} size={18} /> {item.label}
+                  {!!item.badge && (
+                    <span style={{ marginLeft: "auto", background: item.key === activeKey ? "rgba(11,43,38,.2)" : "var(--red)", color: item.key === activeKey ? "var(--accent-ink)" : "#fff", fontSize: 11, fontWeight: 700, borderRadius: 999, minWidth: 18, height: 18, padding: "0 5px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {item.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </nav>
 
           <div style={{ padding: "12px", paddingBottom: 16, borderTop: "1px solid var(--line)" }}>
@@ -2425,7 +2487,7 @@ function Sidebar({ user, navItems, activeKey, onNavigate, onLogout, emergencyCou
       </header>
 
       <nav className="bottomnav-mobile">
-        {navItems.map(item => (
+        {flatItems.map(item => (
           <button key={item.key} onClick={() => onNavigate(item.key)} className={`bottomnav-item ${item.key === activeKey ? "active" : ""}`} style={{ position: "relative" }}>
             <Icon name={item.icon} size={20} strokeWidth={item.key === activeKey ? 2.4 : 2} />
             {item.label}
@@ -3784,6 +3846,15 @@ function PatrolTracker({ user }) {
   const lastSavedRef = useRef(null);
   const currentPosRef = useRef(null);
   const wakeLockRef = useRef(null);
+  // Ref selalu berisi sesi patroli TERKINI (di-refresh setiap render). Wajib dipakai di dalam
+  // handleNewPosition (bukan variabel `activePatrol` langsung), karena handleNewPosition dibungkus
+  // watchPosition/BgGeo callback yang hanya didaftarkan SEKALI saat sesi mulai (lihat effect dengan
+  // dependency [activePatrol?.id] di bawah). Kalau pakai `activePatrol` langsung, closure itu akan
+  // membeku dengan checkpointsVisited kosong dari awal sesi selamanya — akibatnya setiap checkpoint
+  // baru yang lewat radius akan MENIMPA (bukan menambah) checkpointsVisited, sehingga checkpoint yang
+  // sudah dilewati sebelumnya hilang / tidak tercatat.
+  const activePatrolRef = useRef(null);
+  activePatrolRef.current = activePatrol;
 
   // Wake Lock: cegah layar mati sendiri (idle timeout) selama sesi patroli aktif.
   // Catatan: ini TIDAK mencegah user mengunci HP secara manual (tombol power), dan
@@ -3910,28 +3981,41 @@ function PatrolTracker({ user }) {
     const prevPath = store.tracker.path;
     const nextPath = [...prevPath, point];
 
+    // PENTING: selalu pakai sesi TERKINI (lookup ulang ke store), jangan pakai variabel
+    // `activePatrol` dari closure — closure ini dibuat sekali saat watcher dipasang dan
+    // tidak pernah diperbarui selama sesi berjalan, sehingga checkpointsVisited-nya beku
+    // (basi). Kalau tetap dipakai, setiap checkpoint baru yang lewat radius akan menimpa
+    // balik checkpointsVisited dengan versi lama itu, sehingga checkpoint yang sudah
+    // tercatat sebelumnya hilang / tidak ter-checkpoint walau sesinya aktif.
+    const currentPatrol = getActivePatrolForUser(user.id);
+    activePatrolRef.current = currentPatrol;
+
     // Simpan ke Firestore hanya jika berpindah cukup jauh dari titik tersimpan terakhir (hemat penulisan)
     const lastSaved = lastSavedRef.current;
     const movedFar = !lastSaved || distanceMeters(lastSaved.lat, lastSaved.lng, lat, lng) >= 8;
-    if (movedFar && activePatrol) {
+    if (movedFar && currentPatrol) {
       lastSavedRef.current = point;
-      let totalDist = activePatrol.totalDistanceMeters || 0;
+      let totalDist = currentPatrol.totalDistanceMeters || 0;
       if (prevPath.length > 0) totalDist += distanceMeters(prevPath[prevPath.length - 1].lat, prevPath[prevPath.length - 1].lng, lat, lng);
-      updatePatrolSession(activePatrol.id, { path: nextPath, totalDistanceMeters: totalDist });
+      updatePatrolSession(currentPatrol.id, { path: nextPath, totalDistanceMeters: totalDist });
     }
 
     // Cek kedekatan ke checkpoint yang belum dikunjungi (dilewati untuk sesi Piket Malam tanpa checkpoint)
-    if (activePatrol && activePatrol.usesCheckpoints !== false) {
+    if (currentPatrol && currentPatrol.usesCheckpoints !== false) {
       const checkpoints = getCheckpoints();
-      const visitedIds = new Set((activePatrol.checkpointsVisited || []).map(v => v.checkpointId));
+      const visitedIds = new Set((currentPatrol.checkpointsVisited || []).map(v => v.checkpointId));
+      const newlyVisited = [];
       checkpoints.forEach(cp => {
         if (cp.lat == null || cp.lng == null || visitedIds.has(cp.id)) return;
         const d = distanceMeters(lat, lng, cp.lat, cp.lng);
         if (d <= (cp.radius || DEFAULT_CHECKPOINT_RADIUS)) {
-          const nextVisited = [...(activePatrol.checkpointsVisited || []), { checkpointId: cp.id, name: cp.name, time: new Date().toISOString(), lat, lng }];
-          updatePatrolSession(activePatrol.id, { checkpointsVisited: nextVisited });
+          newlyVisited.push({ checkpointId: cp.id, name: cp.name, time: new Date().toISOString(), lat, lng });
         }
       });
+      if (newlyVisited.length > 0) {
+        const nextVisited = [...(currentPatrol.checkpointsVisited || []), ...newlyVisited];
+        updatePatrolSession(currentPatrol.id, { checkpointsVisited: nextVisited });
+      }
     }
 
     store.tracker = { position: { lat, lng }, path: nextPath, gpsError: store.tracker.gpsError };
@@ -5698,12 +5782,16 @@ function App() {
 
   const adminNav = useMemo(() => [
     { key: "home", label: "Dashboard", icon: "clipboard-list" },
-    { key: "patrol-map", label: "Peta Live Patroli", icon: "map" },
-    { key: "jadwal", label: "Jadwal Kerja", icon: "calendar-days" },
-    { key: "penilaian", label: "Penilaian Tim", icon: "trophy" },
+    { key: "operasional", label: "Operasional Lapangan", icon: "map", children: [
+      { key: "patrol-map", label: "Peta Live Patroli", icon: "map" },
+      { key: "jadwal", label: "Jadwal Kerja", icon: "calendar-days" },
+      { key: "penilaian", label: "Penilaian Tim", icon: "trophy" },
+    ]},
     { key: "employees", label: "Karyawan", icon: "users" },
-    { key: "kejadian", label: "Laporan Kejadian", icon: "siren", badge: baruKejadianCount },
-    { key: "leaves", label: "Pengajuan Izin", icon: "calendar-clock", badge: pendingLeaveCount },
+    { key: "pengajuan", label: "Pengajuan", icon: "inbox", children: [
+      { key: "kejadian", label: "Laporan Kejadian", icon: "siren", badge: baruKejadianCount },
+      { key: "leaves", label: "Pengajuan Izin", icon: "calendar-clock", badge: pendingLeaveCount },
+    ]},
     { key: "settings", label: "Pengaturan", icon: "settings" },
   ], [pendingLeaveCount, baruKejadianCount]);
 
