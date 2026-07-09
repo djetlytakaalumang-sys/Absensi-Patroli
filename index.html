@@ -326,6 +326,9 @@ async function initFirestore() {
     store.users = [...SEED_USERS];
   }
 
+  autoCloseStaleAttendance();
+  autoCloseStalePatrols();
+
   db.collection(COL.RECORDS).onSnapshot(snap => {
     store.records = snap.docs.map(d => d.data());
     _notifyStore();
@@ -448,6 +451,21 @@ function saveCheckOut(recordId, data) {
   store.records = store.records.map(r => r.id === recordId ? updated : r);
   db.collection(COL.RECORDS).doc(recordId).update(data).catch(console.error);
   return updated;
+}
+// Presensi (Absen Masuk) yang tanggalnya BUKAN hari ini tapi belum ada checkOutTime berarti
+// petugas lupa Absen Pulang di hari itu. Begitu tanggal sudah berganti lewat jam 00.00, sistem
+// otomatis mengisikan absen pulang (jam 23.59.59 di tanggal record tsb) supaya datanya tidak
+// menggantung selamanya dan tidak mengganggu rekap/laporan bulanan. Ditandai autoCheckOut: true
+// supaya bisa dibedakan dari absen pulang manual di riwayat/laporan.
+function autoCloseStaleAttendance() {
+  const todayStr = todayDateStr();
+  const stale = store.records.filter(r => r.date !== todayStr && r.checkInTime && !r.checkOutTime);
+  stale.forEach(r => saveCheckOut(r.id, {
+    checkOutTime: "23:59:59",
+    checkOutNote: "Absen pulang otomatis oleh sistem (lupa Absen Pulang).",
+    autoCheckOut: true,
+  }));
+  return stale.length;
 }
 function updateSettings(partial) {
   const next = { ...getSettings(), ...partial };
@@ -666,6 +684,22 @@ function updatePatrolSession(id, data) {
 }
 function endPatrolSession(id, data) {
   return updatePatrolSession(id, { ...data, status: PATROL_STATUS.COMPLETED, endTime: new Date().toISOString() });
+}
+
+// Sesi patroli yang tanggalnya BUKAN hari ini tapi statusnya masih ACTIVE berarti petugas lupa
+// Absen Pulang (atau app force-closed/HP mati) sehingga endPatrolSession() tidak sempat terpanggil.
+// Tanpa pembersihan ini, sesi tsb akan terus dianggap "sedang berlangsung" lintas hari:
+// - Durasi di dashboard admin membengkak jadi puluhan jam.
+// - Checkpoint yang tampil adalah checkpoint hari sebelumnya (belum ke-reset).
+// - totalDistanceMeters terus terakumulasi dari noise GPS karena sesi tidak pernah berhenti.
+// Dipanggil sekali setiap kali aplikasi (siapa pun: admin/karyawan) selesai memuat data dari Firestore.
+function autoCloseStalePatrols() {
+  const todayStr = todayDateStr();
+  const stale = store.patrols.filter(p => p.status === PATROL_STATUS.ACTIVE && p.date !== todayStr);
+  stale.forEach(p => endPatrolSession(p.id, {
+    autoClosedReason: "Sesi tidak diakhiri (lupa Absen Pulang) — ditutup otomatis oleh sistem.",
+  }));
+  return stale.length;
 }
 
 /* ======================= LAPOR KEJADIAN ======================= */
@@ -1850,6 +1884,22 @@ function AuthProvider({ children }) {
     _storeListeners.add(fn);
     return () => _storeListeners.delete(fn);
   }, [user?.id]);
+
+  // Kalau aplikasi dibiarkan terbuka (mis. dashboard admin di PC) sampai lewat tengah malam,
+  // pengecekan sekali saat load saja tidak cukup. Cek setiap menit apakah tanggal sudah berganti
+  // sejak terakhir kali dicek — kalau iya, jalankan lagi auto absen-pulang & auto tutup patroli.
+  useEffect(() => {
+    let lastDateStr = todayDateStr();
+    const t = setInterval(() => {
+      const nowDateStr = todayDateStr();
+      if (nowDateStr !== lastDateStr) {
+        lastDateStr = nowDateStr;
+        autoCloseStaleAttendance();
+        autoCloseStalePatrols();
+      }
+    }, 60000);
+    return () => clearInterval(t);
+  }, []);
 
   const login = useCallback((username, password) => {
     const found = findUserByCredentials(username, password);
@@ -3433,7 +3483,7 @@ function AdminDashboard({ onNavigate }) {
   const hadirYesterday = yesterdayRecords.filter(r => r.status === STATUS.HADIR || r.status === STATUS.TERLAMBAT || r.status === STATUS.PIKET_MALAM).length;
   const pikMalamYesterday = yesterdayRecords.filter(r => r.status === STATUS.PIKET_MALAM).length;
 
-  const activePatrols = useMemo(() => getPatrols().filter(p => p.status === PATROL_STATUS.ACTIVE), [store.patrols]);
+  const activePatrols = useMemo(() => getPatrols().filter(p => p.status === PATROL_STATUS.ACTIVE && p.date === today), [store.patrols, today]);
   const checkpoints = useMemo(() => getCheckpoints(), [store.checkpoints]);
   const monthlyTrend = useMemo(() => buildMonthlyAttendanceTrend(getRecords(), users.length, 6), [users.length, store.records]);
 
@@ -4601,8 +4651,11 @@ function AdminPatrolMapPage() {
 
   const checkpoints = useMemo(() => getCheckpoints(), [store.checkpoints]);
   const allPatrols = useMemo(() => getPatrols(), [store.patrols]);
-  const activePatrols = allPatrols.filter(p => p.status === PATROL_STATUS.ACTIVE && getUserById(p.userId));
   const todayStr = todayDateStr();
+  // Jaga-jaga: sesi ACTIVE dari tanggal selain hari ini seharusnya sudah ditutup otomatis oleh
+  // autoCloseStalePatrols(), tapi difilter juga di sini supaya sesi "nyangkut" tidak pernah tampil
+  // sebagai sedang berlangsung walau proses auto-close itu belum sempat jalan.
+  const activePatrols = allPatrols.filter(p => p.status === PATROL_STATUS.ACTIVE && p.date === todayStr && getUserById(p.userId));
   const completedToday = allPatrols
     .filter(p => p.status === PATROL_STATUS.COMPLETED && p.date === todayStr && getUserById(p.userId))
     .sort((a, b) => (a.endTime < b.endTime ? 1 : -1));
@@ -5366,21 +5419,6 @@ function SettingsPage() {
         <p style={{ color: "var(--navy-700)", fontSize: 14, marginTop: 2 }}>Atur jam kerja dan validasi lokasi kantor untuk presensi.</p>
       </div>
 
-      <div className="card" style={{ padding: 16, marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div className="flex" style={{ gap: 10, alignItems: "center" }}>
-          <div style={{ width: 34, height: 34, borderRadius: 9, background: "var(--red-soft)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Icon name="siren" size={16} style={{ color: "var(--red)" }} />
-          </div>
-          <div>
-            <p style={{ fontWeight: 700, fontSize: 13, color: "var(--navy-900)" }}>Uji Coba Notifikasi Darurat</p>
-            <p style={{ fontSize: 12, color: "var(--navy-700)" }}>Coba tampilan banner & suara alarm tanpa perlu membuat laporan kejadian asli.</p>
-          </div>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => window.dispatchEvent(new CustomEvent("nit-test-emergency-alert"))}>
-          <Icon name="play" size={14} /> Uji Alarm
-        </Button>
-      </div>
-
       {toast && <div style={{ marginBottom: 16, background: "var(--green-soft)", color: "var(--green)", fontSize: 13, fontWeight: 600, padding: "10px 14px", borderRadius: 10 }}>{toast}</div>}
       {error && <div style={{ marginBottom: 16, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 }}>{error}</div>}
 
@@ -5724,18 +5762,6 @@ function useEmergencyAlerts(enabled) {
       if (navigator.vibrate) navigator.vibrate([250, 100, 250]);
     }
   }, [enabled, store.kejadian]);
-
-  useEffect(() => {
-    if (!enabled) return;
-    function handleTest() {
-      const fake = { id: "test-" + Date.now(), userName: "Uji Coba", note: "Ini contoh tampilan notifikasi darurat.", darurat: true };
-      setAlerts(prev => [...prev, fake].slice(-3));
-      playAlertBeep();
-      if (navigator.vibrate) navigator.vibrate([250, 100, 250]);
-    }
-    window.addEventListener("nit-test-emergency-alert", handleTest);
-    return () => window.removeEventListener("nit-test-emergency-alert", handleTest);
-  }, [enabled]);
 
   function dismiss(id) { setAlerts(prev => prev.filter(a => a.id !== id)); }
   return { alerts, dismiss };
