@@ -607,6 +607,17 @@ async function importSchedules(entries) {
     written += chunk.length;
   }
   store.schedules = [...store.schedules];
+  // Kalau tanggal yang jadwalnya baru diimpor/diubah ternyata sudah punya presensi tersimpan (sudah absen
+  // masuk sebelum jadwalnya dikoreksi), status Hadir/Terlambat/Piket Malam pada record itu perlu dihitung
+  // ulang mengikuti jadwal yang baru — kalau tidak, catatan lama akan tetap terbaca "Terlambat" walau
+  // jadwalnya sudah diperbaiki jadi Piket Malam/Masuk.
+  entries.forEach(entry => {
+    const rec = store.records.find(r => r.userId === entry.userId && r.date === entry.date);
+    if (rec && rec.checkInTime) {
+      const newStatus = computeStatus(rec.checkInTime, entry.type);
+      if (newStatus !== rec.status) saveCheckOut(rec.id, { status: newStatus });
+    }
+  });
   return written;
 }
 
@@ -918,8 +929,15 @@ function isNightShift(t) {
   // lalu lanjut 00:00:00 s/d end pada hari berikutnya.
   return t >= start || t <= end;
 }
-function computeStatus(t) {
+// scheduledType (opsional) = tipe Jadwal (SCHEDULE_TYPE) untuk karyawan & tanggal tsb.
+// Kalau Jadwal bilang hari itu Piket Malam, statusnya HARUS Piket Malam — bukan dihitung Terlambat
+// hanya karena jam absennya di luar jendela waktu piket malam otomatis. Kalau Jadwal bilang Masuk,
+// baru dibandingkan ke jam potong (checkInDeadline). Kalau tidak ada Jadwal untuk hari itu sama sekali,
+// baru dipakai deteksi otomatis dari jam absen seperti sebelumnya (fallback).
+function computeStatus(t, scheduledType) {
   if (!t) return STATUS.ALPHA;
+  if (scheduledType === SCHEDULE_TYPE.PIKET_MALAM) return STATUS.PIKET_MALAM;
+  if (scheduledType === SCHEDULE_TYPE.MASUK) return isLate(t) ? STATUS.TERLAMBAT : STATUS.HADIR;
   if (isNightShift(t)) return STATUS.PIKET_MALAM;
   return isLate(t) ? STATUS.TERLAMBAT : STATUS.HADIR;
 }
@@ -2173,7 +2191,8 @@ function AttendanceCard({ user, onUpdated }) {
     const timeStr = nowTimeStr(nowDate);
     try {
       if (mode === "in") {
-        const status = computeStatus(timeStr);
+        const scheduledType = getScheduleFor(user.id, dateStr)?.type;
+        const status = computeStatus(timeStr, scheduledType);
         saveCheckIn({
           id: `att-${user.id}-${dateStr}`, userId: user.id, userName: user.name, date: dateStr,
           checkInTime: timeStr, checkInPhoto: photoDataUrl, checkInLat: locationData.lat, checkInLng: locationData.lng,
