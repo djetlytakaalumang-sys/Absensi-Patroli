@@ -2136,6 +2136,44 @@ function Button({
     ...props
   }, children);
 }
+// Peta kecil khusus checkpoint (pakai Leaflet, bukan iframe seperti MiniMap) supaya lingkaran
+// radius-nya bisa ditampilkan langsung — admin bisa lihat area cakupan sambil mengatur radius.
+function CheckpointMiniMap({ lat, lng, radius, height = 150 }) {
+  const containerRef = useRef(null);
+  const mapRef = useRef(null);
+  const markerRef = useRef(null);
+  const circleRef = useRef(null);
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current || !window.L) return;
+    const map = window.L.map(containerRef.current, { zoomControl: false, attributionControl: false, dragging: true, scrollWheelZoom: false });
+    window.L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+      maxZoom: 20, attribution: "©OpenStreetMap, ©CARTO", subdomains: "abcd",
+    }).addTo(map);
+    mapRef.current = map;
+    return () => { map.remove(); mapRef.current = null; };
+  }, []);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !window.L) return;
+    if (lat == null || lng == null) return;
+    const r = radius || DEFAULT_CHECKPOINT_RADIUS;
+    if (!markerRef.current) {
+      markerRef.current = window.L.marker([lat, lng]).addTo(map);
+      circleRef.current = window.L.circle([lat, lng], { radius: r, color: "#e4142b", weight: 1.5, fillColor: "#e4142b", fillOpacity: .1, dashArray: "4 4" }).addTo(map);
+      map.fitBounds(circleRef.current.getBounds(), { padding: [16, 16] });
+    } else {
+      markerRef.current.setLatLng([lat, lng]);
+      circleRef.current.setLatLng([lat, lng]);
+      circleRef.current.setRadius(r);
+      map.fitBounds(circleRef.current.getBounds(), { padding: [16, 16] });
+    }
+  }, [lat, lng, radius]);
+  if (lat == null || lng == null) {
+    return React.createElement("div", { style: { height, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--navy-700)", fontSize: 12, background: "var(--slate-mist)", borderRadius: 12 } }, "Lokasi tidak tersedia");
+  }
+  return React.createElement("div", { ref: containerRef, style: { height, borderRadius: 12, overflow: "hidden", border: "1px solid var(--line)", position: "relative", isolation: "isolate" } });
+}
+
 function MiniMap({
   lat,
   lng,
@@ -2232,6 +2270,7 @@ function PatrolMap({
   const liveMarkerRef = useRef(null);
   const pathLineRef = useRef(null);
   const cpMarkersRef = useRef({});
+  const cpCirclesRef = useRef({});
 
   // Inisialisasi peta sekali saja
   useEffect(() => {
@@ -2257,7 +2296,8 @@ function PatrolMap({
     };
   }, []);
 
-  // Marker checkpoint (dibuat / diperbarui saat daftar berubah)
+  // Marker checkpoint (dibuat / diperbarui saat daftar berubah) + lingkaran radius, supaya
+  // petugas bisa lihat langsung seberapa dekat harus mendekat sebelum checkpoint terbaca.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !window.L) return;
@@ -2266,6 +2306,7 @@ function PatrolMap({
       if (cp.lat == null || cp.lng == null) return;
       seen.add(cp.id);
       const visited = cp.__visited;
+      const radius = cp.radius || DEFAULT_CHECKPOINT_RADIUS;
       const color = visited ? "#16A34A" : "#D97706";
       const icon = window.L.divIcon({
         className: "",
@@ -2279,13 +2320,31 @@ function PatrolMap({
       } else {
         cpMarkersRef.current[cp.id] = window.L.marker([cp.lat, cp.lng], {
           icon
-        }).addTo(map).bindTooltip(cp.name);
+        }).addTo(map).bindTooltip(`${cp.name} · radius ${radius} m`);
+      }
+      if (cpCirclesRef.current[cp.id]) {
+        cpCirclesRef.current[cp.id].setLatLng([cp.lat, cp.lng]);
+        cpCirclesRef.current[cp.id].setRadius(radius);
+        cpCirclesRef.current[cp.id].setStyle({ color, fillColor: color });
+      } else {
+        cpCirclesRef.current[cp.id] = window.L.circle([cp.lat, cp.lng], {
+          radius,
+          color,
+          weight: 1.5,
+          fillColor: color,
+          fillOpacity: .1,
+          dashArray: "4 4"
+        }).addTo(map);
       }
     });
     Object.keys(cpMarkersRef.current).forEach(id => {
       if (!seen.has(id)) {
         map.removeLayer(cpMarkersRef.current[id]);
         delete cpMarkersRef.current[id];
+        if (cpCirclesRef.current[id]) {
+          map.removeLayer(cpCirclesRef.current[id]);
+          delete cpCirclesRef.current[id];
+        }
       }
     });
   }, [checkpoints]);
@@ -2387,7 +2446,7 @@ function AdminLivePatrolMap({
     };
   }, []);
 
-  // Checkpoint statis (netral)
+  // Checkpoint statis (netral) + lingkaran radius, supaya admin bisa lihat area cakupan tiap checkpoint
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !window.L) return;
@@ -2395,21 +2454,40 @@ function AdminLivePatrolMap({
     checkpoints.forEach(cp => {
       if (cp.lat == null || cp.lng == null) return;
       seen.add(cp.id);
+      const radius = cp.radius || DEFAULT_CHECKPOINT_RADIUS;
       const icon = window.L.divIcon({
         className: "",
         html: `<div style="width:20px;height:20px;border-radius:6px;background:#fff;border:2px solid #94a3b8;box-shadow:0 1px 3px rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center;font-size:10px;">📍</div>`,
         iconSize: [20, 20],
         iconAnchor: [10, 10]
       });
-      if (cpMarkersRef.current[cp.id]) cpMarkersRef.current[cp.id].setLatLng([cp.lat, cp.lng]);else cpMarkersRef.current[cp.id] = window.L.marker([cp.lat, cp.lng], {
+      if (cpMarkersRef.current[cp.id]) cpMarkersRef.current[cp.id].setLatLng([cp.lat, cp.lng]);
+      else cpMarkersRef.current[cp.id] = window.L.marker([cp.lat, cp.lng], {
         icon,
         zIndexOffset: -100
-      }).addTo(map).bindTooltip(cp.name);
+      }).addTo(map).bindTooltip(`${cp.name} · radius ${radius} m`);
+      if (cpCirclesRef.current[cp.id]) {
+        cpCirclesRef.current[cp.id].setLatLng([cp.lat, cp.lng]);
+        cpCirclesRef.current[cp.id].setRadius(radius);
+      } else {
+        cpCirclesRef.current[cp.id] = window.L.circle([cp.lat, cp.lng], {
+          radius,
+          color: "#e4142b",
+          weight: 1.5,
+          fillColor: "#e4142b",
+          fillOpacity: .08,
+          dashArray: "4 4"
+        }).addTo(map);
+      }
     });
     Object.keys(cpMarkersRef.current).forEach(id => {
       if (!seen.has(id)) {
         map.removeLayer(cpMarkersRef.current[id]);
         delete cpMarkersRef.current[id];
+        if (cpCirclesRef.current[id]) {
+          map.removeLayer(cpCirclesRef.current[id]);
+          delete cpCirclesRef.current[id];
+        }
       }
     });
   }, [checkpoints]);
@@ -11250,9 +11328,10 @@ function PatrolCheckpointSettings() {
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "trash-2",
     size: 16
-  }))), /*#__PURE__*/React.createElement(MiniMap, {
+  }))), /*#__PURE__*/React.createElement(CheckpointMiniMap, {
     lat: cp.lat,
     lng: cp.lng,
+    radius: cp.radius || DEFAULT_CHECKPOINT_RADIUS,
     height: 150
   }), /*#__PURE__*/React.createElement("div", {
     className: "flex",
