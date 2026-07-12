@@ -47,10 +47,10 @@
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 
-<!-- Grafik — juga defer, cuma dipakai di halaman statistik -->
-<script defer src="https://unpkg.com/react-is@18/umd/react-is.production.min.js"></script>
-<script defer src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
-<script defer src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<!-- Grafik (dipakai di halaman Penilaian) -->
+<script src="https://unpkg.com/react-is@18/umd/react-is.production.min.js"></script>
+<script src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
+<script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
 
 <style>
 :root{
@@ -211,9 +211,9 @@ tbody tr:hover{background:rgba(0,0,0,.025);}
 @media (min-width:640px){.grid-cards{grid-template-columns:1fr 1fr;}}
 @media (min-width:1024px){.grid-cards{grid-template-columns:repeat(3,1fr);}}
 @media (min-width:1400px){.grid-cards{grid-template-columns:repeat(4,1fr);}}
-.grid-3-responsive{display:grid; grid-template-columns:1fr; gap:16px;}
-@media (min-width:768px){.grid-3-responsive{grid-template-columns:1fr 1fr;}}
-@media (min-width:1280px){.grid-3-responsive{grid-template-columns:1.3fr 1fr;}}
+.grid-3-responsive{display:grid; grid-template-columns:minmax(0,1fr); gap:16px;}
+@media (min-width:768px){.grid-3-responsive{grid-template-columns:minmax(0,1fr) minmax(0,1fr);}}
+@media (min-width:1280px){.grid-3-responsive{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);}}
 .grid-4{display:grid; grid-template-columns:repeat(2,1fr); gap:12px;}
 @media (min-width:1024px){.grid-4{grid-template-columns:repeat(4,1fr);}}
 .grid-5{display:grid; grid-template-columns:repeat(2,1fr); gap:12px;}
@@ -715,6 +715,16 @@ function getSchedulesForDate(dateStr) {
 }
 function getSchedulesForUserMonth(userId, monthKey) {
   return store.schedules.filter(s => s.userId === userId && s.date.startsWith(monthKey));
+}
+// Menentukan apakah tanggal tsb adalah hari libur untuk karyawan ybs — dipakai supaya rekap
+// (baik preview maupun PDF) tidak menandai Alpha pada hari yang jadwalnya "Off".
+// Logikanya SAMA dengan getEffectiveRecordsForUserMonth: kalau ada Jadwal resmi "Off", libur.
+// Kalau belum ada Jadwal sama sekali untuk tanggal itu, fallback ke aturan lama (Sabtu/Minggu libur).
+function isOffDay(userId, dateStr) {
+  const sch = getScheduleFor(userId, dateStr);
+  if (sch) return sch.type === SCHEDULE_TYPE.OFF;
+  const dow = new Date(dateStr + "T00:00:00").getDay();
+  return dow === 0 || dow === 6;
 }
 
 // Normalisasi nilai bebas dari Excel ("masuk", "MASUK", "piket malam", "off", "libur", dst.) ke SCHEDULE_TYPE
@@ -1726,11 +1736,13 @@ function exportRekapPDF(user, monthKey, records) {
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     const rec = recordMap[dateStr];
+    let status = rec ? rec.status : STATUS.ALPHA;
+    if (!rec && isOffDay(user.id, dateStr)) status = SCHEDULE_TYPE.OFF;
     allRows.push({
       date: dateStr,
       checkInTime: rec ? rec.checkInTime : null,
       checkOutTime: rec ? rec.checkOutTime : null,
-      status: rec ? rec.status : STATUS.ALPHA
+      status
     });
   }
 
@@ -1942,6 +1954,9 @@ function exportRekapPDF(user, monthKey, records) {
       } else if (status === "Izin") {
         bg = [237, 233, 254];
         fg = [124, 58, 237];
+      } else if (status === "Off") {
+        bg = [241, 245, 249];
+        fg = [100, 116, 139];
       }
       const x = data.cell.x + 2;
       const y = data.cell.y + 2;
@@ -4728,7 +4743,7 @@ function HistoryPage({
     margin: {
       top: 4,
       right: 4,
-      left: -12,
+      left: 0,
       bottom: 0
     }
   }, /*#__PURE__*/React.createElement(CartesianGrid, {
@@ -5612,9 +5627,9 @@ function RekapPDFModal({
     return getEffectiveRecordsForUserMonth(selectedUser.id, selectedUser.name, selectedMonth).sort((a, b) => a.date > b.date ? 1 : -1);
   }, [selectedUser, selectedMonth]);
 
-  // Semua hari dalam bulan (termasuk hari tanpa record → Alpha)
+  // Semua hari dalam bulan (termasuk hari tanpa record → Alpha, KECUALI hari libur/Off → "Off")
   const allRows = useMemo(() => {
-    if (!selectedMonth) return [];
+    if (!selectedMonth || !selectedUser) return [];
     const [yr, mo] = selectedMonth.split("-").map(Number);
     const daysInMonth = new Date(yr, mo, 0).getDate();
     const recMap = {};
@@ -5625,15 +5640,17 @@ function RekapPDFModal({
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${yr}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
       const rec = recMap[dateStr];
+      let status = rec ? rec.status : STATUS.ALPHA;
+      if (!rec && isOffDay(selectedUser.id, dateStr)) status = SCHEDULE_TYPE.OFF;
       rows.push({
         date: dateStr,
         checkInTime: rec ? rec.checkInTime : null,
         checkOutTime: rec ? rec.checkOutTime : null,
-        status: rec ? rec.status : STATUS.ALPHA
+        status
       });
     }
     return rows;
-  }, [previewRecords, selectedMonth]);
+  }, [previewRecords, selectedMonth, selectedUser]);
   const stats = useMemo(() => ({
     hadir: allRows.filter(r => r.status === STATUS.HADIR).length,
     terlambat: allRows.filter(r => r.status === STATUS.TERLAMBAT).length,
@@ -5681,6 +5698,10 @@ function RekapPDFModal({
     [STATUS.IZIN]: {
       bg: "var(--violet-soft)",
       color: "var(--violet)"
+    },
+    [SCHEDULE_TYPE.OFF]: {
+      bg: "var(--slate-mist)",
+      color: "var(--navy-700)"
     }
   };
   return /*#__PURE__*/React.createElement("div", {
@@ -6215,43 +6236,27 @@ function heatCellColor(pct) {
   if (pct <= 0.75) return "rgba(228,20,43,.62)";
   return "var(--accent-700)";
 }
-function buildMonthlyAttendanceTrend(allRecords, totalUsers, monthsBack = 6) {
-  const now = new Date();
-  const months = [];
-  for (let i = monthsBack - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    months.push({
-      key,
-      label: d.toLocaleDateString("id-ID", {
-        month: "short"
-      })
+// Data harian untuk grafik garis "Analitik Kehadiran": khusus bulan berjalan (monthKey),
+// per tanggal dihitung berapa yang Masuk tepat waktu vs berapa yang Terlambat.
+function buildDailyAttendanceTrend(allRecords, monthKey) {
+  const [y, m] = monthKey.split("-").map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const todayStr = todayDateStr();
+  const days = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${monthKey}-${String(d).padStart(2, "0")}`;
+    if (dateStr > todayStr) break;
+    const dayRecords = allRecords.filter(r => r.date === dateStr);
+    const masukCount = dayRecords.filter(r => r.status === STATUS.HADIR || r.status === STATUS.PIKET_MALAM).length;
+    const terlambatCount = dayRecords.filter(r => r.status === STATUS.TERLAMBAT).length;
+    days.push({
+      day: d,
+      tanggal: String(d),
+      Masuk: masukCount,
+      Terlambat: terlambatCount
     });
   }
-  return months.map(({
-    key,
-    label
-  }) => {
-    const monthRecords = allRecords.filter(r => r.date.startsWith(key));
-    const hadirCount = monthRecords.filter(r => r.status === STATUS.HADIR || r.status === STATUS.TERLAMBAT || r.status === STATUS.PIKET_MALAM).length;
-    const daysWithData = new Set(monthRecords.map(r => r.date)).size;
-    const denom = totalUsers > 0 && daysWithData > 0 ? totalUsers * daysWithData : 0;
-    const pct = denom > 0 ? hadirCount / denom : 0;
-    return {
-      key,
-      label,
-      pct,
-      hadirCount,
-      daysWithData
-    };
-  });
-}
-function monthsBackYearLabel(monthlyTrend) {
-  if (!monthlyTrend || monthlyTrend.length === 0) return "";
-  const first = monthlyTrend[0].label;
-  const last = monthlyTrend[monthlyTrend.length - 1];
-  const lastYear = last.key.slice(0, 4);
-  return `${first} - ${last.label} ${lastYear}`;
+  return days;
 }
 function AdminDashboard({
   onNavigate
@@ -6315,7 +6320,7 @@ function AdminDashboard({
   const pikMalamYesterday = yesterdayRecords.filter(r => r.status === STATUS.PIKET_MALAM).length;
   const activePatrols = useMemo(() => getPatrols().filter(p => p.status === PATROL_STATUS.ACTIVE && p.date === today), [store.patrols, today]);
   const checkpoints = useMemo(() => getCheckpoints(), [store.checkpoints]);
-  const monthlyTrend = useMemo(() => buildMonthlyAttendanceTrend(getRecords(), users.length, 6), [users.length, store.records]);
+  const dailyTrend = useMemo(() => buildDailyAttendanceTrend(getRecords(), mk), [mk, store.records]);
   const PAGE_SIZE = 10;
   const [page, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -6615,88 +6620,131 @@ function AdminDashboard({
       display: "flex",
       flexDirection: "column",
       gap: 16,
-      height: "100%"
+      height: "100%",
+      minWidth: 0
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
-      padding: 22
+      padding: 18,
+      minWidth: 0,
+      overflow: "hidden"
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex",
     style: {
       alignItems: "center",
       justifyContent: "space-between",
+      flexWrap: "wrap",
+      gap: 6,
       marginBottom: 4
     }
   }, /*#__PURE__*/React.createElement("h2", {
     style: {
-      fontSize: 15,
+      fontSize: 14,
       fontWeight: 700,
       color: "var(--navy-900)"
     }
   }, "Analitik Kehadiran"), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 11,
-      color: "var(--navy-700)"
-    }
-  }, monthsBackYearLabel(monthlyTrend))), /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontSize: 11.5,
       color: "var(--navy-700)",
-      marginBottom: 16
+      whiteSpace: "nowrap"
     }
-  }, "Rata-rata % kehadiran karyawan per bulan, 6 bulan terakhir"), /*#__PURE__*/React.createElement("div", {
+  }, new Date(mk + "-01T00:00:00").toLocaleDateString("id-ID", {
+    month: "long",
+    year: "numeric"
+  }))), /*#__PURE__*/React.createElement("p", {
     style: {
-      display: "flex",
-      alignItems: "flex-end",
-      gap: 12,
-      height: 150,
-      marginBottom: 4
+      fontSize: 11,
+      color: "var(--navy-700)",
+      marginBottom: 10
     }
-  }, monthlyTrend.map(m => /*#__PURE__*/React.createElement("div", {
-    key: m.key,
+  }, "Perbandingan jumlah Masuk vs Terlambat per hari, bulan berjalan"), dailyTrend.length === 0 ? /*#__PURE__*/React.createElement("p", {
     style: {
-      flex: 1,
-      height: "100%",
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      justifyContent: "flex-end",
-      gap: 6
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 10.5,
-      fontWeight: 700,
-      color: "var(--navy-900)"
-    }
-  }, m.daysWithData > 0 ? `${Math.round(m.pct * 100)}%` : "-"), /*#__PURE__*/React.createElement("div", {
-    title: `${m.label}: ${Math.round(m.pct * 100)}% hadir`,
-    style: {
-      width: "100%",
-      maxWidth: 32,
-      borderRadius: "8px 8px 3px 3px",
-      background: m.daysWithData > 0 ? "var(--accent-700)" : "var(--navy-50)",
-      height: `${Math.max(m.pct * 100, 3)}%`,
-      transition: "height .3s"
-    }
-  }), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 10.5,
+      fontSize: 12.5,
       color: "var(--navy-700)"
     }
-  }, m.label))))), /*#__PURE__*/React.createElement("div", {
+  }, "Belum ada data presensi bulan ini.") : /*#__PURE__*/React.createElement(Recharts.ResponsiveContainer, {
+    width: "100%",
+    height: 220
+  }, /*#__PURE__*/React.createElement(Recharts.LineChart, {
+    data: dailyTrend,
+    margin: {
+      top: 4,
+      right: 8,
+      left: -12,
+      bottom: 0
+    }
+  }, /*#__PURE__*/React.createElement(Recharts.CartesianGrid, {
+    vertical: false,
+    stroke: "var(--line)",
+    strokeDasharray: "3 3"
+  }), /*#__PURE__*/React.createElement(Recharts.XAxis, {
+    dataKey: "tanggal",
+    tick: {
+      fontSize: 10,
+      fill: "var(--navy-700)"
+    },
+    axisLine: {
+      stroke: "var(--line)"
+    },
+    tickLine: false,
+    interval: dailyTrend.length > 15 ? 2 : 0
+  }), /*#__PURE__*/React.createElement(Recharts.YAxis, {
+    tick: {
+      fontSize: 11,
+      fill: "var(--navy-700)"
+    },
+    axisLine: false,
+    tickLine: false,
+    allowDecimals: false,
+    width: 28
+  }), /*#__PURE__*/React.createElement(Recharts.Tooltip, {
+    contentStyle: {
+      borderRadius: 10,
+      border: "1px solid var(--line)",
+      fontSize: 12,
+      boxShadow: "0 8px 24px rgba(28,20,24,.1)"
+    },
+    labelFormatter: d => `Tanggal ${d}`
+  }), /*#__PURE__*/React.createElement(Recharts.Legend, {
+    wrapperStyle: {
+      fontSize: 12
+    }
+  }), /*#__PURE__*/React.createElement(Recharts.Line, {
+    type: "monotone",
+    dataKey: "Masuk",
+    stroke: "#16A34A",
+    strokeWidth: 2,
+    dot: false,
+    activeDot: {
+      r: 4
+    }
+  }), /*#__PURE__*/React.createElement(Recharts.Line, {
+    type: "monotone",
+    dataKey: "Terlambat",
+    stroke: "#D97706",
+    strokeWidth: 2,
+    dot: false,
+    activeDot: {
+      r: 4
+    }
+  })))), /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: 20,
-      flex: 1
+      flex: 1,
+      minWidth: 0,
+      overflow: "hidden"
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex",
     style: {
       alignItems: "center",
       justifyContent: "space-between",
+      flexWrap: "wrap",
+      gap: 6,
       marginBottom: 12
     }
   }, /*#__PURE__*/React.createElement("h2", {
@@ -6706,7 +6754,10 @@ function AdminDashboard({
       color: "var(--navy-900)"
     }
   }, "Feed Laporan Kejadian"), kejadianBaruCount > 0 && /*#__PURE__*/React.createElement("span", {
-    className: "badge badge-alpha"
+    className: "badge badge-alpha",
+    style: {
+      whiteSpace: "nowrap"
+    }
   }, kejadianBaruCount, " baru")), kejadianFeed.length === 0 ? /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
@@ -9677,7 +9728,7 @@ function PenilaianPage({
     margin: {
       top: 4,
       right: 4,
-      left: -12,
+      left: 0,
       bottom: 0
     }
   }, /*#__PURE__*/React.createElement(CartesianGrid, {
@@ -9782,15 +9833,14 @@ function PenilaianAdminPage() {
     Patroli: r.patrol ?? 0
   })), [rows]);
   const {
-    BarChart,
-    Bar,
+    LineChart,
+    Line,
     XAxis,
     YAxis,
     Tooltip,
     Legend,
     ResponsiveContainer,
-    CartesianGrid,
-    Cell
+    CartesianGrid
   } = Recharts;
   return /*#__PURE__*/React.createElement("div", {
     className: "container-app"
@@ -9874,13 +9924,12 @@ function PenilaianAdminPage() {
   }, "Distribusi Kehadiran Tim Bulan Ini"), /*#__PURE__*/React.createElement(ResponsiveContainer, {
     width: "100%",
     height: 230
-  }, /*#__PURE__*/React.createElement(BarChart, {
+  }, /*#__PURE__*/React.createElement(LineChart, {
     data: teamChartData,
-    barCategoryGap: "30%",
     margin: {
       top: 4,
       right: 4,
-      left: -12,
+      left: 0,
       bottom: 0
     }
   }, /*#__PURE__*/React.createElement(CartesianGrid, {
@@ -9908,7 +9957,8 @@ function PenilaianAdminPage() {
     width: 28
   }), /*#__PURE__*/React.createElement(Tooltip, {
     cursor: {
-      fill: "var(--slate-mist)"
+      stroke: "var(--line)",
+      strokeDasharray: "3 3"
     },
     contentStyle: {
       borderRadius: 10,
@@ -9916,14 +9966,32 @@ function PenilaianAdminPage() {
       fontSize: 12,
       boxShadow: "0 8px 24px rgba(28,20,24,.1)"
     }
-  }), /*#__PURE__*/React.createElement(Bar, {
+  }), /*#__PURE__*/React.createElement(Line, {
+    type: "monotone",
     dataKey: "value",
-    radius: [4, 4, 0, 0],
-    maxBarSize: 44
-  }, teamChartData.map((d, i) => /*#__PURE__*/React.createElement(Cell, {
-    key: i,
-    fill: d.fill
-  })))))), compareData.length > 0 && /*#__PURE__*/React.createElement("div", {
+    stroke: "var(--navy-300, #cbd5e1)",
+    strokeWidth: 2,
+    dot: props => {
+      const {
+        cx,
+        cy,
+        payload,
+        index
+      } = props;
+      return /*#__PURE__*/React.createElement("circle", {
+        key: `dot-${index}`,
+        cx: cx,
+        cy: cy,
+        r: 6,
+        fill: payload.fill,
+        stroke: "#fff",
+        strokeWidth: 2
+      });
+    },
+    activeDot: {
+      r: 8
+    }
+  })))), compareData.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: 20
@@ -9946,14 +10014,12 @@ function PenilaianAdminPage() {
   }, /*#__PURE__*/React.createElement(ResponsiveContainer, {
     width: "100%",
     height: 230
-  }, /*#__PURE__*/React.createElement(BarChart, {
+  }, /*#__PURE__*/React.createElement(LineChart, {
     data: compareData,
-    barGap: 3,
-    barCategoryGap: "28%",
     margin: {
       top: 4,
       right: 4,
-      left: -12,
+      left: 0,
       bottom: 0
     }
   }, /*#__PURE__*/React.createElement(CartesianGrid, {
@@ -9981,7 +10047,8 @@ function PenilaianAdminPage() {
     width: 28
   }), /*#__PURE__*/React.createElement(Tooltip, {
     cursor: {
-      fill: "var(--slate-mist)"
+      stroke: "var(--line)",
+      strokeDasharray: "3 3"
     },
     contentStyle: {
       borderRadius: 10,
@@ -9995,16 +10062,28 @@ function PenilaianAdminPage() {
     },
     iconType: "circle",
     iconSize: 8
-  }), /*#__PURE__*/React.createElement(Bar, {
+  }), /*#__PURE__*/React.createElement(Line, {
+    type: "monotone",
     dataKey: "Kehadiran",
-    fill: "var(--accent-600)",
-    radius: [4, 4, 0, 0],
-    maxBarSize: 18
-  }), /*#__PURE__*/React.createElement(Bar, {
+    stroke: "var(--accent-600)",
+    strokeWidth: 2,
+    dot: {
+      r: 4
+    },
+    activeDot: {
+      r: 6
+    }
+  }), /*#__PURE__*/React.createElement(Line, {
+    type: "monotone",
     dataKey: "Patroli",
-    fill: "var(--indigo)",
-    radius: [4, 4, 0, 0],
-    maxBarSize: 18
+    stroke: "var(--indigo)",
+    strokeWidth: 2,
+    dot: {
+      r: 4
+    },
+    activeDot: {
+      r: 6
+    }
   }))))))), /*#__PURE__*/React.createElement(Leaderboard, {
     rows: rows,
     highlightUserId: null
