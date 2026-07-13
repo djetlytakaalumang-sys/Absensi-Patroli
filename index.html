@@ -408,15 +408,86 @@ function _notifyStore() {
 }
 async function initFirestore() {
   if (store.ready) return;
-  const [usersSnap, recordsSnap, leavesSnap, settingsSnap, checkpointsSnap, patrolsSnap, kejadianSnap, schedulesSnap] = await Promise.all([db.collection(COL.USERS).get(), db.collection(COL.RECORDS).get(), db.collection(COL.LEAVES).orderBy("createdAt", "desc").get(), db.collection(COL.SETTINGS).doc("config").get(), db.collection(COL.CHECKPOINTS).get(), db.collection(COL.PATROLS).get(), db.collection(COL.KEJADIAN).get(), db.collection(COL.SCHEDULES).get()]);
-  store.users = usersSnap.docs.map(d => d.data());
-  store.records = recordsSnap.docs.map(d => d.data());
-  store.leaves = leavesSnap.docs.map(d => d.data());
-  store.settings = settingsSnap.exists ? settingsSnap.data() : {};
-  store.checkpoints = checkpointsSnap.docs.map(d => d.data()).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  store.patrols = patrolsSnap.docs.map(d => d.data());
-  store.kejadian = kejadianSnap.docs.map(d => d.data());
-  store.schedules = schedulesSnap.docs.map(d => d.data());
+  // Catatan performa: sebelumnya di sini data diambil 2x saat startup —
+  // sekali lewat `.get()`, lalu sekali lagi lewat `onSnapshot` (yang otomatis
+  // mengirim snapshot penuh saat pertama kali listener dipasang). Sekarang
+  // hanya dipasang SATU listener `onSnapshot` per collection: event pertama
+  // dipakai sebagai initial load, event berikutnya untuk update real-time.
+  // Ini memangkas jumlah data yang didownload saat pertama kali dibuka.
+  const listenerSpecs = [{
+    key: "users",
+    ref: db.collection(COL.USERS)
+  }, {
+    key: "records",
+    ref: db.collection(COL.RECORDS)
+  }, {
+    key: "leaves",
+    ref: db.collection(COL.LEAVES).orderBy("createdAt", "desc")
+  }, {
+    key: "checkpoints",
+    ref: db.collection(COL.CHECKPOINTS)
+  }, {
+    key: "patrols",
+    ref: db.collection(COL.PATROLS)
+  }, {
+    key: "kejadian",
+    ref: db.collection(COL.KEJADIAN)
+  }, {
+    key: "schedules",
+    ref: db.collection(COL.SCHEDULES)
+  }];
+  function applySnapshot(key, snap) {
+    const docs = snap.docs.map(d => d.data());
+    if (key === "checkpoints") {
+      store.checkpoints = docs.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    } else if (key === "leaves") {
+      store.leaves = docs.sort((a, b) => a.createdAt < b.createdAt ? 1 : -1);
+    } else {
+      store[key] = docs;
+    }
+  }
+  await new Promise((resolveReady, rejectReady) => {
+    let pending = listenerSpecs.length + 1; // +1 untuk dokumen settings
+    let settled = false;
+    function markDone() {
+      pending -= 1;
+      if (pending === 0 && !settled) {
+        settled = true;
+        resolveReady();
+      }
+    }
+    function markError(err) {
+      if (!settled) {
+        settled = true;
+        rejectReady(err);
+      }
+    }
+    listenerSpecs.forEach(({
+      key,
+      ref
+    }) => {
+      let isFirst = true;
+      ref.onSnapshot(snap => {
+        applySnapshot(key, snap);
+        if (isFirst) {
+          isFirst = false;
+          markDone();
+        } else {
+          _notifyStore();
+        }
+      }, markError);
+    });
+    let settingsFirst = true;
+    db.collection(COL.SETTINGS).doc("config").onSnapshot(snap => {
+      store.settings = snap.exists ? snap.data() : {};
+      if (settingsFirst) {
+        settingsFirst = false;
+        markDone();
+      } else {
+        _notifyStore();
+      }
+    }, markError);
+  });
   store.ready = true;
   if (store.users.length === 0) {
     for (const u of SEED_USERS) {
@@ -426,38 +497,7 @@ async function initFirestore() {
   }
   autoCloseStaleAttendance();
   autoCloseStalePatrols();
-  db.collection(COL.RECORDS).onSnapshot(snap => {
-    store.records = snap.docs.map(d => d.data());
-    _notifyStore();
-  });
-  db.collection(COL.LEAVES).onSnapshot(snap => {
-    store.leaves = snap.docs.map(d => d.data()).sort((a, b) => a.createdAt < b.createdAt ? 1 : -1);
-    _notifyStore();
-  });
-  db.collection(COL.USERS).onSnapshot(snap => {
-    store.users = snap.docs.map(d => d.data());
-    _notifyStore();
-  });
-  db.collection(COL.SETTINGS).doc("config").onSnapshot(snap => {
-    store.settings = snap.exists ? snap.data() : {};
-    _notifyStore();
-  });
-  db.collection(COL.CHECKPOINTS).onSnapshot(snap => {
-    store.checkpoints = snap.docs.map(d => d.data()).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-    _notifyStore();
-  });
-  db.collection(COL.PATROLS).onSnapshot(snap => {
-    store.patrols = snap.docs.map(d => d.data());
-    _notifyStore();
-  });
-  db.collection(COL.KEJADIAN).onSnapshot(snap => {
-    store.kejadian = snap.docs.map(d => d.data());
-    _notifyStore();
-  });
-  db.collection(COL.SCHEDULES).onSnapshot(snap => {
-    store.schedules = snap.docs.map(d => d.data());
-    _notifyStore();
-  });
+  _notifyStore();
 }
 
 /* ── Fungsi baca (sinkron, dari memori) ─────────────────────────── */
