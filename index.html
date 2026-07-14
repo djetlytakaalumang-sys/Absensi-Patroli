@@ -313,7 +313,7 @@ function roleLabel(role) {
 const STATUS = {
   HADIR: "Hadir",
   TERLAMBAT: "Terlambat",
-  ALPHA: "Alpha",
+  ALPHA: "Alpa",
   IZIN: "Izin",
   PIKET_MALAM: "Piket Malam"
 };
@@ -815,7 +815,7 @@ function getSchedulesForUserMonth(userId, monthKey) {
   return store.schedules.filter(s => s.userId === userId && s.date.startsWith(monthKey));
 }
 // Menentukan apakah tanggal tsb adalah hari libur untuk karyawan ybs — dipakai supaya rekap
-// (baik preview maupun PDF) tidak menandai Alpha pada hari yang jadwalnya "Off".
+// (baik preview maupun PDF) tidak menandai Alpa pada hari yang jadwalnya "Off".
 // Logikanya SAMA dengan getEffectiveRecordsForUserMonth: kalau ada Jadwal resmi "Off", libur.
 // Kalau belum ada Jadwal sama sekali untuk tanggal itu, fallback ke aturan lama (Sabtu/Minggu libur).
 function isOffDay(userId, dateStr) {
@@ -1325,7 +1325,7 @@ function getEffectiveRecordsForUserMonth(userId, userName, monthKey) {
     if (realDates.has(dateStr)) continue;
     const sch = getScheduleFor(userId, dateStr);
     if (sch) {
-      // Ada jadwal resmi: "Off" tidak pernah dihitung Alpha; "Masuk"/"Piket Malam" tanpa presensi = Alpha.
+      // Ada jadwal resmi: "Off" tidak pernah dihitung Alpa; "Masuk"/"Piket Malam" tanpa presensi = Alpa.
       if (sch.type === SCHEDULE_TYPE.OFF) continue;
     } else {
       // Belum ada jadwal untuk tanggal ini: pakai aturan lama (Sabtu/Minggu dianggap libur).
@@ -1926,7 +1926,7 @@ function exportRekapPDF(user, monthKey, records) {
     color: [67, 56, 202],
     bg: [224, 231, 255]
   }, {
-    label: "Alpha",
+    label: "Alpa",
     value: stats.alpha,
     color: [220, 38, 38],
     bg: [254, 226, 226]
@@ -2046,7 +2046,7 @@ function exportRekapPDF(user, monthKey, records) {
       } else if (status === "Piket Malam") {
         bg = [224, 231, 255];
         fg = [67, 56, 202];
-      } else if (status === "Alpha") {
+      } else if (status === "Alpa") {
         bg = [254, 226, 226];
         fg = [220, 38, 38];
       } else if (status === "Izin") {
@@ -2198,7 +2198,7 @@ function Avatar({
 const STATUS_BADGE_CLASS = {
   Hadir: "badge-hadir",
   Terlambat: "badge-terlambat",
-  Alpha: "badge-alpha",
+  Alpa: "badge-alpha",
   Izin: "badge-izin",
   "Piket Malam": "badge-piket-malam"
 };
@@ -4627,7 +4627,7 @@ function EmployeeDashboard({
       fontSize: 12,
       fontWeight: 500
     }
-  }, "Alpha")), /*#__PURE__*/React.createElement("p", {
+  }, "Alpa")), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 24,
       fontWeight: 700,
@@ -4763,7 +4763,7 @@ function HistoryPage({
         Hadir: rec && rec.status === STATUS.HADIR ? 1 : 0,
         Terlambat: rec && rec.status === STATUS.TERLAMBAT ? 1 : 0,
         "Piket Malam": rec && rec.status === STATUS.PIKET_MALAM ? 1 : 0,
-        Alpha: rec && rec.status === STATUS.ALPHA ? 1 : 0
+        Alpa: rec && rec.status === STATUS.ALPHA ? 1 : 0
       });
     }
     return days;
@@ -4898,7 +4898,7 @@ function HistoryPage({
     }
   }), /*#__PURE__*/React.createElement(Line, {
     type: "monotone",
-    dataKey: "Alpha",
+    dataKey: "Alpa",
     stroke: "#DC2626",
     strokeWidth: 2,
     dot: {
@@ -5729,7 +5729,7 @@ function RekapPDFModal({
     return getEffectiveRecordsForUserMonth(selectedUser.id, selectedUser.name, selectedMonth).sort((a, b) => a.date > b.date ? 1 : -1);
   }, [selectedUser, selectedMonth]);
 
-  // Semua hari dalam bulan (termasuk hari tanpa record → Alpha, KECUALI hari libur/Off → "Off")
+  // Semua hari dalam bulan (termasuk hari tanpa record → Alpa, KECUALI hari libur/Off → "Off")
   const allRows = useMemo(() => {
     if (!selectedMonth || !selectedUser) return [];
     const [yr, mo] = selectedMonth.split("-").map(Number);
@@ -5923,7 +5923,7 @@ function RekapPDFModal({
     value: stats.pikMalam,
     status: STATUS.PIKET_MALAM
   }, {
-    label: "Alpha",
+    label: "Alpa",
     value: stats.alpha,
     status: STATUS.ALPHA
   }, {
@@ -6128,7 +6128,7 @@ function AdminRecordDetail({
       fontSize: 13,
       color: "#64748b"
     }
-  }, "Karyawan tidak absen masuk maupun mengajukan izin pada hari kerja ini, sehingga otomatis ditandai Alpha."))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+  }, "Karyawan tidak absen masuk maupun mengajukan izin pada hari kerja ini, sehingga otomatis ditandai Alpa."))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "grid-2"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
     style: {
@@ -6489,7 +6489,7 @@ function AdminDashboard({
     softVar: "var(--red-soft)"
   }), /*#__PURE__*/React.createElement(DashStatBox, {
     icon: "alert-circle",
-    label: "Alpha Bulan Ini",
+    label: "Alpa Bulan Ini",
     value: alphaThisMonth,
     delta: null,
     colorVar: "var(--red)",
@@ -7065,7 +7065,7 @@ function AdminDashboard({
       flexWrap: "wrap",
       marginBottom: 12
     }
-  }, [["all", "Semua"], [STATUS.HADIR, "Hadir"], [STATUS.TERLAMBAT, "Terlambat"], [STATUS.PIKET_MALAM, "Piket Malam"], [STATUS.ALPHA, "Alpha"], [STATUS.IZIN, "Izin"]].map(([val, label]) => /*#__PURE__*/React.createElement("button", {
+  }, [["all", "Semua"], [STATUS.HADIR, "Hadir"], [STATUS.TERLAMBAT, "Terlambat"], [STATUS.PIKET_MALAM, "Piket Malam"], [STATUS.ALPHA, "Alpa"], [STATUS.IZIN, "Izin"]].map(([val, label]) => /*#__PURE__*/React.createElement("button", {
     key: val,
     onClick: () => {
       setStatusFilter(val);
@@ -7380,7 +7380,7 @@ function EmployeeFormModal({
       fontWeight: 700,
       color: "var(--navy-900)"
     }
-  }, isEdit ? "Edit Karyawan" : "Tambah Karyawan"), /*#__PURE__*/React.createElement("button", {
+  }, isEdit ? "Edit Pengguna" : "Tambah Karyawan"), /*#__PURE__*/React.createElement("button", {
     type: "button",
     onClick: onClose,
     "aria-label": "Tutup",
@@ -9723,7 +9723,7 @@ function PenilaianPage({
       value: b.pikMalam,
       fill: "#4338CA"
     }, {
-      name: "Alpha",
+      name: "Alpa",
       value: b.alpha,
       fill: "#DC2626"
     }, {
@@ -9996,7 +9996,7 @@ function PenilaianAdminPage() {
       value: agg.pikMalam,
       fill: "#4338CA"
     }, {
-      name: "Alpha",
+      name: "Alpa",
       value: agg.alpha,
       fill: "#DC2626"
     }, {
@@ -11041,7 +11041,7 @@ function PanduanPage() {
     bg: "var(--indigo-soft)",
     desc: `Otomatis terdeteksi kalau jam check-in masuk jendela shift malam (mulai ${s.nightShiftStart}), ATAU karyawan memang dijadwalkan "Piket Malam" di menu Jadwal Kerja untuk tanggal itu.`
   }), /*#__PURE__*/React.createElement(GuideBadgeRow, {
-    label: "Alpha",
+    label: "Alpa",
     color: "var(--red)",
     bg: "var(--red-soft)",
     desc: "Tidak ada presensi sama sekali pada hari yang seharusnya kerja (dijadwalkan Masuk/Piket Malam, atau hari kerja biasa Senin–Jumat jika belum ada Jadwal). Tidak berlaku untuk hari Off/libur."
@@ -11049,12 +11049,12 @@ function PanduanPage() {
     label: "Izin",
     color: "var(--violet)",
     bg: "var(--violet-soft)",
-    desc: "Pengajuan izin/cuti yang sudah disetujui admin. Hari Izin TIDAK dihitung Alpha, dan dikecualikan dari perhitungan Skor & Rasio Kehadiran."
+    desc: "Pengajuan izin/cuti yang sudah disetujui admin. Hari Izin TIDAK dihitung Alpa, dan dikecualikan dari perhitungan Skor & Rasio Kehadiran."
   }), /*#__PURE__*/React.createElement(GuideBadgeRow, {
     label: "Off",
     color: "var(--navy-700)",
     bg: "var(--slate-mist)",
-    desc: "Hari libur sesuai Jadwal Kerja resmi (type = \"Off\"), atau otomatis Sabtu/Minggu kalau belum ada Jadwal sama sekali untuk tanggal itu. Tidak pernah dihitung Alpha."
+    desc: "Hari libur sesuai Jadwal Kerja resmi (type = \"Off\"), atau otomatis Sabtu/Minggu kalau belum ada Jadwal sama sekali untuk tanggal itu. Tidak pernah dihitung Alpa."
   }), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 12.5,
@@ -11065,7 +11065,7 @@ function PanduanPage() {
     icon: "gauge",
     title: "Perhitungan Skor Kehadiran"
   }, /*#__PURE__*/React.createElement("p", null, "Dihitung per hari lalu dirata-rata satu bulan. Hari Izin tidak ikut dihitung sama sekali (bukan 0, bukan 100 — dikecualikan)."), /*#__PURE__*/React.createElement(GuideList, {
-    items: ["Hadir / Piket Malam (tepat waktu) → 100 poin", "Alpha → 0 poin", "Terlambat → poin bertingkat sesuai lama telat (lihat tabel di bawah)"]
+    items: ["Hadir / Piket Malam (tepat waktu) → 100 poin", "Alpa → 0 poin", "Terlambat → poin bertingkat sesuai lama telat (lihat tabel di bawah)"]
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       background: "var(--slate-mist)",
@@ -11097,9 +11097,9 @@ function PanduanPage() {
     items: ["Jam Potong Masuk (checkInDeadline) — batas jam check-in supaya masih dihitung \"Hadir\"; lewat dari jam ini otomatis \"Terlambat\".", "Jam Pulang Normal (shiftEndTime) — jam pulang yang diharapkan untuk shift Hadir/Terlambat, dipakai untuk mendeteksi \"pulang lebih awal\".", "Mulai Piket Malam (nightShiftStart) & Selesai Piket Malam (nightShiftEnd) — jendela jam yang dipakai untuk mendeteksi otomatis status Piket Malam kalau tidak ada Jadwal resmi.", "Lokasi Kantor (officeLocations) — daftar titik koordinat kantor/pos, maksimal 5 lokasi.", "Radius Presensi (radiusMeters) — jarak maksimal (meter) dari salah satu Lokasi Kantor supaya presensi dianggap valid.", "Wajib Dalam Radius (enforceRadius) — kalau diaktifkan, karyawan di luar radius semua Lokasi Kantor tidak bisa presensi sama sekali."]
   })), /*#__PURE__*/React.createElement(GuideSection, {
     icon: "file-text",
-    title: "Rekap Kehadiran & Alpha Otomatis"
-  }, /*#__PURE__*/React.createElement("p", null, "Setiap hari yang tidak ada record presensinya dicek dulu ke Jadwal Kerja sebelum ditandai Alpha:"), /*#__PURE__*/React.createElement(GuideList, {
-    items: ["Ada Jadwal \"Off\" untuk tanggal itu → ditandai \"Off\", bukan Alpha.", "Ada Jadwal \"Masuk\"/\"Piket Malam\" tapi tidak ada presensi → Alpha.", "Belum ada Jadwal sama sekali → Sabtu/Minggu otomatis dianggap libur (bukan Alpha), Senin–Jumat tanpa presensi dianggap Alpha.", "Sebelum tanggal karyawan bergabung (joinDate), atau tanggal hari ini/masa depan → tidak dihitung sama sekali."]
+    title: "Rekap Kehadiran & Alpa Otomatis"
+  }, /*#__PURE__*/React.createElement("p", null, "Setiap hari yang tidak ada record presensinya dicek dulu ke Jadwal Kerja sebelum ditandai Alpa:"), /*#__PURE__*/React.createElement(GuideList, {
+    items: ["Ada Jadwal \"Off\" untuk tanggal itu → ditandai \"Off\", bukan Alpa.", "Ada Jadwal \"Masuk\"/\"Piket Malam\" tapi tidak ada presensi → Alpa.", "Belum ada Jadwal sama sekali → Sabtu/Minggu otomatis dianggap libur (bukan Alpa), Senin–Jumat tanpa presensi dianggap Alpa.", "Sebelum tanggal karyawan bergabung (joinDate), atau tanggal hari ini/masa depan → tidak dihitung sama sekali."]
   }), /*#__PURE__*/React.createElement("p", null, "Logika ini dipakai konsisten di Riwayat, Rekap PDF, dan perhitungan Skor Kehadiran — supaya angkanya selalu sama di semua halaman.")));
 }
 function SettingsPage() {
@@ -11704,8 +11704,35 @@ function RoleAccessCard() {
     setToast(msg);
     setTimeout(() => setToast(""), 2500);
   }
+  const [editTarget, setEditTarget] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const allUsers = useMemo(() => [...getUsers()].sort((a, b) => a.name.localeCompare(b.name)), [store.users]);
   const adminCount = allUsers.filter(u => u.role === ROLES.ADMIN).length;
+  function handleEditSaved() {
+    setEditTarget(null);
+    showToast(`Data "${editTarget.name}" berhasil diperbarui.`);
+  }
+  function handleDeleteClick(target) {
+    setError("");
+    if (!canEdit) {
+      setError("Kamu tidak punya izin untuk menghapus pengguna.");
+      return;
+    }
+    if (target.id === currentUser.id) {
+      setError("Kamu tidak bisa menghapus akun sendiri.");
+      return;
+    }
+    if (target.role === ROLES.ADMIN && adminCount <= 1) {
+      setError("Tidak bisa menghapus — minimal harus ada 1 akun Admin yang aktif.");
+      return;
+    }
+    setDeleteTarget(target);
+  }
+  function handleDeleted() {
+    const name = deleteTarget?.name;
+    setDeleteTarget(null);
+    showToast(`Pengguna "${name}" berhasil dihapus.`);
+  }
   function handleRoleChange(target, nextRole) {
     setError("");
     if (!canEdit) {
@@ -11766,31 +11793,90 @@ function RoleAccessCard() {
     style: {
       overflowX: "auto"
     }
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Nama"), /*#__PURE__*/React.createElement("th", null, "Username"), /*#__PURE__*/React.createElement("th", null, "Jabatan"), /*#__PURE__*/React.createElement("th", null, "Role"))), /*#__PURE__*/React.createElement("tbody", null, allUsers.map(u => /*#__PURE__*/React.createElement("tr", {
-    key: u.id
-  }, /*#__PURE__*/React.createElement("td", null, u.name, u.id === currentUser.id && /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 11,
-      color: "var(--navy-700)",
-      marginLeft: 6
-    }
-  }, "(kamu)")), /*#__PURE__*/React.createElement("td", null, u.username), /*#__PURE__*/React.createElement("td", null, u.position || "-"), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("select", {
-    className: "input",
-    style: {
-      padding: "6px 10px",
-      fontSize: 13,
-      width: "auto"
-    },
-    value: u.role,
-    disabled: !canEdit || u.id === currentUser.id,
-    onChange: e => handleRoleChange(u, e.target.value)
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ROLES.ADMIN
-  }, "Admin"), /*#__PURE__*/React.createElement("option", {
-    value: ROLES.VIEWER
-  }, "View Only"), /*#__PURE__*/React.createElement("option", {
-    value: ROLES.EMPLOYEE
-  }, "Karyawan")))))))));
+  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Nama"), /*#__PURE__*/React.createElement("th", null, "Username"), /*#__PURE__*/React.createElement("th", null, "Jabatan"), /*#__PURE__*/React.createElement("th", null, "Role"), canEdit && /*#__PURE__*/React.createElement("th", null, "Aksi"))), /*#__PURE__*/React.createElement("tbody", null, allUsers.map(u => {
+    const roleCell = /*#__PURE__*/React.createElement("select", {
+      className: "input",
+      style: {
+        padding: "6px 10px",
+        fontSize: 13,
+        width: "auto"
+      },
+      value: u.role,
+      disabled: !canEdit || u.id === currentUser.id,
+      onChange: e => handleRoleChange(u, e.target.value)
+    }, /*#__PURE__*/React.createElement("option", {
+      value: ROLES.ADMIN
+    }, "Admin"), /*#__PURE__*/React.createElement("option", {
+      value: ROLES.VIEWER
+    }, "View Only"), /*#__PURE__*/React.createElement("option", {
+      value: ROLES.EMPLOYEE
+    }, "Karyawan"));
+    const actionCell = canEdit ? /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("div", {
+      className: "flex",
+      style: {
+        gap: 2
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => setEditTarget(u),
+      "aria-label": "Edit pengguna",
+      title: "Edit",
+      style: {
+        width: 28,
+        height: 28,
+        borderRadius: 8,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: "var(--accent-700)"
+      },
+      onMouseEnter: e => e.currentTarget.style.background = "var(--accent-50)",
+      onMouseLeave: e => e.currentTarget.style.background = "transparent"
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "pencil",
+      size: 14
+    })), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => handleDeleteClick(u),
+      "aria-label": "Hapus pengguna",
+      title: "Hapus",
+      disabled: u.id === currentUser.id,
+      style: {
+        width: 28,
+        height: 28,
+        borderRadius: 8,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: u.id === currentUser.id ? "#cbd5e1" : "var(--red)",
+        cursor: u.id === currentUser.id ? "not-allowed" : "pointer"
+      },
+      onMouseEnter: e => {
+        if (u.id !== currentUser.id) e.currentTarget.style.background = "var(--red-soft)";
+      },
+      onMouseLeave: e => e.currentTarget.style.background = "transparent"
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "trash-2",
+      size: 14
+    })))) : null;
+    return /*#__PURE__*/React.createElement("tr", {
+      key: u.id
+    }, /*#__PURE__*/React.createElement("td", null, u.name, u.id === currentUser.id && /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "var(--navy-700)",
+        marginLeft: 6
+      }
+    }, "(kamu)")), /*#__PURE__*/React.createElement("td", null, u.username), /*#__PURE__*/React.createElement("td", null, u.position || "-"), /*#__PURE__*/React.createElement("td", null, roleCell), actionCell);
+  })))), editTarget && /*#__PURE__*/React.createElement(EmployeeFormModal, {
+    employee: editTarget,
+    onClose: () => setEditTarget(null),
+    onSaved: handleEditSaved
+  }), deleteTarget && /*#__PURE__*/React.createElement(DeleteEmployeeModal, {
+    employee: deleteTarget,
+    onClose: () => setDeleteTarget(null),
+    onConfirmed: handleDeleted
+  }));
 }
 const MAX_CHECKPOINTS = 30;
 function PatrolCheckpointSettings() {
