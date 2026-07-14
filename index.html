@@ -6591,11 +6591,11 @@ function AdminDashboard({
   }), " Excel"), /*#__PURE__*/React.createElement(Button, {
     variant: "primary",
     size: "sm",
-    onClick: () => onNavigate && onNavigate("employees")
+    onClick: () => onNavigate && onNavigate("settings")
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "user-plus",
     size: 15
-  }), " Tambah Karyawan"))), /*#__PURE__*/React.createElement("div", {
+  }), " Tambah Pengguna"))), /*#__PURE__*/React.createElement("div", {
     className: "grid-3-responsive",
     style: {
       marginBottom: 20,
@@ -7301,7 +7301,8 @@ function AdminDashboard({
 function EmployeeFormModal({
   employee,
   onClose,
-  onSaved
+  onSaved,
+  allowRoleSelect
 }) {
   const isEdit = !!employee;
   const [form, setForm] = useState({
@@ -7311,7 +7312,8 @@ function EmployeeFormModal({
     position: employee?.position || "",
     department: employee?.department || "",
     phone: employee?.phone || "",
-    address: employee?.address || ""
+    address: employee?.address || "",
+    role: employee?.role || ROLES.EMPLOYEE
   });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -7353,7 +7355,7 @@ function EmployeeFormModal({
           department: form.department,
           phone: form.phone,
           address: form.address,
-          role: ROLES.EMPLOYEE
+          role: allowRoleSelect ? form.role : ROLES.EMPLOYEE
         });
       }
       onSaved();
@@ -7388,7 +7390,7 @@ function EmployeeFormModal({
       fontWeight: 700,
       color: "var(--navy-900)"
     }
-  }, isEdit ? "Edit Pengguna" : "Tambah Karyawan"), /*#__PURE__*/React.createElement("button", {
+  }, isEdit ? "Edit Pengguna" : allowRoleSelect ? "Tambah Pengguna" : "Tambah Karyawan"), /*#__PURE__*/React.createElement("button", {
     type: "button",
     onClick: onClose,
     "aria-label": "Tutup",
@@ -7414,7 +7416,19 @@ function EmployeeFormModal({
       padding: "10px 14px",
       borderRadius: 10
     }
-  }, error), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+  }, error), allowRoleSelect && !isEdit && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: "label"
+  }, "Role"), /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    value: form.role,
+    onChange: e => update("role", e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ROLES.ADMIN
+  }, "Admin"), /*#__PURE__*/React.createElement("option", {
+    value: ROLES.VIEWER
+  }, "View Only"), /*#__PURE__*/React.createElement("option", {
+    value: ROLES.EMPLOYEE
+  }, "Karyawan"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "label"
   }, "Nama lengkap"), /*#__PURE__*/React.createElement("input", {
     className: "input",
@@ -7510,7 +7524,7 @@ function EmployeeFormModal({
     style: {
       flex: 1
     }
-  }, saving ? "Menyimpan…" : isEdit ? "Simpan Perubahan" : "Tambah Karyawan")))));
+  }, saving ? "Menyimpan…" : isEdit ? "Simpan Perubahan" : allowRoleSelect ? "Tambah Pengguna" : "Tambah Karyawan")))));
 }
 
 /* ======================= MODAL KONFIRMASI HAPUS KARYAWAN ======================= */
@@ -8485,13 +8499,7 @@ function EmployeesPage() {
       fontSize: 14,
       marginTop: 2
     }
-  }, "Daftar karyawan terdaftar dan ringkasan kehadiran bulan ini.")), canEdit && /*#__PURE__*/React.createElement(Button, {
-    variant: "primary",
-    onClick: () => setFormTarget("new")
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "user-plus",
-    size: 16
-  }), " Tambah Karyawan")), employees.length === 0 && /*#__PURE__*/React.createElement("div", {
+  }, "Daftar karyawan terdaftar dan ringkasan kehadiran bulan ini."))), employees.length === 0 && /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: 40,
@@ -8502,7 +8510,7 @@ function EmployeesPage() {
       color: "var(--navy-700)",
       fontSize: 14
     }
-  }, "Belum ada karyawan terdaftar. Klik \"Tambah Karyawan\" untuk menambahkan.")), /*#__PURE__*/React.createElement("div", {
+  }, "Belum ada karyawan terdaftar. Tambahkan melalui menu Pengaturan → Hak Akses.")), /*#__PURE__*/React.createElement("div", {
     className: "grid-cards"
   }, employees.map(emp => {
     const records = getRecordsByUser(emp.id).filter(r => r.date.startsWith(mk));
@@ -10742,7 +10750,7 @@ function JadwalAdminPage() {
           fontSize: 9,
           fontWeight: 700
         }
-      }, type ? type[0] : "-"));
+      }, type ? displayStatusLabel(type)[0] : "-"));
     }));
   }))), /*#__PURE__*/React.createElement("p", {
     style: {
@@ -10756,7 +10764,7 @@ function JadwalAdminPage() {
     type: SCHEDULE_TYPE.PIKET_MALAM
   }), " Piket Malam (P) \xA0", /*#__PURE__*/React.createElement(ScheduleBadge, {
     type: SCHEDULE_TYPE.OFF
-  }), " Standby (O)"))));
+  }), " Standby (S)"))));
 }
 const TODAY_SCHEDULE_STYLE = {
   [SCHEDULE_TYPE.MASUK]: {
@@ -11136,7 +11144,7 @@ function PanduanPage() {
     icon: "settings",
     title: "Arti Setiap Pengaturan (Settings)"
   }, /*#__PURE__*/React.createElement(GuideList, {
-    items: ["Jam Potong Masuk (checkInDeadline) — batas jam check-in supaya masih dihitung \"Hadir\"; lewat dari jam ini otomatis \"Terlambat\".", "Jam Pulang Normal (shiftEndTime) — jam pulang yang diharapkan untuk shift Hadir/Terlambat, dipakai untuk mendeteksi \"pulang lebih awal\".", "Mulai Piket Malam (nightShiftStart) & Selesai Piket Malam (nightShiftEnd) — jendela jam yang dipakai untuk mendeteksi otomatis status Piket Malam kalau tidak ada Jadwal resmi.", "Lokasi Kantor (officeLocations) — daftar titik koordinat kantor/pos, maksimal 5 lokasi.", "Radius Presensi (radiusMeters) — jarak maksimal (meter) dari salah satu Lokasi Kantor supaya presensi dianggap valid.", "Wajib Dalam Radius (enforceRadius) — kalau diaktifkan, karyawan di luar radius semua Lokasi Kantor tidak bisa presensi sama sekali."]
+    items: ["Hak Akses (role pengguna) — atur siapa saja yang punya akses Admin, View Only, atau Karyawan, dan di sinilah tempat menambah karyawan/pengguna baru (tombol \"Tambah Pengguna\").", "Jam Potong Masuk (checkInDeadline) — batas jam check-in supaya masih dihitung \"Hadir\"; lewat dari jam ini otomatis \"Terlambat\".", "Jam Pulang Normal (shiftEndTime) — jam pulang yang diharapkan untuk shift Hadir/Terlambat, dipakai untuk mendeteksi \"pulang lebih awal\".", "Mulai Piket Malam (nightShiftStart) & Selesai Piket Malam (nightShiftEnd) — jendela jam yang dipakai untuk mendeteksi otomatis status Piket Malam kalau tidak ada Jadwal resmi.", "Lokasi Kantor (officeLocations) — daftar titik koordinat kantor/pos, maksimal 5 lokasi.", "Radius Presensi (radiusMeters) — jarak maksimal (meter) dari salah satu Lokasi Kantor supaya presensi dianggap valid.", "Wajib Dalam Radius (enforceRadius) — kalau diaktifkan, karyawan di luar radius semua Lokasi Kantor tidak bisa presensi sama sekali."]
   })), /*#__PURE__*/React.createElement(GuideSection, {
     icon: "file-text",
     title: "Rekap Kehadiran & Alpa Otomatis"
@@ -11272,7 +11280,7 @@ function SettingsPage() {
       padding: "10px 14px",
       borderRadius: 10
     }
-  }, error), /*#__PURE__*/React.createElement("fieldset", {
+  }, error), /*#__PURE__*/React.createElement(RoleAccessCard, null), /*#__PURE__*/React.createElement("fieldset", {
     disabled: !canEdit,
     style: {
       border: 0,
@@ -11288,9 +11296,139 @@ function SettingsPage() {
       marginBottom: 10,
       fontStyle: "italic"
     }
-  }, "Mode Lihat Saja — akun kamu tidak punya izin untuk mengubah pengaturan ini."), /*#__PURE__*/React.createElement("div", {
+  }, "Mode Lihat Saja — akun kamu tidak punya izin untuk mengubah pengaturan ini."), /*#__PURE__*/React.createElement("form", {
+    onSubmit: saveWorkHours,
+    className: "card",
+    style: {
+      padding: 20,
+      marginTop: 20
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontSize: 14,
+      fontWeight: 700,
+      color: "var(--navy-900)",
+      marginBottom: 4
+    }
+  }, "Ketentuan Jam Presensi"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 13,
+      color: "var(--navy-700)",
+      marginBottom: 4,
+      fontWeight: 600
+    }
+  }, "Presensi Masuk (Shift Pagi)"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 13,
+      color: "var(--navy-700)",
+      marginBottom: 4
+    }
+  }, "Presensi masuk dimulai sebelum jam di bawah ini. Karyawan yang absen masuk melewati jam ini otomatis berstatus \"Terlambat\"."), /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      gap: 12,
+      alignItems: "flex-end",
+      flexWrap: "wrap",
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: 160
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "label"
+  }, "Batas jam masuk"), /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    type: "time",
+    value: settings.checkInDeadline,
+    onChange: e => setSettingsState(s => ({
+      ...s,
+      checkInDeadline: e.target.value
+    }))
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: 160
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "label"
+  }, "Jam pulang normal"), /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    type: "time",
+    value: settings.shiftEndTime,
+    onChange: e => setSettingsState(s => ({
+      ...s,
+      shiftEndTime: e.target.value
+    }))
+  }))), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12,
+      color: "var(--navy-700)",
+      marginTop: -8,
+      marginBottom: 16
+    }
+  }, "\"Jam pulang normal\" dipakai untuk mendeteksi karyawan yang check-out jauh lebih awal dari jadwal (di luar Piket Malam)."), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 13,
+      color: "var(--navy-700)",
+      marginBottom: 4,
+      fontWeight: 600
+    }
+  }, "Presensi Piket Malam"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 13,
+      color: "var(--navy-700)",
+      marginBottom: 16
+    }
+  }, "Presensi yang dilakukan dalam rentang waktu di bawah ini otomatis dikategorikan sebagai \"Piket Malam\" (berlaku hingga hari berikutnya)."), /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      gap: 12,
+      alignItems: "flex-end",
+      flexWrap: "wrap",
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: 160
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "label"
+  }, "Mulai piket malam"), /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    type: "time",
+    value: settings.nightShiftStart,
+    onChange: e => setSettingsState(s => ({
+      ...s,
+      nightShiftStart: e.target.value
+    }))
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: 160
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "label"
+  }, "Selesai piket malam"), /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    type: "time",
+    value: settings.nightShiftEnd,
+    onChange: e => setSettingsState(s => ({
+      ...s,
+      nightShiftEnd: e.target.value
+    }))
+  }))), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12,
+      color: "var(--navy-700)",
+      marginBottom: 16
+    }
+  }, "Catatan: Sistem akan menentukan status presensi secara otomatis berdasarkan waktu check-in yang dilakukan."), /*#__PURE__*/React.createElement(Button, {
+    type: "submit",
+    variant: "primary",
+    size: "sm"
+  }, "Simpan")), /*#__PURE__*/React.createElement("div", {
     className: "grid-2-responsive",
     style: {
+      marginTop: 20,
       marginBottom: 20
     }
   }, /*#__PURE__*/React.createElement(PatrolCheckpointSettings, null), /*#__PURE__*/React.createElement("div", {
@@ -11604,135 +11742,7 @@ function SettingsPage() {
       transform: settings.enforceRadius ? "translateX(20px)" : "translateX(0)",
       transition: ".15s"
     }
-  })))))), /*#__PURE__*/React.createElement("form", {
-    onSubmit: saveWorkHours,
-    className: "card",
-    style: {
-      padding: 20
-    }
-  }, /*#__PURE__*/React.createElement("h2", {
-    style: {
-      fontSize: 14,
-      fontWeight: 700,
-      color: "var(--navy-900)",
-      marginBottom: 4
-    }
-  }, "Ketentuan Jam Presensi"), /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontSize: 13,
-      color: "var(--navy-700)",
-      marginBottom: 4,
-      fontWeight: 600
-    }
-  }, "Presensi Masuk (Shift Pagi)"), /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontSize: 13,
-      color: "var(--navy-700)",
-      marginBottom: 4
-    }
-  }, "Presensi masuk dimulai sebelum jam di bawah ini. Karyawan yang absen masuk melewati jam ini otomatis berstatus \"Terlambat\"."), /*#__PURE__*/React.createElement("div", {
-    className: "flex",
-    style: {
-      gap: 12,
-      alignItems: "flex-end",
-      flexWrap: "wrap",
-      marginBottom: 16
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      minWidth: 160
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    className: "label"
-  }, "Batas jam masuk"), /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    type: "time",
-    value: settings.checkInDeadline,
-    onChange: e => setSettingsState(s => ({
-      ...s,
-      checkInDeadline: e.target.value
-    }))
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      minWidth: 160
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    className: "label"
-  }, "Jam pulang normal"), /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    type: "time",
-    value: settings.shiftEndTime,
-    onChange: e => setSettingsState(s => ({
-      ...s,
-      shiftEndTime: e.target.value
-    }))
-  }))), /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontSize: 12,
-      color: "var(--navy-700)",
-      marginTop: -8,
-      marginBottom: 16
-    }
-  }, "\"Jam pulang normal\" dipakai untuk mendeteksi karyawan yang check-out jauh lebih awal dari jadwal (di luar Piket Malam)."), /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontSize: 13,
-      color: "var(--navy-700)",
-      marginBottom: 4,
-      fontWeight: 600
-    }
-  }, "Presensi Piket Malam"), /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontSize: 13,
-      color: "var(--navy-700)",
-      marginBottom: 16
-    }
-  }, "Presensi yang dilakukan dalam rentang waktu di bawah ini otomatis dikategorikan sebagai \"Piket Malam\" (berlaku hingga hari berikutnya)."), /*#__PURE__*/React.createElement("div", {
-    className: "flex",
-    style: {
-      gap: 12,
-      alignItems: "flex-end",
-      flexWrap: "wrap",
-      marginBottom: 16
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      minWidth: 160
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    className: "label"
-  }, "Mulai piket malam"), /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    type: "time",
-    value: settings.nightShiftStart,
-    onChange: e => setSettingsState(s => ({
-      ...s,
-      nightShiftStart: e.target.value
-    }))
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      minWidth: 160
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    className: "label"
-  }, "Selesai piket malam"), /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    type: "time",
-    value: settings.nightShiftEnd,
-    onChange: e => setSettingsState(s => ({
-      ...s,
-      nightShiftEnd: e.target.value
-    }))
-  }))), /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontSize: 12,
-      color: "var(--navy-700)",
-      marginBottom: 16
-    }
-  }, "Catatan: Sistem akan menentukan status presensi secara otomatis berdasarkan waktu check-in yang dilakukan."), /*#__PURE__*/React.createElement(Button, {
-    type: "submit",
-    variant: "primary",
-    size: "sm"
-  }, "Simpan"))), /*#__PURE__*/React.createElement(RoleAccessCard, null));
+  }))))))));
 }
 function RoleAccessCard() {
   useStoreSync();
@@ -11748,8 +11758,13 @@ function RoleAccessCard() {
   }
   const [editTarget, setEditTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [showAddModal, setShowAddModal] = useState(false);
   const allUsers = useMemo(() => [...getUsers()].sort((a, b) => a.name.localeCompare(b.name)), [store.users]);
   const adminCount = allUsers.filter(u => u.role === ROLES.ADMIN).length;
+  function handleAddSaved() {
+    setShowAddModal(false);
+    showToast("Pengguna baru berhasil ditambahkan.");
+  }
   function handleEditSaved() {
     setEditTarget(null);
     showToast(`Data "${editTarget.name}" berhasil diperbarui.`);
@@ -11800,7 +11815,15 @@ function RoleAccessCard() {
       padding: 20,
       marginTop: 20
     }
-  }, /*#__PURE__*/React.createElement("h3", {
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
     style: {
       fontSize: 15,
       fontWeight: 700,
@@ -11810,10 +11833,17 @@ function RoleAccessCard() {
   }, "Hak Akses Pengguna"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
-      color: "var(--navy-700)",
-      marginBottom: 16
+      color: "var(--navy-700)"
     }
-  }, "Atur siapa saja yang punya akses Admin (bisa lihat & ubah semua data), View Only (bisa lihat semua halaman admin tapi tidak bisa tambah/edit/hapus), dan Karyawan (hanya akses presensi & data sendiri)."), toast && /*#__PURE__*/React.createElement("div", {
+  }, "Atur siapa saja yang punya akses Admin (bisa lihat & ubah semua data), View Only (bisa lihat semua halaman admin tapi tidak bisa tambah/edit/hapus), dan Karyawan (hanya akses presensi & data sendiri).")), canEdit && /*#__PURE__*/React.createElement(Button, {
+    variant: "primary",
+    onClick: () => setShowAddModal(true)
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "user-plus",
+    size: 16
+  }), " Tambah Pengguna")), /*#__PURE__*/React.createElement("div", {
+    style: { marginTop: 16 }
+  }, toast && /*#__PURE__*/React.createElement("div", {
     style: {
       background: "var(--green-50, #ecfdf5)",
       color: "var(--green-700, #047857)",
@@ -11910,7 +11940,7 @@ function RoleAccessCard() {
         marginLeft: 6
       }
     }, "(kamu)")), /*#__PURE__*/React.createElement("td", null, u.username), /*#__PURE__*/React.createElement("td", null, u.position || "-"), /*#__PURE__*/React.createElement("td", null, roleCell), actionCell);
-  })))), editTarget && /*#__PURE__*/React.createElement(EmployeeFormModal, {
+  }))))), editTarget && /*#__PURE__*/React.createElement(EmployeeFormModal, {
     employee: editTarget,
     onClose: () => setEditTarget(null),
     onSaved: handleEditSaved
@@ -11918,6 +11948,11 @@ function RoleAccessCard() {
     employee: deleteTarget,
     onClose: () => setDeleteTarget(null),
     onConfirmed: handleDeleted
+  }), showAddModal && /*#__PURE__*/React.createElement(EmployeeFormModal, {
+    employee: null,
+    allowRoleSelect: true,
+    onClose: () => setShowAddModal(false),
+    onSaved: handleAddSaved
   }));
 }
 const MAX_CHECKPOINTS = 30;
