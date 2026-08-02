@@ -1374,14 +1374,89 @@ function getAttendanceBreakdown(userId, monthKey) {
 // diselesaikan (status COMPLETED) diberi nilai dasar (baseline), lalu checkpoint yang berhasil
 // tercatat menambah sisa nilainya. Sesi yang tidak pernah dijalankan sama sekali tetap tidak dihitung.
 const PATROL_SESSION_BASELINE = 0.5; // 0.5 = 50% nilai dasar untuk sesi yang dijalankan, sisanya dari checkpoint
+
+/* ======================= TIM RUTE (MANADO & MINUT) =======================
+   Dua tim patroli dengan rute checkpoint yang wajib dilewati berurutan. Anggota tim dicocokkan
+   dari nama depan (user.name), tidak sensitif huruf besar/kecil. Nama checkpoint dicocokkan ke
+   data checkpoint asli (dibuat admin di halaman Checkpoint Patroli) lewat matchCheckpointNameLoose,
+   supaya tetap match walau ada beda kapitalisasi/spasi kecil pada nama checkpoint sebenarnya. */
+const ROUTE_TEAMS = [{
+  id: "manado",
+  label: "Tim Manado",
+  members: ["marcel", "mattew", "roman"],
+  route: ["CLS Manado Minahasa", "STO Bahu", "Manado Centrum", "STO Paniki"]
+}, {
+  id: "minut",
+  label: "Tim Minut",
+  members: ["falentino", "rivaldo", "abri"],
+  route: ["STO Paniki", "STO Aermadidi", "CLS Kauditan"]
+}];
+// Nilai tambahan (fraksi, sebelum dikali 100) untuk sesi yang jatuh pada tanggal di mana rute
+// timnya berbeda dari tim lawan. 0.1 = +10 poin dari 100 pada skor patroli sesi tsb.
+const ROUTE_BONUS_AMOUNT = 0.1;
+function matchCheckpointNameLoose(name) {
+  return (name || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+function getUserRouteTeam(user) {
+  if (!user || !user.name) return null;
+  const name = user.name.toLowerCase();
+  return ROUTE_TEAMS.find(t => t.members.some(m => name.includes(m))) || null;
+}
+// Kumpulan nama checkpoint (lowercase) yang berhasil di-rit oleh anggota sebuah tim pada 1 tanggal.
+function getTeamCheckpointNamesForDate(team, dateStr) {
+  const teamUserIds = new Set(getUsers().filter(u => getUserRouteTeam(u)?.id === team.id).map(u => u.id));
+  const names = new Set();
+  store.checkpointPasses.forEach(p => {
+    if (p.date === dateStr && teamUserIds.has(p.userId)) {
+      names.add(matchCheckpointNameLoose(p.checkpointName));
+    }
+  });
+  return names;
+}
+// Sama seperti di atas, tapi untuk tampilan: kembalikan Map(nama lowercase -> nama asli checkpoint)
+// supaya bisa ditampilkan dengan huruf besar/kecil aslinya, bukan versi lowercase yang dipakai
+// untuk pencocokan internal.
+function getTeamCheckpointOriginalNamesForDate(team, dateStr) {
+  const teamUserIds = new Set(getUsers().filter(u => getUserRouteTeam(u)?.id === team.id).map(u => u.id));
+  const map = new Map();
+  store.checkpointPasses.forEach(p => {
+    if (p.date === dateStr && teamUserIds.has(p.userId)) {
+      map.set(matchCheckpointNameLoose(p.checkpointName), p.checkpointName);
+    }
+  });
+  return map;
+}
+// Bandingkan 2 kumpulan nama checkpoint: dianggap "berbeda" hanya kalau KEDUA tim sudah patroli
+// (kumpulannya tidak kosong) dan isi kumpulannya tidak persis sama.
+function routeSetsDiffer(a, b) {
+  if (a.size === 0 || b.size === 0) return false;
+  if (a.size !== b.size) return true;
+  for (const x of a) if (!b.has(x)) return true;
+  return false;
+}
+// Apakah pada tanggal ini Tim Manado & Tim Minut sama-sama patroli DAN melewati rute checkpoint
+// yang berbeda satu sama lain — sesuai aturan: "kalau rit tim Manado & Minut beda, dapat nilai plus".
+function hasRouteBonusOnDate(dateStr) {
+  const [manado, minut] = ROUTE_TEAMS;
+  return routeSetsDiffer(getTeamCheckpointNamesForDate(manado, dateStr), getTeamCheckpointNamesForDate(minut, dateStr));
+}
 function computePatrolScore(userId, monthKey) {
   const sessions = getPatrolsByUser(userId).filter(p => p.status === PATROL_STATUS.COMPLETED && p.date.startsWith(monthKey));
   if (sessions.length === 0) return null;
   const totalCp = Math.max(1, getCheckpoints().length);
+  const userTeam = getUserRouteTeam(getUserById(userId));
   const total = sessions.reduce((sum, p) => {
-    if (p.usesCheckpoints === false) return sum + 1; // Piket Malam tanpa checkpoint = penuh
-    const ratio = Math.min(1, (p.checkpointsVisited || []).length / totalCp);
-    return sum + PATROL_SESSION_BASELINE + ratio * (1 - PATROL_SESSION_BASELINE);
+    let sessionScore;
+    if (p.usesCheckpoints === false) {
+      sessionScore = 1; // Piket Malam tanpa checkpoint = penuh
+    } else {
+      const ratio = Math.min(1, (p.checkpointsVisited || []).length / totalCp);
+      sessionScore = PATROL_SESSION_BASELINE + ratio * (1 - PATROL_SESSION_BASELINE);
+    }
+    if (userTeam && hasRouteBonusOnDate(p.date)) {
+      sessionScore = Math.min(1, sessionScore + ROUTE_BONUS_AMOUNT);
+    }
+    return sum + sessionScore;
   }, 0);
   return Math.round(total / sessions.length * 100);
 }
@@ -3580,19 +3655,32 @@ function AttendanceCard({
       const settings = getSettings();
       let distance = null,
         withinRadius = true,
-        nearestLocation = null;
+        nearestLocation = null,
+        usedRadius = null;
       if (settings.officeLocations && settings.officeLocations.length > 0) {
-        const dists = settings.officeLocations.map(loc => ({
-          loc,
-          dist: Math.round(distanceMeters(pos.lat, pos.lng, loc.lat, loc.lng))
-        }));
-        const nearest = dists.reduce((a, b) => a.dist < b.dist ? a : b);
-        distance = nearest.dist;
-        nearestLocation = nearest.loc;
-        withinRadius = distance <= settings.radiusMeters;
+        const dists = settings.officeLocations.map(loc => {
+          const locRadius = Number(loc.radius) || Number(settings.radiusMeters) || DEFAULT_SETTINGS.radiusMeters;
+          const dist = Math.round(distanceMeters(pos.lat, pos.lng, loc.lat, loc.lng));
+          return {
+            loc,
+            dist,
+            radius: locRadius,
+            within: dist <= locRadius
+          };
+        });
+        // Prioritaskan lokasi yang penggunanya SEDANG berada di dalam radiusnya sendiri
+        // (mis. kantor A radius 100m dan kantor B radius 500m — kalau user di dalam radius A,
+        // itu yang dipakai walau B kebetulan lebih dekat secara jarak garis lurus). Kalau tidak
+        // ada satupun yang cocok, baru pakai lokasi terdekat sebagai acuan pesan error.
+        const withinOnes = dists.filter(d => d.within);
+        const best = withinOnes.length > 0 ? withinOnes.reduce((a, b) => a.dist < b.dist ? a : b) : dists.reduce((a, b) => a.dist < b.dist ? a : b);
+        distance = best.dist;
+        nearestLocation = best.loc;
+        usedRadius = best.radius;
+        withinRadius = best.within;
       }
       if (settings.enforceRadius && !withinRadius) {
-        setError(`Anda berada ${distance.toLocaleString("id-ID")} m dari lokasi kantor terdekat "${nearestLocation.name}" (maks ${settings.radiusMeters} m). Absen hanya dapat dilakukan di dalam radius kantor.`);
+        setError(`Anda berada ${distance.toLocaleString("id-ID")} m dari lokasi kantor terdekat "${nearestLocation.name}" (maks ${usedRadius} m). Absen hanya dapat dilakukan di dalam radius kantor.`);
         setStep(STEP.IDLE);
         return;
       }
@@ -8148,6 +8236,11 @@ function PatrolTracker({
       // dicatat sebagai 1 lintasan baru, terlepas dari checkpointsVisited di atas (yang cuma sekali
       // per sesi). Pakai buffer keluar (+15m) supaya jitter GPS di pinggir radius tidak dihitung
       // berkali-kali sebagai lintasan baru.
+      //
+      // ANTI-CURANG: checkpoint yang sama TIDAK BOLEH dihitung sebagai rit baru dua kali berturut-turut.
+      // Supaya rit checkpoint ini bisa dihitung lagi, petugas WAJIB melewati (rit) checkpoint LAIN
+      // dulu di antaranya. lastRitCheckpointId disimpan di sesi patroli (bukan cuma di ref lokal)
+      // supaya aturan ini tetap berlaku walau halaman di-refresh di tengah sesi.
       checkpoints.forEach(cp => {
         if (cp.lat == null || cp.lng == null) return;
         const d = distanceMeters(lat, lng, cp.lat, cp.lng);
@@ -8157,7 +8250,19 @@ function PatrolTracker({
         const isOutside = d > radius + 15;
         if (isInside && !wasInside) {
           insideCheckpointRef.current[cp.id] = true;
+          // Ambil ulang sesi terkini (bukan currentPatrol dari closure) supaya lastRitCheckpointId
+          // yang dibaca selalu yang terbaru, bukan basi.
+          const latestPatrol = getActivePatrolForUser(user.id);
+          if (latestPatrol && latestPatrol.lastRitCheckpointId === cp.id) {
+            // Checkpoint yang sama dengan rit terakhir — belum mampir ke checkpoint lain, jangan dihitung.
+            return;
+          }
           recordCheckpointPass(user, cp, lat, lng);
+          if (latestPatrol) {
+            updatePatrolSession(latestPatrol.id, {
+              lastRitCheckpointId: cp.id
+            });
+          }
         } else if (isOutside && wasInside) {
           insideCheckpointRef.current[cp.id] = false;
         }
@@ -8174,6 +8279,103 @@ function PatrolTracker({
     _notifyStore();
   }
   return null;
+}
+// Kartu kecil di halaman Patroli Karyawan yang menampilkan rute checkpoint wajib untuk tim
+// karyawan (kalau namanya cocok dengan salah satu ROUTE_TEAMS), plus status rit hari ini dan
+// info bonus kalau rute tim ini berbeda dari tim satunya hari ini.
+function TeamRouteCard({
+  user
+}) {
+  const team = getUserRouteTeam(user);
+  if (!team) return null;
+  const today = todayDateStr();
+  const doneMap = useMemo(() => getTeamCheckpointOriginalNamesForDate(team, today), [today, store.checkpointPasses, store.users]);
+  const bonusToday = useMemo(() => hasRouteBonusOnDate(today), [today, store.checkpointPasses, store.users]);
+  const routeLowerSet = new Set(team.route.map(matchCheckpointNameLoose));
+  const outOfRoute = [...doneMap.entries()].filter(([lower]) => !routeLowerSet.has(lower)).map(([, original]) => original);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card",
+    style: {
+      padding: 16,
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 13,
+      fontWeight: 700,
+      color: "var(--navy-900)"
+    }
+  }, "Rute Wajib — ", team.label), bonusToday && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      fontWeight: 700,
+      color: "var(--green)",
+      background: "var(--green-soft)",
+      padding: "3px 8px",
+      borderRadius: 999
+    }
+  }, "+ Bonus rute berbeda hari ini")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 6
+    }
+  }, team.route.map((name, idx) => {
+    const isDone = doneMap.has(matchCheckpointNameLoose(name));
+    return /*#__PURE__*/React.createElement(React.Fragment, {
+      key: name + idx
+    }, idx > 0 && /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "#cbd5e1",
+        fontSize: 13
+      }
+    }, "→"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 12.5,
+        fontWeight: 600,
+        padding: "4px 9px",
+        borderRadius: 999,
+        color: isDone ? "var(--green)" : "#64748b",
+        background: isDone ? "var(--green-soft)" : "#f1f5f9"
+      }
+    }, name));
+  })), outOfRoute.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 8,
+      display: "flex",
+      flexWrap: "wrap",
+      alignItems: "center",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11.5,
+      color: "#94a3b8"
+    }
+  }, "Di luar rute Anda hari ini:"), outOfRoute.map((name, idx) => /*#__PURE__*/React.createElement("span", {
+    key: name + idx,
+    style: {
+      fontSize: 12,
+      fontWeight: 600,
+      padding: "3px 8px",
+      borderRadius: 999,
+      color: "var(--amber)",
+      background: "var(--amber-soft)"
+    }
+  }, name))), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12,
+      color: "#94a3b8",
+      marginTop: 8
+    }
+  }, "Lewati checkpoint sesuai urutan di atas. Kalau rute tim Anda hari ini berbeda dari rute tim satunya, Anda dapat nilai plus pada Skor Patroli bulan ini."));
 }
 function PatrolPage({
   user
@@ -8376,7 +8578,9 @@ function PatrolPage({
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "x",
     size: 16
-  }))), !hasCheckpoints && !activePatrol && /*#__PURE__*/React.createElement("div", {
+  }))), /*#__PURE__*/React.createElement(TeamRouteCard, {
+    user: user
+  }), !hasCheckpoints && !activePatrol && /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: 20,
@@ -11442,7 +11646,7 @@ function PanduanPage() {
     icon: "footprints",
     title: "Perhitungan Skor Patroli"
   }, /*#__PURE__*/React.createElement("p", null, "Dihitung dari rata-rata persentase checkpoint yang dikunjungi pada setiap sesi patroli yang berstatus Selesai bulan berjalan. Sesi yang tidak pernah dijalankan tidak dihitung sama sekali."), /*#__PURE__*/React.createElement(GuideList, {
-    items: [`Setiap sesi yang dijalankan otomatis dapat nilai dasar ${Math.round(PATROL_SESSION_BASELINE * 100)}%, sisanya ditambah sesuai persentase checkpoint yang berhasil dikunjungi.`, "Sesi Piket Malam tanpa checkpoint dihitung penuh (100%) karena memang tidak ada checkpoint untuk dikunjungi.", "Skor akhir = rata-rata semua sesi selesai bulan itu, dikali 100."]
+    items: [`Setiap sesi yang dijalankan otomatis dapat nilai dasar ${Math.round(PATROL_SESSION_BASELINE * 100)}%, sisanya ditambah sesuai persentase checkpoint yang berhasil dikunjungi.`, "Sesi Piket Malam tanpa checkpoint dihitung penuh (100%) karena memang tidak ada checkpoint untuk dikunjungi.", "Checkpoint yang sama tidak dihitung sebagai rit baru dua kali berturut-turut — petugas harus melewati checkpoint lain dulu supaya checkpoint itu bisa terhitung lagi.", `Bonus Tim: kalau di hari yang sama Tim Manado dan Tim Minut sama-sama patroli tapi melewati rute checkpoint yang berbeda, sesi hari itu dapat tambahan +${Math.round(ROUTE_BONUS_AMOUNT * 100)} poin.`, "Skor akhir = rata-rata semua sesi selesai bulan itu, dikali 100."]
   })), /*#__PURE__*/React.createElement(GuideSection, {
     icon: "trophy",
     title: "Skor Tim Gabungan (Leaderboard)"
@@ -11457,7 +11661,7 @@ function PanduanPage() {
     icon: "settings",
     title: "Arti Setiap Pengaturan (Settings)"
   }, /*#__PURE__*/React.createElement(GuideList, {
-    items: ["Hak Akses (role pengguna) — atur siapa saja yang punya akses Admin, View Only, atau Karyawan, dan di sinilah tempat menambah karyawan/pengguna baru (tombol \"Tambah Pengguna\").", "Riwayat Login — catatan waktu setiap pengguna login, memakai jam server (bukan jam perangkat) supaya tidak bisa direkayasa; bisa difilter per nama atau per tanggal.", "Jam Potong Masuk (checkInDeadline) — batas jam check-in supaya masih dihitung \"Hadir\"; lewat dari jam ini otomatis \"Terlambat\".", "Jam Pulang Normal (shiftEndTime) — jam pulang yang diharapkan untuk shift Hadir/Terlambat, dipakai untuk mendeteksi \"pulang lebih awal\".", "Mulai Piket Malam (nightShiftStart) & Selesai Piket Malam (nightShiftEnd) — jendela jam yang dipakai untuk mendeteksi otomatis status Piket Malam kalau tidak ada Jadwal resmi.", "Checkpoint Patroli — daftar titik checkpoint patroli (nama, koordinat, radius), maksimal 30 titik; checkpoint otomatis tercentang saat petugas berada dalam radiusnya.", "Lokasi Kantor (officeLocations) — daftar titik koordinat kantor/pos, maksimal 5 lokasi.", "Radius Presensi (radiusMeters) — jarak maksimal (meter) dari salah satu Lokasi Kantor supaya presensi dianggap valid.", "Wajib Dalam Radius (enforceRadius) — kalau diaktifkan, karyawan di luar radius semua Lokasi Kantor tidak bisa presensi sama sekali."]
+    items: ["Hak Akses (role pengguna) — atur siapa saja yang punya akses Admin, View Only, atau Karyawan, dan di sinilah tempat menambah karyawan/pengguna baru (tombol \"Tambah Pengguna\").", "Riwayat Login — catatan waktu setiap pengguna login, memakai jam server (bukan jam perangkat) supaya tidak bisa direkayasa; bisa difilter per nama atau per tanggal.", "Jam Potong Masuk (checkInDeadline) — batas jam check-in supaya masih dihitung \"Hadir\"; lewat dari jam ini otomatis \"Terlambat\".", "Jam Pulang Normal (shiftEndTime) — jam pulang yang diharapkan untuk shift Hadir/Terlambat, dipakai untuk mendeteksi \"pulang lebih awal\".", "Mulai Piket Malam (nightShiftStart) & Selesai Piket Malam (nightShiftEnd) — jendela jam yang dipakai untuk mendeteksi otomatis status Piket Malam kalau tidak ada Jadwal resmi.", "Checkpoint Patroli — daftar titik checkpoint patroli (nama, koordinat, radius), maksimal 30 titik; checkpoint otomatis tercentang saat petugas berada dalam radiusnya.", "Lokasi Kantor (officeLocations) — daftar titik koordinat kantor/pos, maksimal 5 lokasi. Tiap lokasi kini bisa punya radius toleransi sendiri-sendiri (lihat lingkaran di petanya).", "Radius Presensi (radiusMeters) — nilai default (meter) yang dipakai untuk lokasi yang belum diisi radius khususnya sendiri.", "Wajib Dalam Radius (enforceRadius) — kalau diaktifkan, karyawan di luar radius semua Lokasi Kantor tidak bisa presensi sama sekali."]
   })), /*#__PURE__*/React.createElement(GuideSection, {
     icon: "file-text",
     title: "Rekap Kehadiran & Alpa Otomatis"
@@ -11510,7 +11714,7 @@ function RekapRitPage() {
   const headerEl = React.createElement("div", { style: { marginBottom: 20 } },
     React.createElement("h1", { style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Rekap Rit"),
     React.createElement("p", { style: { color: "var(--navy-700)", fontSize: 14, marginTop: 2 } },
-      "Jumlah lintasan (rit) tiap karyawan melewati checkpoint — tiap kali masuk radius checkpoint dihitung 1 rit. Pilih mode Per Tanggal untuk rekap 1 hari, atau Per Bulan untuk melihat total per checkpoint sebulan (mis. \u201cRivaldo lewat STO Bahu berapa kali bulan ini\u201d).")
+      "Jumlah lintasan (rit) tiap karyawan melewati checkpoint — tiap kali masuk radius checkpoint dihitung 1 rit, KECUALI checkpoint yang sama dengan rit sebelumnya (harus mampir checkpoint lain dulu supaya terhitung lagi). Pilih mode Per Tanggal untuk rekap 1 hari, atau Per Bulan untuk melihat total per checkpoint sebulan (mis. \u201cRivaldo lewat STO Bahu berapa kali bulan ini\u201d).")
   );
 
   const modeToggleEl = React.createElement("div", {
@@ -11548,6 +11752,55 @@ function RekapRitPage() {
         mode === "harian" ? `${activeDailyCount} / ${dailyRecap.length}` : `${activeMonthlyCount} / ${monthlyRecap.length}`)
     )
   );
+
+  // Kartu perbandingan rute Tim Manado vs Tim Minut untuk tanggal yang dipilih (mode harian saja,
+  // karena bonus rute dihitung per tanggal, bukan per bulan). Menunjukkan checkpoint apa saja yang
+  // benar-benar dilewati tiap tim hari itu — termasuk kalau ada yang di luar rute resminya — supaya
+  // admin bisa langsung lihat kenapa bonus rute didapat/tidak.
+  const teamRouteCompareEl = mode === "harian" ? (() => {
+    const [manadoTeam, minutTeam] = ROUTE_TEAMS;
+    const manadoMap = getTeamCheckpointOriginalNamesForDate(manadoTeam, dateFilter);
+    const minutMap = getTeamCheckpointOriginalNamesForDate(minutTeam, dateFilter);
+    const bonus = routeSetsDiffer(new Set(manadoMap.keys()), new Set(minutMap.keys()));
+    const bothPatrolled = manadoMap.size > 0 && minutMap.size > 0;
+    function renderTeamColumn(team, map) {
+      const routeLowerSet = new Set(team.route.map(matchCheckpointNameLoose));
+      const known = team.route.filter(name => map.has(matchCheckpointNameLoose(name)));
+      const extra = [...map.entries()].filter(([lower]) => !routeLowerSet.has(lower)).map(([, original]) => original);
+      return React.createElement("div", null,
+        React.createElement("p", { style: { fontSize: 12.5, fontWeight: 700, color: "var(--navy-800)", marginBottom: 6 } }, team.label),
+        map.size === 0
+          ? React.createElement("p", { style: { fontSize: 12.5, color: "#94a3b8" } }, "Belum ada rit tanggal ini.")
+          : React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6 } },
+              ...known.map(name => React.createElement("span", {
+                key: "k-" + name,
+                style: { fontSize: 12, fontWeight: 600, padding: "3px 8px", borderRadius: 999, background: "var(--green-soft)", color: "var(--green)" }
+              }, name)),
+              ...extra.map(name => React.createElement("span", {
+                key: "e-" + name,
+                style: { fontSize: 12, fontWeight: 600, padding: "3px 8px", borderRadius: 999, background: "var(--amber-soft)", color: "var(--amber)" }
+              }, name + " (di luar rute)"))
+            )
+      );
+    }
+    return React.createElement("div", { className: "card", style: { padding: 16, marginBottom: 20 } },
+      React.createElement("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 } },
+        React.createElement("p", { style: { fontSize: 13, fontWeight: 700, color: "var(--navy-900)" } }, "Perbandingan Rute Tim — ", dateFilter),
+        bothPatrolled ? React.createElement("span", {
+          style: {
+            fontSize: 11, fontWeight: 700,
+            color: bonus ? "var(--green)" : "var(--navy-700)",
+            background: bonus ? "var(--green-soft)" : "var(--navy-50)",
+            padding: "3px 8px", borderRadius: 999
+          }
+        }, bonus ? "Rute berbeda — bonus didapat" : "Rute sama — tidak ada bonus") : null
+      ),
+      React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 } },
+        renderTeamColumn(manadoTeam, manadoMap),
+        renderTeamColumn(minutTeam, minutMap)
+      )
+    );
+  })() : null;
 
   const filterEl = React.createElement("div", { className: "card", style: { padding: 16, marginBottom: 20 } },
     React.createElement("div", { className: "flex", style: { flexWrap: "wrap", alignItems: "center", gap: 12 } },
@@ -11735,7 +11988,7 @@ function RekapRitPage() {
     mode === "harian" ? renderDailyTable() : renderMonthlyTable()
   );
 
-  return React.createElement("div", { className: "container-app" }, headerEl, modeToggleEl, summaryEl, filterEl, listCardEl);
+  return React.createElement("div", { className: "container-app" }, headerEl, modeToggleEl, summaryEl, teamRouteCompareEl, filterEl, listCardEl);
 }
 
 function LoginHistoryCard() {
@@ -11917,7 +12170,8 @@ function SettingsPage() {
     const locs = [...getLocations(), {
       name: `Lokasi ${getLocations().length + 1}`,
       lat: null,
-      lng: null
+      lng: null,
+      radius: Number(settings.radiusMeters) || DEFAULT_SETTINGS.radiusMeters
     }];
     const next = updateSettings({
       officeLocations: locs
@@ -12261,9 +12515,10 @@ function SettingsPage() {
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "trash-2",
     size: 16
-  }))), /*#__PURE__*/React.createElement(MiniMap, {
+  }))), /*#__PURE__*/React.createElement(CheckpointMiniMap, {
     lat: loc.lat,
     lng: loc.lng,
+    radius: Number(loc.radius) || Number(settings.radiusMeters) || DEFAULT_SETTINGS.radiusMeters,
     height: 150
   }), /*#__PURE__*/React.createElement("div", {
     className: "flex",
@@ -12314,6 +12569,28 @@ function SettingsPage() {
       const val = parseFloat(e.target.value);
       upsertLocation(idx, {
         lng: isNaN(val) ? null : val
+      });
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 110
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "label",
+    style: {
+      fontSize: 12
+    }
+  }, "Radius (m)"), /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    type: "number",
+    min: 10,
+    step: 10,
+    placeholder: String(Number(settings.radiusMeters) || DEFAULT_SETTINGS.radiusMeters),
+    value: loc.radius != null ? loc.radius : "",
+    onChange: e => {
+      const val = parseInt(e.target.value, 10);
+      upsertLocation(idx, {
+        radius: isNaN(val) ? null : val
       });
     }
   }))), /*#__PURE__*/React.createElement("div", {
@@ -12406,7 +12683,7 @@ function SettingsPage() {
     }
   }, /*#__PURE__*/React.createElement("label", {
     className: "label"
-  }, "Radius toleransi (meter) — berlaku untuk semua lokasi"), /*#__PURE__*/React.createElement("input", {
+  }, "Radius default (meter) — dipakai jika suatu lokasi belum diatur radiusnya sendiri"), /*#__PURE__*/React.createElement("input", {
     className: "input",
     type: "number",
     min: 50,
