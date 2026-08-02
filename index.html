@@ -399,7 +399,8 @@ const COL = {
   CHECKPOINTS: "checkpoints",
   PATROLS: "patrols",
   KEJADIAN: "laporan_kejadian",
-  SCHEDULES: "schedules"
+  SCHEDULES: "schedules",
+  LOGIN_LOGS: "loginLogs"
 };
 const store = {
   users: [],
@@ -513,6 +514,86 @@ async function initFirestore() {
   autoCloseStaleAttendance();
   autoCloseStalePatrols();
   _notifyStore();
+  // Sinkronkan jam ke server begitu app siap, lalu ulangi tiap 5 menit supaya
+  // offset tidak meleset kalau app dibiarkan terbuka lama.
+  syncServerTime();
+  setInterval(() => {
+    syncServerTime();
+  }, 5 * 60 * 1000);
+}
+
+/* ======================= WAKTU SERVER TERPERCAYA (ANTI MANIPULASI JAM) =======================
+   Jam pada HP karyawan bisa diubah manual (dimajukan/dimundurkan) untuk mengakali status
+   presensi (mis. supaya tidak tercatat Terlambat). Supaya ini tidak bisa dilakukan, semua
+   pencatatan waktu presensi TIDAK memakai `new Date()` polos, melainkan disinkronkan dulu ke
+   jam SERVER Firestore (lewat serverTimestamp()) dan dipakai selisihnya (offset). Dengan begitu,
+   walau jam di HP diubah, jam yang benar-benar dipakai untuk menghitung status Hadir/Terlambat
+   tetaplah jam server yang sebenarnya. */
+let _serverTimeOffsetMs = 0; // serverTime - deviceTime (ms), 0 = belum pernah sinkron
+let _serverTimeSyncedOnce = false;
+async function syncServerTime() {
+  try {
+    const ref = db.collection("_meta").doc("serverTime");
+    const t0 = Date.now();
+    await ref.set({
+      ts: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    const snap = await ref.get({
+      source: "server"
+    });
+    const t1 = Date.now();
+    const data = snap.data();
+    if (data && data.ts) {
+      const serverMs = data.ts.toMillis();
+      const roundTrip = t1 - t0;
+      // Perkirakan jam server tepat di titik tengah waktu tempuh request (write+read).
+      _serverTimeOffsetMs = serverMs - (t0 + roundTrip / 2);
+      _serverTimeSyncedOnce = true;
+    }
+  } catch (err) {
+    // Gagal sinkron (mis. offline) — biarkan offset lama dipakai (fallback aman ke jam device
+    // kalau memang belum pernah berhasil sinkron sama sekali).
+    console.warn("Sinkronisasi jam server gagal:", err.message);
+  }
+  return _serverTimeOffsetMs;
+}
+// Jam sekarang yang bisa dipercaya (jam device dikoreksi ke jam server). Dipakai untuk SEMUA
+// pencatatan waktu presensi (jam masuk/pulang & perhitungan status).
+function getTrustedNow() {
+  return new Date(Date.now() + _serverTimeOffsetMs);
+}
+// Selisih jam device dibanding jam server (ms). Positif = jam HP lebih maju dari jam
+// sebenarnya (mis. hasil diubah manual). 0 kalau belum pernah berhasil sinkron.
+function getDeviceClockSkewMs() {
+  return _serverTimeSyncedOnce ? -_serverTimeOffsetMs : 0;
+}
+// Toleransi selisih jam (mis. keterlambatan jaringan) sebelum dianggap jam device
+// sengaja diubah dan presensi diblokir.
+const MAX_CLOCK_SKEW_MS = 3 * 60 * 1000;
+function generateLoginLogId() {
+  return "lg-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+// Dipanggil setiap kali login berhasil. Mencatat waktu login memakai jam SERVER (bukan jam
+// HP) supaya riwayat login tidak bisa direkayasa dengan mengubah jam perangkat — baik sebagai
+// log terpisah (riwayat lengkap, koleksi loginLogs) maupun ringkasan di field lastLoginAt milik
+// user (ditampilkan di panel Hak Akses).
+async function recordLoginEvent(user) {
+  await syncServerTime();
+  const iso = getTrustedNow().toISOString();
+  const userAgent = typeof navigator !== "undefined" && navigator.userAgent || "";
+  const logEntry = {
+    id: generateLoginLogId(),
+    userId: user.id,
+    userName: user.name,
+    username: user.username,
+    at: iso,
+    userAgent
+  };
+  db.collection(COL.LOGIN_LOGS).doc(logEntry.id).set(logEntry).catch(console.error);
+  updateUser(user.id, {
+    lastLoginAt: iso,
+    lastLoginAgent: userAgent
+  });
 }
 
 /* ── Fungsi baca (sinkron, dari memori) ─────────────────────────── */
@@ -1269,6 +1350,23 @@ function formatClock(d = new Date()) {
 }
 function formatTimeHM(t) {
   return t ? t.slice(0, 5) : "—";
+}
+// Format ISO datetime (mis. lastLoginAt) jadi "2 Agu 2026, 14:32" untuk ditampilkan
+// di panel Hak Akses / riwayat login.
+function formatDateTimeShortID(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  const tgl = d.toLocaleDateString("id-ID", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
+  const jam = d.toLocaleTimeString("id-ID", {
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+  return `${tgl}, ${jam}`;
 }
 function isLate(t) {
   return t > getSettings().checkInDeadline + ":00";
@@ -2771,6 +2869,9 @@ function AuthProvider({
     };
     setSession(found.id);
     setUser(found);
+    // Catat kapan user ini login (pakai jam server, bukan jam HP) — riwayat lengkap
+    // tersimpan di koleksi loginLogs, ringkasannya di field lastLoginAt milik user.
+    recordLoginEvent(found).catch(console.error);
     return {
       ok: true
     };
@@ -3385,7 +3486,17 @@ function AttendanceCard({
   }
   async function handlePhotoConfirmed(photoDataUrl) {
     setStep(STEP.SAVING);
-    const nowDate = new Date();
+    // Sinkronkan ulang ke jam server tepat sebelum menyimpan. Jam masuk/pulang & status
+    // (Hadir/Terlambat) dihitung dari jam SERVER ini, bukan jam HP — supaya tidak bisa
+    // diakali dengan mengubah pengaturan tanggal & waktu di perangkat.
+    await syncServerTime();
+    const deviceClockSkewMs = getDeviceClockSkewMs();
+    if (Math.abs(deviceClockSkewMs) > MAX_CLOCK_SKEW_MS) {
+      setError(`Jam pada perangkat Anda tidak sesuai dengan jam server (selisih sekitar ${Math.round(Math.abs(deviceClockSkewMs) / 60000)} menit). Aktifkan tanggal & waktu otomatis di pengaturan HP, lalu coba presensi lagi.`);
+      setStep(STEP.IDLE);
+      return;
+    }
+    const nowDate = getTrustedNow();
     const dateStr = todayDateStr(nowDate);
     const timeStr = nowTimeStr(nowDate);
     try {
@@ -3412,7 +3523,8 @@ function AttendanceCard({
           checkOutLng: null,
           checkOutAddress: null,
           status,
-          gpsValidated: true
+          gpsValidated: true,
+          checkInClockSkewMs: deviceClockSkewMs
         });
         // Patroli otomatis mulai berjalan begitu Absen Masuk berhasil, untuk semua status kehadiran
         // (Hadir/Terlambat/Piket Malam). Khusus Piket Malam, sesi patroli tidak menggunakan checkpoint
@@ -3436,7 +3548,8 @@ function AttendanceCard({
           checkOutDistance: locationData.distance,
           checkOutWithinRadius: locationData.withinRadius,
           checkOutNearestLocation: locationData.nearestLocation?.name || null,
-          gpsValidated: true
+          gpsValidated: true,
+          checkOutClockSkewMs: deviceClockSkewMs
         });
         // Sesi patroli yang masih aktif otomatis ditutup begitu Absen Pulang berhasil,
         // dengan lokasi absen pulang dicatat sebagai titik terakhir jejak patroli.
@@ -3446,7 +3559,7 @@ function AttendanceCard({
             path: [...(activePatrol.path || []), {
               lat: locationData.lat,
               lng: locationData.lng,
-              t: new Date().toISOString()
+              t: nowDate.toISOString()
             }]
           });
         }
@@ -11865,7 +11978,7 @@ function RoleAccessCard() {
     style: {
       overflowX: "auto"
     }
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Nama"), /*#__PURE__*/React.createElement("th", null, "Username"), /*#__PURE__*/React.createElement("th", null, "Jabatan"), /*#__PURE__*/React.createElement("th", null, "Role"), canEdit && /*#__PURE__*/React.createElement("th", null, "Aksi"))), /*#__PURE__*/React.createElement("tbody", null, allUsers.map(u => {
+  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Nama"), /*#__PURE__*/React.createElement("th", null, "Username"), /*#__PURE__*/React.createElement("th", null, "Jabatan"), /*#__PURE__*/React.createElement("th", null, "Role"), /*#__PURE__*/React.createElement("th", null, "Login Terakhir"), canEdit && /*#__PURE__*/React.createElement("th", null, "Aksi"))), /*#__PURE__*/React.createElement("tbody", null, allUsers.map(u => {
     const roleCell = /*#__PURE__*/React.createElement("select", {
       className: "input",
       style: {
@@ -11939,7 +12052,13 @@ function RoleAccessCard() {
         color: "var(--navy-700)",
         marginLeft: 6
       }
-    }, "(kamu)")), /*#__PURE__*/React.createElement("td", null, u.username), /*#__PURE__*/React.createElement("td", null, u.position || "-"), /*#__PURE__*/React.createElement("td", null, roleCell), actionCell);
+    }, "(kamu)")), /*#__PURE__*/React.createElement("td", null, u.username), /*#__PURE__*/React.createElement("td", null, u.position || "-"), /*#__PURE__*/React.createElement("td", null, roleCell), /*#__PURE__*/React.createElement("td", {
+      style: {
+        fontSize: 12.5,
+        color: "var(--navy-700)",
+        whiteSpace: "nowrap"
+      }
+    }, formatDateTimeShortID(u.lastLoginAt)), actionCell);
   }))))), editTarget && /*#__PURE__*/React.createElement(EmployeeFormModal, {
     employee: editTarget,
     onClose: () => setEditTarget(null),
