@@ -400,7 +400,8 @@ const COL = {
   PATROLS: "patrols",
   KEJADIAN: "laporan_kejadian",
   SCHEDULES: "schedules",
-  LOGIN_LOGS: "loginLogs"
+  LOGIN_LOGS: "loginLogs",
+  CHECKPOINT_PASSES: "checkpointPasses"
 };
 const store = {
   users: [],
@@ -411,6 +412,8 @@ const store = {
   patrols: [],
   kejadian: [],
   schedules: [],
+  loginLogs: [],
+  checkpointPasses: [],
   ready: false,
   tracker: {
     position: null,
@@ -451,6 +454,12 @@ async function initFirestore() {
   }, {
     key: "schedules",
     ref: db.collection(COL.SCHEDULES)
+  }, {
+    key: "loginLogs",
+    ref: db.collection(COL.LOGIN_LOGS).orderBy("at", "desc").limit(500)
+  }, {
+    key: "checkpointPasses",
+    ref: db.collection(COL.CHECKPOINT_PASSES)
   }];
   function applySnapshot(key, snap) {
     const docs = snap.docs.map(d => d.data());
@@ -458,6 +467,8 @@ async function initFirestore() {
       store.checkpoints = docs.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     } else if (key === "leaves") {
       store.leaves = docs.sort((a, b) => a.createdAt < b.createdAt ? 1 : -1);
+    } else if (key === "checkpointPasses") {
+      store.checkpointPasses = docs.sort((a, b) => a.time < b.time ? 1 : -1);
     } else {
       store[key] = docs;
     }
@@ -688,9 +699,11 @@ function deleteUser(id) {
   store.users = store.users.filter(u => u.id !== id);
   store.records = store.records.filter(r => r.userId !== id);
   store.patrols = store.patrols.filter(p => p.userId !== id);
+  store.checkpointPasses = store.checkpointPasses.filter(p => p.userId !== id);
   db.collection(COL.USERS).doc(id).delete().catch(console.error);
   db.collection(COL.RECORDS).where("userId", "==", id).get().then(snap => snap.docs.forEach(d => d.ref.delete())).catch(console.error);
   db.collection(COL.PATROLS).where("userId", "==", id).get().then(snap => snap.docs.forEach(d => d.ref.delete())).catch(console.error);
+  db.collection(COL.CHECKPOINT_PASSES).where("userId", "==", id).get().then(snap => snap.docs.forEach(d => d.ref.delete())).catch(console.error);
   return true;
 }
 // Hapus permanen sesi patroli yang userId-nya sudah tidak ada di daftar user (data lama
@@ -873,6 +886,115 @@ function deleteCheckpoint(id) {
   db.collection(COL.CHECKPOINTS).doc(id).delete().catch(console.error);
   return true;
 }
+// Total berapa kali tiap checkpoint sudah dilewati petugas, dihitung dari seluruh sesi patroli
+// (aktif maupun selesai) sepanjang waktu. Satu sesi patroli hanya menghitung satu checkpoint
+// SEKALI (checkpointsVisited sudah dedup per sesi di PatrolTracker), jadi angka ini setara dengan
+// "berapa sesi patroli yang berhasil melewati checkpoint ini".
+function getCheckpointVisitCounts() {
+  const counts = {};
+  store.patrols.forEach(p => {
+    (p.checkpointsVisited || []).forEach(v => {
+      counts[v.checkpointId] = (counts[v.checkpointId] || 0) + 1;
+    });
+  });
+  return counts;
+}
+function getCheckpointVisitCount(checkpointId) {
+  return getCheckpointVisitCounts()[checkpointId] || 0;
+}
+// Rekap rit per BULAN (dipakai di mode "Per Bulan" halaman Rekap Rit): untuk tiap karyawan,
+// hitung total rit per checkpoint sepanjang bulan tsb, plus rincian per tanggal (untuk expand).
+function getRitRecapMonthly(monthStr) {
+  const [y, m] = monthStr.split("-").map(Number);
+  const start = `${monthStr}-01`;
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const end = `${monthStr}-${String(daysInMonth).padStart(2, "0")}`;
+  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE);
+  const checkpoints = getCheckpoints();
+  const passesInRange = store.checkpointPasses.filter(p => p.date >= start && p.date <= end);
+  return employees.map(u => {
+    const userPasses = passesInRange.filter(p => p.userId === u.id);
+    const byCheckpoint = {};
+    checkpoints.forEach(cp => {
+      byCheckpoint[cp.id] = 0;
+    });
+    userPasses.forEach(p => {
+      byCheckpoint[p.checkpointId] = (byCheckpoint[p.checkpointId] || 0) + 1;
+    });
+    const byDateMap = {};
+    userPasses.forEach(p => {
+      byDateMap[p.date] = (byDateMap[p.date] || 0) + 1;
+    });
+    const byDate = Object.entries(byDateMap).sort((a, b) => a[0] < b[0] ? -1 : 1).map(([date, count]) => ({
+      date,
+      count
+    }));
+    return {
+      userId: u.id,
+      userName: u.name,
+      position: u.position,
+      avatarColor: u.avatarColor,
+      total: userPasses.length,
+      byCheckpoint,
+      byDate
+    };
+  }).sort((a, b) => b.total - a.total || a.userName.localeCompare(b.userName));
+}
+
+/* ======================= REKAP RIT (LINTAS CHECKPOINT PER HARI) =======================
+   Berbeda dengan checkpointsVisited di atas (yang dedup 1x per sesi patroli, dipakai untuk
+   skor patroli), catatan di bawah ini SENGAJA tidak di-dedup per sesi: setiap kali petugas/​
+   sopir melewati (masuk radius) sebuah checkpoint dicatat sebagai satu "rit" tersendiri,
+   walau checkpoint & sesi patrolinya sama, walau dalam 1 hari yang sama — supaya bisa dihitung
+   sudah berapa kali (berapa rit) seseorang melewati checkpoint tersebut hari itu. */
+function generateCheckpointPassId() {
+  return "cpp-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+function recordCheckpointPass(user, checkpoint, lat, lng) {
+  const pass = {
+    id: generateCheckpointPassId(),
+    userId: user.id,
+    userName: user.name,
+    checkpointId: checkpoint.id,
+    checkpointName: checkpoint.name,
+    date: todayDateStr(),
+    time: new Date().toISOString(),
+    lat,
+    lng
+  };
+  store.checkpointPasses = [pass, ...store.checkpointPasses];
+  db.collection(COL.CHECKPOINT_PASSES).doc(pass.id).set(pass).catch(console.error);
+  return pass;
+}
+function getCheckpointPasses() {
+  return store.checkpointPasses;
+}
+// Rekap jumlah rit (lintas checkpoint) per karyawan untuk 1 tanggal tertentu.
+// checkpointId null/undefined = hitung semua checkpoint digabung (byCheckpoint tetap dipecah per checkpoint).
+function getRitRecap(dateStr, checkpointId) {
+  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE);
+  const allCheckpoints = getCheckpoints();
+  const passesOnDate = store.checkpointPasses.filter(p => p.date === dateStr && (!checkpointId || p.checkpointId === checkpointId));
+  return employees.map(u => {
+    const userPasses = passesOnDate.filter(p => p.userId === u.id).sort((a, b) => a.time < b.time ? -1 : 1);
+    const byCheckpoint = {};
+    allCheckpoints.forEach(cp => {
+      byCheckpoint[cp.id] = 0;
+    });
+    userPasses.forEach(p => {
+      byCheckpoint[p.checkpointId] = (byCheckpoint[p.checkpointId] || 0) + 1;
+    });
+    return {
+      userId: u.id,
+      userName: u.name,
+      position: u.position,
+      avatarColor: u.avatarColor,
+      count: userPasses.length,
+      byCheckpoint,
+      passes: userPasses
+    };
+  }).sort((a, b) => b.count - a.count || a.userName.localeCompare(b.userName));
+}
 
 /* ======================= JADWAL KERJA (IMPORT EXCEL) =======================
    Setiap dokumen jadwal berbentuk { id, userId, userName, date: "YYYY-MM-DD", type }
@@ -895,6 +1017,14 @@ function getSchedulesForDate(dateStr) {
 }
 function getSchedulesForUserMonth(userId, monthKey) {
   return store.schedules.filter(s => s.userId === userId && s.date.startsWith(monthKey));
+}
+
+/* ======================= RIWAYAT LOGIN ======================= */
+function getLoginLogs() {
+  return store.loginLogs;
+}
+function getLoginLogsByUser(userId) {
+  return store.loginLogs.filter(l => l.userId === userId);
 }
 // Menentukan apakah tanggal tsb adalah hari libur untuk karyawan ybs — dipakai supaya rekap
 // (baik preview maupun PDF) tidak menandai Alpa pada hari yang jadwalnya "Off".
@@ -4358,6 +4488,32 @@ function RadiusNote({
     size: 13
   }), withinRadius ? `Dalam radius kantor${locName} (±${distance} m)` : `Di luar radius kantor${locName} (±${distance} m)`);
 }
+// Selisih jam HP dibanding jam server saat presensi ini dilakukan (checkInClockSkewMs /
+// checkOutClockSkewMs). Sistem sudah menolak presensi kalau selisihnya > MAX_CLOCK_SKEW_MS
+// (3 menit), jadi angka yang tersimpan di sini selalu di bawah itu — tapi selisih yang masih
+// terasa besar (mis. puluhan detik) tetap layak diwaspadai sebagai indikasi jam HP diutak-atik.
+const CLOCK_SKEW_WARN_MS = 10000; // 10 detik — ambang mulai ditampilkan sebagai peringatan
+function ClockSkewNote({
+  skewMs
+}) {
+  if (skewMs === null || skewMs === undefined) return null;
+  const absSec = Math.round(Math.abs(skewMs) / 1000);
+  if (absSec < Math.round(CLOCK_SKEW_WARN_MS / 1000)) return null;
+  const arah = skewMs > 0 ? "lebih cepat" : "lebih lambat";
+  return /*#__PURE__*/React.createElement("p", {
+    className: "flex",
+    style: {
+      alignItems: "center",
+      gap: 6,
+      fontSize: 12,
+      marginTop: 4,
+      color: "var(--amber)"
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "clock-alert",
+    size: 13
+  }), `Jam HP ${arah} ${absSec} detik dari jam server saat presensi ini — waspadai kemungkinan jam perangkat diubah manual.`);
+}
 function IzinDetailBody({
   record
 }) {
@@ -6328,6 +6484,8 @@ function AdminRecordDetail({
     distance: record.checkInDistance,
     withinRadius: record.checkInWithinRadius,
     nearestLocation: record.checkInNearestLocation
+  }), /*#__PURE__*/React.createElement(ClockSkewNote, {
+    skewMs: record.checkInClockSkewMs
   })), record.checkOutLat && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 12,
@@ -6353,6 +6511,8 @@ function AdminRecordDetail({
     distance: record.checkOutDistance,
     withinRadius: record.checkOutWithinRadius,
     nearestLocation: record.checkOutNearestLocation
+  }), /*#__PURE__*/React.createElement(ClockSkewNote, {
+    skewMs: record.checkOutClockSkewMs
   }))))));
 }
 function DashStatBox({
@@ -7392,6 +7552,14 @@ function AdminDashboard({
         color: "var(--amber)",
         flexShrink: 0
       }
+    }), Math.abs(r.checkInClockSkewMs || 0) >= CLOCK_SKEW_WARN_MS && /*#__PURE__*/React.createElement(Icon, {
+      name: "clock-alert",
+      size: 12,
+      title: `Jam HP selisih ${Math.round(Math.abs(r.checkInClockSkewMs) / 1000)} detik dari server saat absen masuk`,
+      style: {
+        color: "var(--amber)",
+        flexShrink: 0
+      }
     }))), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("button", {
       onClick: () => setDetailRecord(r),
       style: {
@@ -7741,6 +7909,10 @@ function PatrolTracker({
   const lastSavedRef = useRef(null);
   const currentPosRef = useRef(null);
   const wakeLockRef = useRef(null);
+  // Status "sedang di dalam radius" tiap checkpoint, dipakai untuk mendeteksi setiap kali
+  // petugas/sopir MASUK radius checkpoint (bukan cuma sekali per sesi seperti checkpointsVisited),
+  // supaya lintasan berulang dalam 1 hari yang sama tetap tercatat sebagai rit terpisah-pisah.
+  const insideCheckpointRef = useRef({});
   // Ref selalu berisi sesi patroli TERKINI (di-refresh setiap render). Wajib dipakai di dalam
   // handleNewPosition (bukan variabel `activePatrol` langsung), karena handleNewPosition dibungkus
   // watchPosition/BgGeo callback yang hanya didaftarkan SEKALI saat sesi mulai (lihat effect dengan
@@ -7971,6 +8143,25 @@ function PatrolTracker({
           checkpointsVisited: nextVisited
         });
       }
+
+      // Deteksi RIT: setiap kali user MASUK radius sebuah checkpoint (transisi luar -> dalam),
+      // dicatat sebagai 1 lintasan baru, terlepas dari checkpointsVisited di atas (yang cuma sekali
+      // per sesi). Pakai buffer keluar (+15m) supaya jitter GPS di pinggir radius tidak dihitung
+      // berkali-kali sebagai lintasan baru.
+      checkpoints.forEach(cp => {
+        if (cp.lat == null || cp.lng == null) return;
+        const d = distanceMeters(lat, lng, cp.lat, cp.lng);
+        const radius = cp.radius || DEFAULT_CHECKPOINT_RADIUS;
+        const wasInside = insideCheckpointRef.current[cp.id] === true;
+        const isInside = d <= radius;
+        const isOutside = d > radius + 15;
+        if (isInside && !wasInside) {
+          insideCheckpointRef.current[cp.id] = true;
+          recordCheckpointPass(user, cp, lat, lng);
+        } else if (isOutside && wasInside) {
+          insideCheckpointRef.current[cp.id] = false;
+        }
+      });
     }
     store.tracker = {
       position: {
@@ -9365,6 +9556,15 @@ function AdminPatrolMapPage() {
     return () => clearInterval(t);
   }, []);
   const checkpoints = useMemo(() => getCheckpoints(), [store.checkpoints]);
+  const visitCounts = useMemo(() => {
+    const today = todayDateStr();
+    const counts = {};
+    store.checkpointPasses.forEach(p => {
+      if (p.date !== today) return;
+      counts[p.checkpointId] = (counts[p.checkpointId] || 0) + 1;
+    });
+    return counts;
+  }, [store.checkpointPasses]);
   const allPatrols = useMemo(() => getPatrols(), [store.patrols]);
   const todayStr = todayDateStr();
   // Jaga-jaga: sesi ACTIVE dari tanggal selain hari ini seharusnya sudah ditutup otomatis oleh
@@ -9634,7 +9834,7 @@ function AdminPatrolMapPage() {
     }, /*#__PURE__*/React.createElement(Icon, {
       name: "check",
       size: 11
-    }), " ", v.name, " · ", formatClock(new Date(v.time)))), pending.map(cp => /*#__PURE__*/React.createElement("span", {
+    }), " ", v.name, " · ", formatClock(new Date(v.time)), " · ", visitCounts[v.checkpointId] || 0, " rit hari ini")), pending.map(cp => /*#__PURE__*/React.createElement("span", {
       key: cp.id,
       className: "badge",
       style: {
@@ -9645,7 +9845,7 @@ function AdminPatrolMapPage() {
     }, /*#__PURE__*/React.createElement(Icon, {
       name: "circle-dashed",
       size: 11
-    }), " ", cp.name))));
+    }), " ", cp.name, " · ", visitCounts[cp.id] || 0, " rit hari ini"))));
   }))), completedToday.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
@@ -11257,7 +11457,7 @@ function PanduanPage() {
     icon: "settings",
     title: "Arti Setiap Pengaturan (Settings)"
   }, /*#__PURE__*/React.createElement(GuideList, {
-    items: ["Hak Akses (role pengguna) — atur siapa saja yang punya akses Admin, View Only, atau Karyawan, dan di sinilah tempat menambah karyawan/pengguna baru (tombol \"Tambah Pengguna\").", "Jam Potong Masuk (checkInDeadline) — batas jam check-in supaya masih dihitung \"Hadir\"; lewat dari jam ini otomatis \"Terlambat\".", "Jam Pulang Normal (shiftEndTime) — jam pulang yang diharapkan untuk shift Hadir/Terlambat, dipakai untuk mendeteksi \"pulang lebih awal\".", "Mulai Piket Malam (nightShiftStart) & Selesai Piket Malam (nightShiftEnd) — jendela jam yang dipakai untuk mendeteksi otomatis status Piket Malam kalau tidak ada Jadwal resmi.", "Lokasi Kantor (officeLocations) — daftar titik koordinat kantor/pos, maksimal 5 lokasi.", "Radius Presensi (radiusMeters) — jarak maksimal (meter) dari salah satu Lokasi Kantor supaya presensi dianggap valid.", "Wajib Dalam Radius (enforceRadius) — kalau diaktifkan, karyawan di luar radius semua Lokasi Kantor tidak bisa presensi sama sekali."]
+    items: ["Hak Akses (role pengguna) — atur siapa saja yang punya akses Admin, View Only, atau Karyawan, dan di sinilah tempat menambah karyawan/pengguna baru (tombol \"Tambah Pengguna\").", "Riwayat Login — catatan waktu setiap pengguna login, memakai jam server (bukan jam perangkat) supaya tidak bisa direkayasa; bisa difilter per nama atau per tanggal.", "Jam Potong Masuk (checkInDeadline) — batas jam check-in supaya masih dihitung \"Hadir\"; lewat dari jam ini otomatis \"Terlambat\".", "Jam Pulang Normal (shiftEndTime) — jam pulang yang diharapkan untuk shift Hadir/Terlambat, dipakai untuk mendeteksi \"pulang lebih awal\".", "Mulai Piket Malam (nightShiftStart) & Selesai Piket Malam (nightShiftEnd) — jendela jam yang dipakai untuk mendeteksi otomatis status Piket Malam kalau tidak ada Jadwal resmi.", "Checkpoint Patroli — daftar titik checkpoint patroli (nama, koordinat, radius), maksimal 30 titik; checkpoint otomatis tercentang saat petugas berada dalam radiusnya.", "Lokasi Kantor (officeLocations) — daftar titik koordinat kantor/pos, maksimal 5 lokasi.", "Radius Presensi (radiusMeters) — jarak maksimal (meter) dari salah satu Lokasi Kantor supaya presensi dianggap valid.", "Wajib Dalam Radius (enforceRadius) — kalau diaktifkan, karyawan di luar radius semua Lokasi Kantor tidak bisa presensi sama sekali."]
   })), /*#__PURE__*/React.createElement(GuideSection, {
     icon: "file-text",
     title: "Rekap Kehadiran & Alpa Otomatis"
@@ -11265,6 +11465,416 @@ function PanduanPage() {
     items: ["Ada Jadwal \"Standby\" untuk tanggal itu → ditandai \"Standby\", bukan Alpa.", "Ada Jadwal \"Masuk\"/\"Piket Malam\" tapi tidak ada presensi → Alpa.", "Belum ada Jadwal sama sekali → Sabtu/Minggu otomatis dianggap libur (bukan Alpa), Senin–Jumat tanpa presensi dianggap Alpa.", "Sebelum tanggal karyawan bergabung (joinDate), atau tanggal hari ini/masa depan → tidak dihitung sama sekali."]
   }), /*#__PURE__*/React.createElement("p", null, "Logika ini dipakai konsisten di Riwayat, Rekap PDF, dan perhitungan Skor Kehadiran — supaya angkanya selalu sama di semua halaman.")));
 }
+
+/* ======================= RIWAYAT LOGIN (ADMIN) ======================= */
+function loginDeviceLabel(ua) {
+  if (!ua) return "—";
+  if (/android/i.test(ua)) return "Android";
+  if (/iphone|ipad|ipod/i.test(ua)) return "iOS";
+  if (/windows/i.test(ua)) return "Windows";
+  if (/macintosh|mac os/i.test(ua)) return "Mac";
+  if (/linux/i.test(ua)) return "Linux";
+  return "Perangkat lain";
+}
+function RekapRitPage() {
+  useStoreSync();
+  const [mode, setMode] = useState("harian"); // "harian" | "bulanan"
+  const [dateFilter, setDateFilter] = useState(todayDateStr());
+  const [monthFilter, setMonthFilter] = useState(todayDateStr().slice(0, 7));
+  const [checkpointFilter, setCheckpointFilter] = useState("");
+  const [nameFilter, setNameFilter] = useState("");
+  const [expandedUserId, setExpandedUserId] = useState(null);
+  const checkpoints = useMemo(() => getCheckpoints(), [store.checkpoints]);
+
+  // ---- Mode Harian (existing) ----
+  const dailyRecap = useMemo(() => getRitRecap(dateFilter, checkpointFilter || null), [dateFilter, checkpointFilter, store.checkpointPasses, store.users]);
+  const filteredDaily = useMemo(() => dailyRecap.filter(r => !nameFilter || r.userName.toLowerCase().includes(nameFilter.toLowerCase())), [dailyRecap, nameFilter]);
+  const totalDaily = dailyRecap.reduce((sum, r) => sum + r.count, 0);
+  const activeDailyCount = dailyRecap.filter(r => r.count > 0).length;
+
+  // ---- Mode Bulanan (baru) ----
+  const monthlyRecap = useMemo(() => getRitRecapMonthly(monthFilter), [monthFilter, store.checkpointPasses, store.users, store.checkpoints]);
+  const filteredMonthly = useMemo(() => monthlyRecap.filter(r => !nameFilter || r.userName.toLowerCase().includes(nameFilter.toLowerCase())), [monthlyRecap, nameFilter]);
+  const totalMonthly = monthlyRecap.reduce((sum, r) => sum + r.total, 0);
+  const activeMonthlyCount = monthlyRecap.filter(r => r.total > 0).length;
+  const monthCheckpoints = checkpointFilter ? checkpoints.filter(cp => cp.id === checkpointFilter) : checkpoints;
+
+  function clearFilters() {
+    setDateFilter(todayDateStr());
+    setMonthFilter(todayDateStr().slice(0, 7));
+    setCheckpointFilter("");
+    setNameFilter("");
+  }
+  const isFiltered = mode === "harian" ? (dateFilter !== todayDateStr() || checkpointFilter || nameFilter) : (monthFilter !== todayDateStr().slice(0, 7) || checkpointFilter || nameFilter);
+
+  const headerEl = React.createElement("div", { style: { marginBottom: 20 } },
+    React.createElement("h1", { style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Rekap Rit"),
+    React.createElement("p", { style: { color: "var(--navy-700)", fontSize: 14, marginTop: 2 } },
+      "Jumlah lintasan (rit) tiap karyawan melewati checkpoint — tiap kali masuk radius checkpoint dihitung 1 rit. Pilih mode Per Tanggal untuk rekap 1 hari, atau Per Bulan untuk melihat total per checkpoint sebulan (mis. \u201cRivaldo lewat STO Bahu berapa kali bulan ini\u201d).")
+  );
+
+  const modeToggleEl = React.createElement("div", {
+    className: "flex", style: { gap: 8, marginBottom: 16 }
+  },
+    React.createElement("button", {
+      onClick: () => setMode("harian"),
+      style: {
+        fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 999,
+        background: mode === "harian" ? "var(--red)" : "var(--navy-50)",
+        color: mode === "harian" ? "#fff" : "var(--navy-700)"
+      }
+    }, "Per Tanggal"),
+    React.createElement("button", {
+      onClick: () => setMode("bulanan"),
+      style: {
+        fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 999,
+        background: mode === "bulanan" ? "var(--red)" : "var(--navy-50)",
+        color: mode === "bulanan" ? "#fff" : "var(--navy-700)"
+      }
+    }, "Per Bulan")
+  );
+
+  const summaryEl = React.createElement("div", {
+    className: "flex",
+    style: { gap: 12, marginBottom: 20, flexWrap: "wrap" }
+  },
+    React.createElement("div", { className: "card", style: { padding: "14px 18px", flex: "1 1 160px" } },
+      React.createElement("p", { style: { fontSize: 12, color: "var(--navy-700)" } }, mode === "harian" ? "Total Rit (tanggal ini)" : "Total Rit (bulan ini)"),
+      React.createElement("p", { style: { fontSize: 24, fontWeight: 700, color: "var(--navy-900)" } }, mode === "harian" ? totalDaily : totalMonthly)
+    ),
+    React.createElement("div", { className: "card", style: { padding: "14px 18px", flex: "1 1 160px" } },
+      React.createElement("p", { style: { fontSize: 12, color: "var(--navy-700)" } }, "Karyawan Sudah Lintas"),
+      React.createElement("p", { style: { fontSize: 24, fontWeight: 700, color: "var(--navy-900)" } },
+        mode === "harian" ? `${activeDailyCount} / ${dailyRecap.length}` : `${activeMonthlyCount} / ${monthlyRecap.length}`)
+    )
+  );
+
+  const filterEl = React.createElement("div", { className: "card", style: { padding: 16, marginBottom: 20 } },
+    React.createElement("div", { className: "flex", style: { flexWrap: "wrap", alignItems: "center", gap: 12 } },
+      mode === "harian" ? React.createElement("input", {
+        type: "date",
+        value: dateFilter,
+        onChange: e => setDateFilter(e.target.value || todayDateStr()),
+        className: "input",
+        style: { width: "auto", color: "var(--navy-700)" }
+      }) : React.createElement("input", {
+        type: "month",
+        value: monthFilter,
+        onChange: e => setMonthFilter(e.target.value || todayDateStr().slice(0, 7)),
+        className: "input",
+        style: { width: "auto", color: "var(--navy-700)" }
+      }),
+      React.createElement("select", {
+        value: checkpointFilter,
+        onChange: e => setCheckpointFilter(e.target.value),
+        className: "input",
+        style: { width: "auto", color: "var(--navy-700)" }
+      },
+        React.createElement("option", { value: "" }, "Semua Checkpoint"),
+        ...checkpoints.map(cp => React.createElement("option", { key: cp.id, value: cp.id }, cp.name))
+      ),
+      React.createElement("div", { style: { position: "relative", flex: 1, minWidth: 180 } },
+        React.createElement("span", { style: { position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--navy-700)" } },
+          React.createElement(Icon, { name: "search", size: 15 })
+        ),
+        React.createElement("input", {
+          type: "text",
+          value: nameFilter,
+          onChange: e => setNameFilter(e.target.value),
+          placeholder: "Cari nama karyawan\u2026",
+          className: "input",
+          style: { paddingLeft: 36 }
+        })
+      ),
+      isFiltered ? React.createElement("button", {
+        onClick: clearFilters,
+        style: { fontSize: 12, fontWeight: 600, color: "var(--accent-700)", textDecoration: "underline" }
+      }, "Reset filter") : null
+    )
+  );
+
+  /* ============ TABEL MODE HARIAN (per lintasan, jam-jamnya) ============ */
+  function renderDailyTable() {
+    const dayCheckpoints = checkpointFilter ? checkpoints.filter(cp => cp.id === checkpointFilter) : checkpoints;
+    const theadEl = React.createElement("thead", null,
+      React.createElement("tr", null,
+        React.createElement("th", null, "Karyawan"),
+        React.createElement("th", null, "Jabatan"),
+        ...dayCheckpoints.map(cp => React.createElement("th", { key: cp.id, style: { textAlign: "center" } }, cp.name)),
+        React.createElement("th", { style: { textAlign: "center" } }, "Total"),
+        React.createElement("th", null, "")
+      )
+    );
+    const colSpan = 3 + dayCheckpoints.length + 1;
+    const emptyRowEl = React.createElement("tr", null,
+      React.createElement("td", {
+        colSpan,
+        style: { textAlign: "center", color: "var(--navy-700)", padding: "40px 0", fontSize: 14 }
+      }, "Tidak ada data yang cocok dengan filter.")
+    );
+    const rows = [];
+    filteredDaily.forEach(r => {
+      const isExpanded = expandedUserId === r.userId;
+      rows.push(React.createElement("tr", { key: r.userId },
+        React.createElement("td", null,
+          React.createElement("div", { className: "flex", style: { alignItems: "center", gap: 10 } },
+            React.createElement(Avatar, { name: r.userName, color: r.avatarColor, size: 28 }),
+            React.createElement("span", { style: { fontWeight: 500, color: "var(--navy-900)" } }, r.userName)
+          )
+        ),
+        React.createElement("td", { style: { color: "var(--navy-700)" } }, r.position || "\u2014"),
+        ...dayCheckpoints.map(cp => React.createElement("td", { key: cp.id, style: { textAlign: "center", color: "var(--navy-700)" } }, r.byCheckpoint[cp.id] || 0)),
+        React.createElement("td", { style: { textAlign: "center" } },
+          React.createElement("span", {
+            style: {
+              display: "inline-block", minWidth: 28, textAlign: "center", fontWeight: 700,
+              color: r.count > 0 ? "var(--navy-900)" : "var(--navy-700)",
+              background: r.count > 0 ? "rgba(22,163,74,.12)" : "transparent",
+              borderRadius: 8, padding: "3px 10px"
+            }
+          }, r.count)
+        ),
+        React.createElement("td", null,
+          r.count > 0 ? React.createElement("button", {
+            onClick: () => setExpandedUserId(isExpanded ? null : r.userId),
+            style: { fontSize: 12, fontWeight: 600, color: "var(--accent-700)", textDecoration: "underline", whiteSpace: "nowrap" }
+          }, isExpanded ? "Tutup" : "Lihat detail") : null
+        )
+      ));
+      if (isExpanded && r.passes.length > 0) {
+        rows.push(React.createElement("tr", { key: r.userId + "-detail" },
+          React.createElement("td", { colSpan, style: { background: "var(--navy-50)", padding: "12px 16px" } },
+            React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } },
+              r.passes.map((p, i) => React.createElement("span", {
+                key: p.id,
+                style: {
+                  fontSize: 12, color: "var(--navy-900)", background: "#fff",
+                  border: "1px solid var(--line)", borderRadius: 20, padding: "4px 10px"
+                }
+              }, `#${i + 1} \u00b7 ${p.checkpointName} \u00b7 ${formatDateTimeShortID(p.time).split(", ")[1]}`))
+            )
+          )
+        ));
+      }
+    });
+    return React.createElement("div", { className: "table-wrap" },
+      React.createElement("table", null, theadEl, React.createElement("tbody", null, filteredDaily.length === 0 ? emptyRowEl : null, ...rows))
+    );
+  }
+
+  /* ============ TABEL MODE BULANAN (matriks per checkpoint + total) ============ */
+  function renderMonthlyTable() {
+    const theadEl = React.createElement("thead", null,
+      React.createElement("tr", null,
+        React.createElement("th", null, "Karyawan"),
+        React.createElement("th", null, "Jabatan"),
+        ...monthCheckpoints.map(cp => React.createElement("th", { key: cp.id, style: { textAlign: "center" } }, cp.name)),
+        React.createElement("th", { style: { textAlign: "center" } }, "Total"),
+        React.createElement("th", null, "")
+      )
+    );
+    const colSpan = 3 + monthCheckpoints.length + 1;
+    const emptyRowEl = React.createElement("tr", null,
+      React.createElement("td", {
+        colSpan,
+        style: { textAlign: "center", color: "var(--navy-700)", padding: "40px 0", fontSize: 14 }
+      }, "Tidak ada data yang cocok dengan filter.")
+    );
+    const rows = [];
+    filteredMonthly.forEach(r => {
+      const isExpanded = expandedUserId === r.userId;
+      const rowTotal = checkpointFilter ? (r.byCheckpoint[checkpointFilter] || 0) : r.total;
+      rows.push(React.createElement("tr", { key: r.userId },
+        React.createElement("td", null,
+          React.createElement("div", { className: "flex", style: { alignItems: "center", gap: 10 } },
+            React.createElement(Avatar, { name: r.userName, color: r.avatarColor, size: 28 }),
+            React.createElement("span", { style: { fontWeight: 500, color: "var(--navy-900)" } }, r.userName)
+          )
+        ),
+        React.createElement("td", { style: { color: "var(--navy-700)" } }, r.position || "\u2014"),
+        ...monthCheckpoints.map(cp => React.createElement("td", { key: cp.id, style: { textAlign: "center", color: "var(--navy-700)" } }, r.byCheckpoint[cp.id] || 0)),
+        React.createElement("td", { style: { textAlign: "center" } },
+          React.createElement("span", {
+            style: {
+              display: "inline-block", minWidth: 28, textAlign: "center", fontWeight: 700,
+              color: rowTotal > 0 ? "var(--navy-900)" : "var(--navy-700)",
+              background: rowTotal > 0 ? "rgba(22,163,74,.12)" : "transparent",
+              borderRadius: 8, padding: "3px 10px"
+            }
+          }, rowTotal)
+        ),
+        React.createElement("td", null,
+          r.byDate.length > 0 ? React.createElement("button", {
+            onClick: () => setExpandedUserId(isExpanded ? null : r.userId),
+            style: { fontSize: 12, fontWeight: 600, color: "var(--accent-700)", textDecoration: "underline", whiteSpace: "nowrap" }
+          }, isExpanded ? "Tutup" : "Lihat harian") : null
+        )
+      ));
+      if (isExpanded && r.byDate.length > 0) {
+        rows.push(React.createElement("tr", { key: r.userId + "-detail" },
+          React.createElement("td", { colSpan, style: { background: "var(--navy-50)", padding: "12px 16px" } },
+            React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } },
+              r.byDate.map(d => React.createElement("span", {
+                key: d.date,
+                style: {
+                  fontSize: 12, color: "var(--navy-900)", background: "#fff",
+                  border: "1px solid var(--line)", borderRadius: 20, padding: "4px 10px"
+                }
+              }, `${formatDateShortID(d.date)} \u00b7 ${d.count} rit`))
+            )
+          )
+        ));
+      }
+    });
+    return React.createElement("div", { className: "table-wrap" },
+      React.createElement("table", null, theadEl, React.createElement("tbody", null, filteredMonthly.length === 0 ? emptyRowEl : null, ...rows))
+    );
+  }
+
+  const listCardEl = React.createElement("div", { className: "card", style: { overflow: "hidden" } },
+    mode === "harian" ? renderDailyTable() : renderMonthlyTable()
+  );
+
+  return React.createElement("div", { className: "container-app" }, headerEl, modeToggleEl, summaryEl, filterEl, listCardEl);
+}
+
+function LoginHistoryCard() {
+  useStoreSync();
+  const [expanded, setExpanded] = useState(false);
+  const [nameFilter, setNameFilter] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
+  const logs = useMemo(() => getLoginLogs(), [store.loginLogs]);
+  const filtered = useMemo(() => logs.filter(l => {
+    if (nameFilter && !`${l.userName || ""} ${l.username || ""}`.toLowerCase().includes(nameFilter.toLowerCase())) return false;
+    if (dateFilter && (l.at || "").slice(0, 10) !== dateFilter) return false;
+    return true;
+  }), [logs, nameFilter, dateFilter]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paged = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  function clearFilters() {
+    setNameFilter("");
+    setDateFilter("");
+    setPage(1);
+  }
+
+  const headerEl = React.createElement("div", {
+    className: "flex",
+    style: { alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", cursor: "pointer" },
+    onClick: () => setExpanded(e => !e)
+  },
+    React.createElement("div", null,
+      React.createElement("h3", { style: { fontSize: 15, fontWeight: 700, color: "var(--navy-900)", marginBottom: 4 } }, "Riwayat Login"),
+      React.createElement("p", { style: { fontSize: 13, color: "var(--navy-700)" } },
+        "Catatan waktu login tiap pengguna, memakai jam server (bukan jam perangkat) supaya tidak bisa direkayasa.")
+    ),
+    React.createElement("button", {
+      type: "button",
+      onClick: e => { e.stopPropagation(); setExpanded(x => !x); },
+      style: { fontSize: 12, fontWeight: 600, color: "var(--accent-700)", display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }
+    }, expanded ? "Sembunyikan" : "Lihat Riwayat Login", React.createElement(Icon, { name: expanded ? "chevron-up" : "chevron-down", size: 14 }))
+  );
+
+  if (!expanded) {
+    return React.createElement("div", { className: "card", style: { padding: 20, marginTop: 20 } }, headerEl);
+  }
+
+  const filterEl = React.createElement("div", { style: { marginTop: 16 } },
+    React.createElement("div", { className: "flex", style: { flexWrap: "wrap", alignItems: "center", gap: 12, marginBottom: 12 } },
+      React.createElement("div", { style: { position: "relative", flex: 1, minWidth: 180 } },
+        React.createElement("span", { style: { position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--navy-700)" } },
+          React.createElement(Icon, { name: "search", size: 15 })
+        ),
+        React.createElement("input", {
+          type: "text",
+          value: nameFilter,
+          onChange: e => { setNameFilter(e.target.value); setPage(1); },
+          placeholder: "Cari nama atau username\u2026",
+          className: "input",
+          style: { paddingLeft: 36 }
+        })
+      ),
+      React.createElement("input", {
+        type: "date",
+        value: dateFilter,
+        onChange: e => { setDateFilter(e.target.value); setPage(1); },
+        className: "input",
+        style: { width: "auto", color: "var(--navy-700)" }
+      }),
+      (nameFilter || dateFilter) ? React.createElement("button", {
+        onClick: clearFilters,
+        style: { fontSize: 12, fontWeight: 600, color: "var(--accent-700)", textDecoration: "underline" }
+      }, "Reset filter") : null
+    )
+  );
+
+  const listHeaderEl = React.createElement("div", {
+    className: "flex",
+    style: { alignItems: "center", justifyContent: "space-between", padding: "10px 4px" }
+  },
+    React.createElement("span", { style: { fontSize: 12, color: "var(--navy-700)" } },
+      filtered.length === 0 ? "0" : `${(safePage - 1) * PAGE_SIZE + 1}-${Math.min(safePage * PAGE_SIZE, filtered.length)}`, " dari ", filtered.length
+    ),
+    React.createElement("div", { className: "flex", style: { alignItems: "center", gap: 10 } },
+      React.createElement("button", {
+        onClick: () => setPage(p => Math.max(1, p - 1)),
+        disabled: safePage <= 1,
+        style: { width: 26, height: 26, borderRadius: 7, border: "1px solid var(--line)", background: "var(--navy-50)", color: "var(--navy-900)", opacity: safePage <= 1 ? .4 : 1 }
+      }, "\u2039"),
+      React.createElement("button", {
+        onClick: () => setPage(p => Math.min(totalPages, p + 1)),
+        disabled: safePage >= totalPages,
+        style: { width: 26, height: 26, borderRadius: 7, border: "1px solid var(--line)", background: "var(--navy-50)", color: "var(--navy-900)", opacity: safePage >= totalPages ? .4 : 1 }
+      }, "\u203a")
+    )
+  );
+
+  const theadEl = React.createElement("thead", null,
+    React.createElement("tr", null,
+      React.createElement("th", null, "Pengguna"),
+      React.createElement("th", null, "Username"),
+      React.createElement("th", null, "Waktu Login"),
+      React.createElement("th", null, "Perangkat")
+    )
+  );
+
+  const emptyRowEl = React.createElement("tr", null,
+    React.createElement("td", {
+      colSpan: 4,
+      style: { textAlign: "center", color: "var(--navy-700)", padding: "40px 0", fontSize: 14 }
+    }, "Tidak ada catatan login yang cocok dengan filter.")
+  );
+
+  const dataRowEls = paged.map(l => {
+    const u = getUserById(l.userId);
+    const nameCell = React.createElement("td", null,
+      React.createElement("div", { className: "flex", style: { alignItems: "center", gap: 10 } },
+        React.createElement(Avatar, { name: l.userName || "?", color: u && u.avatarColor, size: 28 }),
+        React.createElement("span", { style: { fontWeight: 500, color: "var(--navy-900)" } }, l.userName || "(pengguna dihapus)")
+      )
+    );
+    const usernameCell = React.createElement("td", { style: { color: "var(--navy-700)" } }, l.username || "\u2014");
+    const timeCell = React.createElement("td", { style: { color: "var(--navy-700)" } }, formatDateTimeShortID(l.at));
+    const deviceCell = React.createElement("td", { style: { color: "var(--navy-700)", fontSize: 12.5 } }, loginDeviceLabel(l.userAgent));
+    return React.createElement("tr", { key: l.id }, nameCell, usernameCell, timeCell, deviceCell);
+  });
+
+  const tbodyEl = React.createElement("tbody", null,
+    paged.length === 0 ? emptyRowEl : null,
+    ...dataRowEls
+  );
+
+  const tableEl = React.createElement("div", { className: "table-wrap" },
+    React.createElement("table", null, theadEl, tbodyEl)
+  );
+
+  return React.createElement("div", { className: "card", style: { padding: 20, marginTop: 20 } },
+    headerEl, filterEl, listHeaderEl, tableEl
+  );
+}
+
 function SettingsPage() {
   const {
     canEdit
@@ -11393,7 +12003,7 @@ function SettingsPage() {
       padding: "10px 14px",
       borderRadius: 10
     }
-  }, error), /*#__PURE__*/React.createElement(RoleAccessCard, null), /*#__PURE__*/React.createElement("fieldset", {
+  }, error), /*#__PURE__*/React.createElement(RoleAccessCard, null), /*#__PURE__*/React.createElement(LoginHistoryCard, null), /*#__PURE__*/React.createElement("fieldset", {
     disabled: !canEdit,
     style: {
       border: 0,
@@ -11978,7 +12588,7 @@ function RoleAccessCard() {
     style: {
       overflowX: "auto"
     }
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Nama"), /*#__PURE__*/React.createElement("th", null, "Username"), /*#__PURE__*/React.createElement("th", null, "Jabatan"), /*#__PURE__*/React.createElement("th", null, "Role"), /*#__PURE__*/React.createElement("th", null, "Login Terakhir"), canEdit && /*#__PURE__*/React.createElement("th", null, "Aksi"))), /*#__PURE__*/React.createElement("tbody", null, allUsers.map(u => {
+  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Nama"), /*#__PURE__*/React.createElement("th", null, "Username"), /*#__PURE__*/React.createElement("th", null, "Jabatan"), /*#__PURE__*/React.createElement("th", null, "Role"), canEdit && /*#__PURE__*/React.createElement("th", null, "Aksi"))), /*#__PURE__*/React.createElement("tbody", null, allUsers.map(u => {
     const roleCell = /*#__PURE__*/React.createElement("select", {
       className: "input",
       style: {
@@ -12052,13 +12662,7 @@ function RoleAccessCard() {
         color: "var(--navy-700)",
         marginLeft: 6
       }
-    }, "(kamu)")), /*#__PURE__*/React.createElement("td", null, u.username), /*#__PURE__*/React.createElement("td", null, u.position || "-"), /*#__PURE__*/React.createElement("td", null, roleCell), /*#__PURE__*/React.createElement("td", {
-      style: {
-        fontSize: 12.5,
-        color: "var(--navy-700)",
-        whiteSpace: "nowrap"
-      }
-    }, formatDateTimeShortID(u.lastLoginAt)), actionCell);
+    }, "(kamu)")), /*#__PURE__*/React.createElement("td", null, u.username), /*#__PURE__*/React.createElement("td", null, u.position || "-"), /*#__PURE__*/React.createElement("td", null, roleCell), actionCell);
   }))))), editTarget && /*#__PURE__*/React.createElement(EmployeeFormModal, {
     employee: editTarget,
     onClose: () => setEditTarget(null),
@@ -12080,6 +12684,15 @@ function PatrolCheckpointSettings() {
   const [locatingId, setLocatingId] = useState(null);
   const [toast, setToast] = useState("");
   const checkpoints = getCheckpoints();
+  const todayRitCounts = useMemo(() => {
+    const today = todayDateStr();
+    const counts = {};
+    store.checkpointPasses.forEach(p => {
+      if (p.date !== today) return;
+      counts[p.checkpointId] = (counts[p.checkpointId] || 0) + 1;
+    });
+    return counts;
+  }, [store.checkpointPasses]);
   function showToast(msg) {
     setToast(msg);
     setTimeout(() => setToast(""), 2500);
@@ -12215,7 +12828,19 @@ function PatrolCheckpointSettings() {
       name: e.target.value
     }),
     placeholder: `Nama checkpoint ${idx + 1}`
-  }), /*#__PURE__*/React.createElement("button", {
+  }), /*#__PURE__*/React.createElement("span", {
+    title: "Jumlah rit (lintasan) checkpoint ini hari ini",
+    style: {
+      flexShrink: 0,
+      fontSize: 11,
+      fontWeight: 700,
+      padding: "4px 10px",
+      borderRadius: 999,
+      background: todayRitCounts[cp.id] ? "var(--green-soft)" : "var(--slate-mist)",
+      color: todayRitCounts[cp.id] ? "var(--green)" : "var(--navy-700)",
+      whiteSpace: "nowrap"
+    }
+  }, todayRitCounts[cp.id] || 0, " rit hari ini"), /*#__PURE__*/React.createElement("button", {
     onClick: () => deleteCheckpoint(cp.id),
     title: "Hapus checkpoint ini",
     style: {
@@ -12538,6 +13163,10 @@ function App() {
       label: "Peta Live Patroli",
       icon: "map"
     }, {
+      key: "rekap-rit",
+      label: "Rekap Rit",
+      icon: "repeat"
+    }, {
       key: "jadwal",
       label: "Jadwal Kerja",
       icon: "calendar-days"
@@ -12608,6 +13237,7 @@ function App() {
     if (canViewAdmin) {
       if (page === "employees") return /*#__PURE__*/React.createElement(EmployeesPage, null);
       if (page === "patrol-map") return /*#__PURE__*/React.createElement(AdminPatrolMapPage, null);
+      if (page === "rekap-rit") return /*#__PURE__*/React.createElement(RekapRitPage, null);
       if (page === "jadwal") return /*#__PURE__*/React.createElement(JadwalAdminPage, null);
       if (page === "penilaian") return /*#__PURE__*/React.createElement(PenilaianAdminPage, null);
       if (page === "kejadian") return /*#__PURE__*/React.createElement(KejadianPage, null);
