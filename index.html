@@ -41,6 +41,10 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
+<!-- face-api.js — deteksi wajah real-time di kamera presensi, supaya foto yang diterima
+     WAJIB berisi wajah manusia (bukan foto benda/lantai/langit/dsb). -->
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+
 <!-- Export Excel & PDF — dipakai hanya di beberapa halaman admin, dimuat belakangan (defer)
      supaya tidak ikut menahan proses buka aplikasi di awal -->
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1906,19 +1910,78 @@ function speedKmh(prevPoint, curPoint) {
   return distM / dtSec * 3.6;
 }
 
-/* ======================= HOOK KAMERA (live capture, anti-galeri) ======================= */
+/* ======================= DETEKSI WAJAH (wajib wajah utk presensi) =======================
+   Memakai face-api.js (TensorFlow.js) — model Tiny Face Detector diunduh sekali dari CDN
+   lalu dipakai untuk memvalidasi bahwa objek di depan kamera memang wajah manusia,
+   bukan tembok/lantai/langit/foto galeri/dsb. */
+let _faceModelsPromise = null;
+function loadFaceModels() {
+  if (!_faceModelsPromise) {
+    _faceModelsPromise = new Promise((resolve, reject) => {
+      if (typeof faceapi === "undefined") {
+        reject(new Error("Modul deteksi wajah tidak berhasil dimuat."));
+        return;
+      }
+      faceapi.nets.tinyFaceDetector
+        .loadFromUri("https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js/weights")
+        .then(resolve)
+        .catch(reject);
+    }).catch(err => {
+      _faceModelsPromise = null; // izinkan dicoba ulang kalau gagal (mis. offline)
+      throw err;
+    });
+  }
+  return _faceModelsPromise;
+}
+async function detectFaceIn(mediaEl) {
+  if (typeof faceapi === "undefined" || !mediaEl) return false;
+  try {
+    const result = await faceapi.detectSingleFace(mediaEl, new faceapi.TinyFaceDetectorOptions({
+      inputSize: 224,
+      scoreThreshold: 0.5
+    }));
+    return !!result;
+  } catch (e) {
+    return false;
+  }
+}
+
+/* ======================= HOOK KAMERA (live capture, anti-galeri, wajib wajah) ======================= */
 function useCamera() {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const detectTimerRef = useRef(null);
   const [isActive, setIsActive] = useState(false);
   const [error, setError] = useState(null);
   const [facingMode, setFacingMode] = useState("user");
+  const [modelsReady, setModelsReady] = useState(false);
+  const [modelsError, setModelsError] = useState(null);
+  const [faceDetected, setFaceDetected] = useState(false);
+
+  // Muat model deteksi wajah sekali saat hook pertama dipakai
+  useEffect(() => {
+    let cancelled = false;
+    loadFaceModels().then(() => {
+      if (!cancelled) setModelsReady(true);
+    }).catch(() => {
+      if (!cancelled) setModelsError("Modul deteksi wajah gagal dimuat. Periksa koneksi internet Anda lalu coba lagi.");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const stop = useCallback(() => {
+    if (detectTimerRef.current) {
+      clearTimeout(detectTimerRef.current);
+      detectTimerRef.current = null;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
       streamRef.current = null;
     }
     setIsActive(false);
+    setFaceDetected(false);
   }, []);
   const start = useCallback(async (mode = facingMode) => {
     setError(null);
@@ -1952,6 +2015,34 @@ function useCamera() {
       setIsActive(false);
     }
   }, [facingMode]);
+
+  // Loop deteksi wajah real-time selama kamera aktif & model sudah siap.
+  // Pakai self-scheduling timeout (bukan setInterval) supaya pemanggilan deteksi
+  // berikutnya menunggu deteksi sebelumnya selesai — mencegah tumpukan proses
+  // yang tumpang tindih di perangkat yang lebih lambat.
+  useEffect(() => {
+    if (!isActive || !modelsReady) return;
+    let cancelled = false;
+    async function loop() {
+      if (cancelled) return;
+      if (videoRef.current && videoRef.current.readyState >= 2) {
+        const found = await detectFaceIn(videoRef.current);
+        if (!cancelled) setFaceDetected(found);
+      }
+      if (!cancelled) {
+        detectTimerRef.current = setTimeout(loop, 350);
+      }
+    }
+    loop();
+    return () => {
+      cancelled = true;
+      if (detectTimerRef.current) {
+        clearTimeout(detectTimerRef.current);
+        detectTimerRef.current = null;
+      }
+    };
+  }, [isActive, modelsReady]);
+
   const switchCamera = useCallback(async () => {
     const next = facingMode === "user" ? "environment" : "user";
     setFacingMode(next);
@@ -1972,6 +2063,31 @@ function useCamera() {
     ctx.drawImage(video, sx, sy, size, size, 0, 0, canvas.width, canvas.height);
     return canvas.toDataURL("image/jpeg", 0.85);
   }, []);
+
+  // Validasi ulang hasil foto yang sudah diambil — memastikan benar-benar ada wajah di dalamnya
+  const verifyPhotoHasFace = useCallback(dataUrl => {
+    return new Promise(resolve => {
+      if (typeof faceapi === "undefined" || !dataUrl) {
+        resolve(false);
+        return;
+      }
+      const img = new Image();
+      img.onload = async () => {
+        try {
+          const result = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({
+            inputSize: 224,
+            scoreThreshold: 0.5
+          }));
+          resolve(!!result);
+        } catch (e) {
+          resolve(false);
+        }
+      };
+      img.onerror = () => resolve(false);
+      img.src = dataUrl;
+    });
+  }, []);
+
   useEffect(() => () => stop(), [stop]);
   return {
     videoRef,
@@ -1980,7 +2096,11 @@ function useCamera() {
     start,
     stop,
     capture,
-    switchCamera
+    switchCamera,
+    modelsReady,
+    modelsError,
+    faceDetected,
+    verifyPhotoHasFace
   };
 }
 
@@ -3258,21 +3378,37 @@ function CameraCaptureModal({
     start,
     stop,
     capture,
-    switchCamera
+    switchCamera,
+    modelsReady,
+    modelsError,
+    faceDetected,
+    verifyPhotoHasFace
   } = useCamera();
   const [photo, setPhoto] = useState(null);
+  const [verifying, setVerifying] = useState(false);
+  const [faceError, setFaceError] = useState(null);
   useEffect(() => {
     start("user");
     return () => stop();
   }, []);
-  function handleCapture() {
+  async function handleCapture() {
+    if (!faceDetected || verifying) return; // wajib ada wajah sebelum boleh ambil foto
     const dataUrl = capture();
-    if (dataUrl) {
-      setPhoto(dataUrl);
-      stop();
+    if (!dataUrl) return;
+    stop();
+    setVerifying(true);
+    const ok = await verifyPhotoHasFace(dataUrl);
+    setVerifying(false);
+    if (!ok) {
+      setFaceError("Wajah tidak terdeteksi dengan jelas pada foto. Pastikan wajah terlihat penuh, pencahayaan cukup, lalu coba lagi.");
+      start();
+      return;
     }
+    setFaceError(null);
+    setPhoto(dataUrl);
   }
   function handleRetake() {
+    setFaceError(null);
     setPhoto(null);
     start();
   }
@@ -3351,11 +3487,46 @@ function CameraCaptureModal({
       color: "var(--amber)",
       fontSize: 14
     }
-  }, error)), isActive && !photo && /*#__PURE__*/React.createElement("div", {
+  }, error)), !error && modelsError && !photo && /*#__PURE__*/React.createElement("div", {
     style: {
       position: "absolute",
       inset: 0,
       display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 24,
+      textAlign: "center",
+      background: "rgba(0,0,0,.55)"
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      color: "var(--amber)",
+      fontSize: 14
+    }
+  }, modelsError)), isActive && !error && !modelsError && !modelsReady && !photo && /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      bottom: 12,
+      display: "flex",
+      justifyContent: "center",
+      pointerEvents: "none"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      background: "rgba(0,0,0,.55)",
+      color: "rgba(255,255,255,.8)",
+      fontSize: 12,
+      padding: "5px 12px",
+      borderRadius: 999
+    }
+  }, "Menyiapkan modul deteksi wajah…")), isActive && !photo && /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      inset: 0,
+      display: "flex",
+      flexDirection: "column",
       alignItems: "center",
       justifyContent: "center",
       pointerEvents: "none"
@@ -3365,9 +3536,20 @@ function CameraCaptureModal({
       width: "70%",
       height: "85%",
       borderRadius: "45%",
-      border: "2px solid rgba(255,255,255,.4)"
+      border: (modelsReady && faceDetected ? "3px solid var(--emerald, #22c55e)" : "2px solid rgba(255,255,255,.4)"),
+      transition: "border-color .2s ease"
     }
-  }))), /*#__PURE__*/React.createElement("div", {
+  }), modelsReady && /*#__PURE__*/React.createElement("span", {
+    style: {
+      marginTop: 14,
+      background: "rgba(0,0,0,.55)",
+      color: faceDetected ? "#22c55e" : "rgba(255,255,255,.85)",
+      fontSize: 12,
+      fontWeight: 600,
+      padding: "5px 12px",
+      borderRadius: 999
+    }
+  }, faceDetected ? "✓ Wajah terdeteksi" : "Posisikan wajah Anda di dalam bingkai"))), /*#__PURE__*/React.createElement("div", {
     className: "flex",
     style: {
       alignItems: "center",
@@ -3394,9 +3576,12 @@ function CameraCaptureModal({
     size: 20
   })), /*#__PURE__*/React.createElement("button", {
     onClick: handleCapture,
-    disabled: !isActive,
+    disabled: !isActive || !modelsReady || !faceDetected || verifying,
     "aria-label": "Ambil foto",
-    className: "cam-shutter"
+    className: "cam-shutter",
+    style: {
+      opacity: !isActive || !modelsReady || !faceDetected || verifying ? 0.45 : 1
+    }
   }, /*#__PURE__*/React.createElement("div", {
     className: "cam-shutter-inner"
   }, /*#__PURE__*/React.createElement(Icon, {
@@ -3434,11 +3619,11 @@ function CameraCaptureModal({
   }), " Gunakan foto"))), /*#__PURE__*/React.createElement("p", {
     style: {
       textAlign: "center",
-      color: "rgba(255,255,255,.4)",
+      color: verifying ? "rgba(255,255,255,.7)" : faceError ? "var(--amber)" : "rgba(255,255,255,.4)",
       fontSize: 12,
       padding: "0 20px 16px"
     }
-  }, "Foto diambil langsung dari kamera. Unggah dari galeri tidak diizinkan untuk menjaga validitas presensi.")));
+  }, verifying ? "Memverifikasi wajah pada foto\u2026" : faceError ? faceError : "Foto diambil langsung dari kamera dan wajib berisi wajah. Unggah dari galeri tidak diizinkan untuk menjaga validitas presensi.")));
 }
 
 /* ======================= LAPOR KEJADIAN (MODAL) ======================= */
