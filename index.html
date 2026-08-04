@@ -986,6 +986,13 @@ function recordCheckpointPass(user, checkpoint, lat, lng) {
 function getCheckpointPasses() {
   return store.checkpointPasses;
 }
+// Rit TERAKHIR seorang karyawan pada tanggal tertentu, diambil langsung dari catatan rit asli
+// (bukan dari field sekunder seperti lastRitCheckpointId yang bisa basi kalau tulisannya ke
+// server gagal/telat). store.checkpointPasses sudah terurut terbaru dulu (lihat listener di atas),
+// jadi cukup ambil entri PERTAMA yang cocok userId & date.
+function getLastCheckpointPassForUserOnDate(userId, dateStr) {
+  return store.checkpointPasses.find(p => p.userId === userId && p.date === dateStr) || null;
+}
 // Rekap jumlah rit (lintas checkpoint) per karyawan untuk 1 tanggal tertentu.
 // checkpointId null/undefined = hitung semua checkpoint digabung (byCheckpoint tetap dipecah per checkpoint).
 function getRitRecap(dateStr, checkpointId) {
@@ -8510,8 +8517,10 @@ function PatrolTracker({
       //
       // ANTI-CURANG: checkpoint yang sama TIDAK BOLEH dihitung sebagai rit baru dua kali berturut-turut.
       // Supaya rit checkpoint ini bisa dihitung lagi, petugas WAJIB melewati (rit) checkpoint LAIN
-      // dulu di antaranya. lastRitCheckpointId disimpan di sesi patroli (bukan cuma di ref lokal)
-      // supaya aturan ini tetap berlaku walau halaman di-refresh di tengah sesi.
+      // dulu di antaranya. Dicek langsung dari catatan rit asli (store.checkpointPasses) — BUKAN dari
+      // field sekunder seperti lastRitCheckpointId — supaya aturan ini tetap benar walau HP di-restart
+      // atau layar terkunci lama di tengah sesi (tulisan field sekunder ke server bisa gagal/telat,
+      // sedangkan catatan rit asli sudah pasti berhasil tersimpan karena itulah sumber datanya).
       checkpoints.forEach(cp => {
         if (cp.lat == null || cp.lng == null) return;
         const d = distanceMeters(lat, lng, cp.lat, cp.lng);
@@ -8549,19 +8558,14 @@ function PatrolTracker({
           }
           clockSkewWarnedRef.current = false;
           insideCheckpointRef.current[cp.id] = true;
-          // Ambil ulang sesi terkini (bukan currentPatrol dari closure) supaya lastRitCheckpointId
-          // yang dibaca selalu yang terbaru, bukan basi.
-          const latestPatrol = getActivePatrolForUser(user.id);
-          if (latestPatrol && latestPatrol.lastRitCheckpointId === cp.id) {
+          // Ambil rit TERAKHIR hari ini langsung dari catatan asli (bukan field sekunder di sesi) —
+          // supaya tetap akurat walau ada jeda panjang / HP sempat restart di tengah sesi.
+          const lastPassToday = getLastCheckpointPassForUserOnDate(user.id, todayDateStr(getTrustedNow()));
+          if (lastPassToday && lastPassToday.checkpointId === cp.id) {
             // Checkpoint yang sama dengan rit terakhir — belum mampir ke checkpoint lain, jangan dihitung.
             return;
           }
           recordCheckpointPass(user, cp, lat, lng);
-          if (latestPatrol) {
-            updatePatrolSession(latestPatrol.id, {
-              lastRitCheckpointId: cp.id
-            });
-          }
         } else if (isOutside && wasInside) {
           insideCheckpointRef.current[cp.id] = false;
         }
