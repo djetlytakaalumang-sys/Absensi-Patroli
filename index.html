@@ -803,7 +803,7 @@ function saveCheckOut(recordId, data) {
 // menggantung selamanya dan tidak mengganggu rekap/laporan bulanan. Ditandai autoCheckOut: true
 // supaya bisa dibedakan dari absen pulang manual di riwayat/laporan.
 function autoCloseStaleAttendance() {
-  const todayStr = todayDateStr();
+  const todayStr = todayDateStr(getTrustedNow());
   const stale = store.records.filter(r => r.date !== todayStr && r.checkInTime && !r.checkOutTime);
   stale.forEach(r => saveCheckOut(r.id, {
     checkOutTime: "23:59:59",
@@ -1285,7 +1285,7 @@ function endPatrolSession(id, data) {
 // - totalDistanceMeters terus terakumulasi dari noise GPS karena sesi tidak pernah berhenti.
 // Dipanggil sekali setiap kali aplikasi (siapa pun: admin/karyawan) selesai memuat data dari Firestore.
 function autoCloseStalePatrols() {
-  const todayStr = todayDateStr();
+  const todayStr = todayDateStr(getTrustedNow());
   const stale = store.patrols.filter(p => p.status === PATROL_STATUS.ACTIVE && p.date !== todayStr);
   stale.forEach(p => endPatrolSession(p.id, {
     autoClosedReason: "Sesi tidak diakhiri (lupa Absen Pulang) — ditutup otomatis oleh sistem."
