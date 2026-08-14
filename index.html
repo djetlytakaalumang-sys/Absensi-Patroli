@@ -395,6 +395,58 @@ const db = firebase.firestore();
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
   console.warn("Firestore offline persistence tidak aktif:", err.code);
 });
+
+/* ======================= TULIS FIRESTORE LEWAT NATIVE HTTP =======================
+   Android membatasi (throttle) request jaringan yang berasal dari WebView setelah
+   ~5 menit app di background — ini bikin update lokasi patroli "macet" walau GPS
+   masih aktif. CapacitorHttp adalah jalur native (di luar WebView), jadi kebal dari
+   batasan ini. Dipakai KHUSUS untuk update posisi/sesi patroli (yang perlu tetap
+   jalan walau HP terkunci lama); operasi Firestore lain di app ini tetap pakai SDK
+   biasa seperti sebelumnya. Kalau bukan native (browser) atau CapacitorHttp tidak
+   tersedia, otomatis fallback ke Firestore SDK. */
+function _toFirestoreValue(v) {
+  if (v === null || v === undefined) return { nullValue: null };
+  if (typeof v === "boolean") return { booleanValue: v };
+  if (typeof v === "number") return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+  if (typeof v === "string") return { stringValue: v };
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(_toFirestoreValue) } };
+  if (typeof v === "object") {
+    const fields = {};
+    Object.keys(v).forEach(k => {
+      if (v[k] !== undefined) fields[k] = _toFirestoreValue(v[k]);
+    });
+    return { mapValue: { fields } };
+  }
+  return { stringValue: String(v) };
+}
+function _toFirestoreFields(obj) {
+  const fields = {};
+  Object.keys(obj).forEach(k => {
+    if (obj[k] !== undefined) fields[k] = _toFirestoreValue(obj[k]);
+  });
+  return fields;
+}
+function firestoreSetNative(collection, id, data) {
+  const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  const Http = isNative && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp;
+  if (!Http) {
+    return db.collection(collection).doc(id).set(data).catch(console.error);
+  }
+  const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_CONFIG.projectId}/databases/(default)/documents/${collection}/${id}`;
+  return Http.request({
+    url,
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    data: {
+      fields: _toFirestoreFields(data)
+    }
+  }).catch(err => {
+    console.error("firestoreSetNative GAGAL, fallback ke SDK:", err);
+    return db.collection(collection).doc(id).set(data).catch(console.error);
+  });
+}
 const COL = {
   USERS: "users",
   RECORDS: "records",
@@ -1214,7 +1266,7 @@ function updatePatrolSession(id, data) {
     ...data
   };
   store.patrols = store.patrols.map(p => p.id === id ? updated : p);
-  db.collection(COL.PATROLS).doc(id).set(updated).catch(console.error);
+  firestoreSetNative(COL.PATROLS, id, updated);
   return updated;
 }
 function endPatrolSession(id, data) {
@@ -8364,12 +8416,14 @@ function PatrolTracker({
     const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
     // Penting: HARUS lewat registerPlugin (bukan window.Capacitor.Plugins.X langsung),
     // supaya method addWatcher balikin Promise seperti di dokumentasi resmi plugin ini.
+    // (Plugin GRATIS — akar masalah "lokasi terputus di background" sudah diatasi lewat
+    // firestoreSetNative/CapacitorHttp di atas, bukan lewat ganti plugin lokasi.)
     const BgGeo = isNative && window.Capacitor.registerPlugin && window.Capacitor.registerPlugin("BackgroundGeolocation");
     if (activePatrol && watchIdRef.current == null) {
       if (BgGeo) {
         BgGeo.addWatcher({
           backgroundMessage: "Melacak lokasi patroli…",
-          backgroundTitle: "Portal NIT aktif",
+          backgroundTitle: "Presensi Apk Aktif",
           requestPermissions: true,
           stale: false,
           distanceFilter: 0
