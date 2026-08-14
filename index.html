@@ -648,6 +648,48 @@ function isServerTimeTrusted() {
 function generateLoginLogId() {
   return "lg-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
+// Catat kejadian "tutup otomatis" (absen pulang / sesi patroli yang lupa diakhiri
+// lalu ditutup paksa oleh sistem) ke koleksi loginLogs YANG SAMA dengan riwayat
+// login — supaya kelihatan dalam satu linimasa yang sama di panel "Riwayat Login".
+// Disimpan juga offset zona waktu device yang memicu, supaya kalau ada device
+// dengan setelan jam/zona waktu salah, langsung ketahuan dari log ini.
+function recordAutoCloseLog(jenis, namaList) {
+  if (!namaList || namaList.length === 0) return;
+  const iso = getTrustedNow().toISOString();
+  const userAgent = typeof navigator !== "undefined" && navigator.userAgent || "";
+  const tzOffsetMin = new Date().getTimezoneOffset(); // menit, negatif utk zona positif spt WITA
+  const logEntry = {
+    id: generateLoginLogId(),
+    type: "autoClose",
+    userName: `Sistem (Tutup Otomatis ${jenis})`,
+    username: null,
+    at: iso,
+    userAgent,
+    deviceTzOffsetMin: tzOffsetMin,
+    note: `${namaList.length} ${jenis.toLowerCase()} ditutup otomatis: ${namaList.join(", ")}`
+  };
+  db.collection(COL.LOGIN_LOGS).doc(logEntry.id).set(logEntry).catch(console.error);
+}
+// Catat kejadian "logout otomatis" (sesi ditutup paksa oleh sistem begitu tanggal
+// WITA berganti / lewat jam 00:00) ke koleksi loginLogs YANG SAMA dengan riwayat
+// login, supaya tetap kelihatan menyatu dalam satu linimasa di panel "Riwayat Login".
+function recordAutoLogoutLog(userName) {
+  if (!userName) return;
+  const iso = getTrustedNow().toISOString();
+  const userAgent = typeof navigator !== "undefined" && navigator.userAgent || "";
+  const tzOffsetMin = new Date().getTimezoneOffset();
+  const logEntry = {
+    id: generateLoginLogId(),
+    type: "autoLogout",
+    userName: "Sistem (Logout Otomatis)",
+    username: null,
+    at: iso,
+    userAgent,
+    deviceTzOffsetMin: tzOffsetMin,
+    note: `${userName} otomatis di-logout karena pergantian hari (00:00 WITA). Wajib login ulang.`
+  };
+  db.collection(COL.LOGIN_LOGS).doc(logEntry.id).set(logEntry).catch(console.error);
+}
 // Dipanggil setiap kali login berhasil. Mencatat waktu login memakai jam SERVER (bukan jam
 // HP) supaya riwayat login tidak bisa direkayasa dengan mengubah jam perangkat — baik sebagai
 // log terpisah (riwayat lengkap, koleksi loginLogs) maupun ringkasan di field lastLoginAt milik
@@ -713,7 +755,15 @@ const SESSION_KEY = "presensi_session_v2";
 function setSession(userId) {
   localStorage.setItem(SESSION_KEY, JSON.stringify({
     userId,
-    loggedInAt: new Date().toISOString()
+    loggedInAt: new Date().toISOString(),
+    // Tanggal (WITA, jam server terpercaya kalau sudah pernah sinkron) saat sesi ini dibuat.
+    // Dipakai untuk mendeteksi sesi "sisa kemarin" supaya bisa di-logout otomatis begitu
+    // tanggal berganti. Sengaja pakai _serverTimeSyncedOnce (BUKAN isServerTimeTrusted()) —
+    // isServerTimeTrusted() juga mensyaratkan selisih jam kecil, sehingga justru saat jam
+    // device sengaja dimanipulasi (selisih besar) dia akan "false" dan kita malah jatuh balik
+    // ke jam device mentah yang tidak bisa dipercaya. Yang benar: selama PERNAH berhasil
+    // sinkron, getTrustedNow() SELALU sudah terkoreksi ke jam server, berapa pun selisihnya.
+    loginDateWITA: todayDateStrWITA(_serverTimeSyncedOnce ? getTrustedNow() : new Date())
   }));
 }
 function getSession() {
@@ -803,13 +853,14 @@ function saveCheckOut(recordId, data) {
 // menggantung selamanya dan tidak mengganggu rekap/laporan bulanan. Ditandai autoCheckOut: true
 // supaya bisa dibedakan dari absen pulang manual di riwayat/laporan.
 function autoCloseStaleAttendance() {
-  const todayStr = todayDateStr(getTrustedNow());
+  const todayStr = todayDateStrWITA(getTrustedNow());
   const stale = store.records.filter(r => r.date !== todayStr && r.checkInTime && !r.checkOutTime);
   stale.forEach(r => saveCheckOut(r.id, {
     checkOutTime: "23:59:59",
     checkOutNote: "Absen pulang otomatis oleh sistem (lupa Absen Pulang).",
     autoCheckOut: true
   }));
+  recordAutoCloseLog("Presensi", stale.map(r => r.userName || r.userId));
   return stale.length;
 }
 function updateSettings(partial) {
@@ -1285,11 +1336,12 @@ function endPatrolSession(id, data) {
 // - totalDistanceMeters terus terakumulasi dari noise GPS karena sesi tidak pernah berhenti.
 // Dipanggil sekali setiap kali aplikasi (siapa pun: admin/karyawan) selesai memuat data dari Firestore.
 function autoCloseStalePatrols() {
-  const todayStr = todayDateStr(getTrustedNow());
+  const todayStr = todayDateStrWITA(getTrustedNow());
   const stale = store.patrols.filter(p => p.status === PATROL_STATUS.ACTIVE && p.date !== todayStr);
   stale.forEach(p => endPatrolSession(p.id, {
     autoClosedReason: "Sesi tidak diakhiri (lupa Absen Pulang) — ditutup otomatis oleh sistem."
   }));
+  recordAutoCloseLog("Sesi Patroli", stale.map(p => p.userName || p.userId));
   return stale.length;
 }
 
@@ -1665,6 +1717,19 @@ function todayDateStr(d = new Date()) {
   const y = d.getFullYear(),
     m = String(d.getMonth() + 1).padStart(2, "0"),
     day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+// Versi "todayDateStr" yang DIPAKSA hitung pakai zona waktu WITA (UTC+8), TIDAK
+// bergantung pada setelan zona waktu perangkat yang menjalankan kode ini. Ini
+// supaya kalau ada satu device (mis. laptop admin buka dashboard) yang zona
+// waktunya salah/ke-set ke zona lain, perhitungan "hari ini" untuk keperluan
+// auto-close TETAP benar — tidak bisa keliru menutup record hari yang sedang
+// berjalan hanya karena device tsb salah setelan zona waktu.
+function todayDateStrWITA(d = new Date()) {
+  const wita = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+  const y = wita.getUTCFullYear(),
+    m = String(wita.getUTCMonth() + 1).padStart(2, "0"),
+    day = String(wita.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
 function nowTimeStr(d = new Date()) {
@@ -3287,7 +3352,15 @@ function AuthProvider({
       const session = getSession();
       if (session && session.userId) {
         const u = getUserById(session.userId);
-        if (u) setUser(u);
+        const trustedDateNow = todayDateStrWITA(getTrustedNow());
+        // Sesi ini dibuat di hari sebelumnya (mis. app ditutup lalu dibuka lagi besoknya) —
+        // anggap sudah kadaluarsa, logout otomatis, wajib login ulang.
+        if (session.loginDateWITA && session.loginDateWITA !== trustedDateNow) {
+          clearSession();
+          if (u) recordAutoLogoutLog(u.name);
+        } else if (u) {
+          setUser(u);
+        }
       }
       setLoading(false);
     }).catch(err => {
@@ -3317,6 +3390,34 @@ function AuthProvider({
         lastDateStr = nowDateStr;
         autoCloseStaleAttendance();
         autoCloseStalePatrols();
+      }
+    }, 60000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Ref supaya pemantau interval di bawah selalu baca user TERBARU tanpa perlu
+  // me-restart interval-nya tiap kali user berganti (hindari closure basi).
+  const userRef = useRef(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+  // Logout otomatis semua sesi begitu tanggal (WITA, jam server terpercaya \u2014 bukan
+  // jam device) berganti / lewat 00:00. Berlaku juga kalau app dibiarkan terbuka terus
+  // tanpa reload: dicek tiap menit, terpisah dari auto-close presensi/patroli di atas.
+  // Sengaja dibandingkan langsung ke session.loginDateWITA tiap kali dicek (bukan menyimpan
+  // "nilai terakhir" di closure) supaya tidak salah trigger logout kalau nilai acuan awal
+  // sempat diambil sebelum syncServerTime() selesai (offset jam masih 0 / belum terkoreksi).
+  useEffect(() => {
+    const t = setInterval(() => {
+      const u = userRef.current;
+      if (!u) return;
+      const session = getSession();
+      if (!session || !session.loginDateWITA) return;
+      const nowWita = todayDateStrWITA(getTrustedNow());
+      if (session.loginDateWITA !== nowWita) {
+        recordAutoLogoutLog(u.name);
+        clearSession();
+        setUser(null);
       }
     }, 60000);
     return () => clearInterval(t);
@@ -10427,7 +10528,7 @@ function AdminPatrolMapPage() {
     }, /*#__PURE__*/React.createElement(Icon, {
       name: "check",
       size: 11
-    }), " ", v.name, " · ", formatClock(new Date(v.time)), " · ", visitCounts[v.checkpointId] || 0, " rit hari ini")), pending.map(cp => /*#__PURE__*/React.createElement("span", {
+    }), " ", v.name, " · ", formatClock(new Date(v.time)), " · ", visitCounts[v.checkpointId] || 0, " checkpoint hari ini")), pending.map(cp => /*#__PURE__*/React.createElement("span", {
       key: cp.id,
       className: "badge",
       style: {
@@ -10438,7 +10539,7 @@ function AdminPatrolMapPage() {
     }, /*#__PURE__*/React.createElement(Icon, {
       name: "circle-dashed",
       size: 11
-    }), " ", cp.name, " · ", visitCounts[cp.id] || 0, " rit hari ini"))));
+    }), " ", cp.name, " · ", visitCounts[cp.id] || 0, " checkpoint hari ini"))));
   }))), completedToday.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
@@ -11964,7 +12065,7 @@ function PanduanPage() {
   const headerEl = React.createElement("div", { style: { marginBottom: 24 } },
     React.createElement("h1", { style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Panduan & Penjelasan Perhitungan"),
     React.createElement("p", { style: { color: "var(--navy-700)", fontSize: 14, marginTop: 2 } },
-      "Penjelasan cara kerja setiap status, skor, rit, dan pengaturan di aplikasi ini \u2014 klik tiap bagian untuk membuka.")
+      "Penjelasan cara kerja setiap status, skor, CP, dan pengaturan di aplikasi ini \u2014 klik tiap bagian untuk membuka.")
   );
 
   const statusSection = React.createElement(GuideSection, { icon: "badge-check", title: "Status Kehadiran", defaultOpen: true },
@@ -12005,24 +12106,24 @@ function PanduanPage() {
     React.createElement("p", null, `Potongan tambahan: kalau pulang lebih dari ${EARLY_CHECKOUT_TOLERANCE_MIN} menit sebelum jam pulang seharusnya, poin hari itu dipotong ${EARLY_CHECKOUT_PENALTY} poin (minimal 0). Berlaku untuk status Hadir, Terlambat, maupun Piket Malam.`)
   );
 
-  const ritSection = React.createElement(GuideSection, { icon: "repeat", title: "Rit & Checkpoint Patroli (Rekap Rit)" },
-    React.createElement("p", null, "\"Rit\" adalah satu kali lintasan: setiap kali petugas MASUK radius sebuah checkpoint, tercatat 1 rit baru untuk checkpoint itu. Semua rit bisa dilihat di halaman ", React.createElement("strong", null, "Operasional Lapangan \u2192 Rekap Rit"), ", dengan 2 mode:"),
+  const ritSection = React.createElement(GuideSection, { icon: "repeat", title: "CP & Checkpoint Patroli (Rekap Checkpoint (CP))" },
+    React.createElement("p", null, "\"CP\" adalah satu kali lintasan: setiap kali petugas MASUK radius sebuah checkpoint, tercatat 1 CP baru untuk checkpoint itu. Semua CP bisa dilihat di halaman ", React.createElement("strong", null, "Operasional Lapangan \u2192 Rekap Checkpoint (CP)"), ", dengan 2 mode:"),
     React.createElement(GuideList, {
       items: [
-        "Per Tanggal \u2014 total rit tiap karyawan pada 1 hari tertentu, bisa difilter per checkpoint.",
-        "Per Bulan \u2014 total rit tiap karyawan sepanjang bulan, dipecah per checkpoint, dengan rincian per tanggal yang bisa dibuka (expand)."
+        "Per Tanggal \u2014 total CP tiap karyawan pada 1 hari tertentu, bisa difilter per checkpoint.",
+        "Per Bulan \u2014 total CP tiap karyawan sepanjang bulan, dipecah per checkpoint, dengan rincian per tanggal yang bisa dibuka (expand)."
       ]
     }),
     React.createElement("p", { style: { fontWeight: 600, color: "var(--navy-900)", marginTop: 4 } }, "Aturan anti-curang:"),
     React.createElement(GuideList, {
       items: [
-        "Checkpoint yang SAMA tidak dihitung sebagai rit baru dua kali berturut-turut \u2014 petugas wajib melewati (rit) checkpoint LAIN dulu di antaranya supaya checkpoint tsb bisa dihitung lagi.",
-        "Dipakai buffer keluar-radius +15 meter supaya jitter GPS di pinggir radius tidak dihitung berkali-kali sebagai rit baru.",
+        "Checkpoint yang SAMA tidak dihitung sebagai CP baru dua kali berturut-turut \u2014 petugas wajib melewati (CP) checkpoint LAIN dulu di antaranya supaya checkpoint tsb bisa dihitung lagi.",
+        "Dipakai buffer keluar-radius +15 meter supaya jitter GPS di pinggir radius tidak dihitung berkali-kali sebagai CP baru.",
         "Aturan ini tersimpan di sesi patroli itu sendiri (bukan cuma di memori HP), jadi tetap berlaku walau halaman di-refresh di tengah sesi."
       ]
     }),
     React.createElement("p", { style: { fontSize: 12.5, fontStyle: "italic", marginTop: 4 } },
-      "Beda dengan checklist checkpoint pada Peta Live Patroli/skor patroli (yang cuma dedup 1x per sesi) \u2014 catatan rit di atas SENGAJA tidak dedup per sesi, supaya lintasan berulang di hari yang sama tetap tercatat masing-masing sebagai rit terpisah.")
+      "Beda dengan checklist checkpoint pada Peta Live Patroli/skor patroli (yang cuma dedup 1x per sesi) \u2014 catatan CP di atas SENGAJA tidak dedup per sesi, supaya lintasan berulang di hari yang sama tetap tercatat masing-masing sebagai CP terpisah.")
   );
 
   const teamRows = (teams || []).map(t => React.createElement(GuideBadgeRow, {
@@ -12037,18 +12138,18 @@ function PanduanPage() {
     React.createElement("p", null, "Karyawan lapangan bisa dikelompokkan jadi tim, masing-masing dengan rute checkpoint sendiri. Diatur lewat ", React.createElement("strong", null, "Pengaturan \u2192 Checkpoint & Lokasi \u2192 kartu Tim & Rute Checkpoint"), " (pilih anggota + urutan checkpoint). Kalau admin belum pernah mengatur, sistem memakai konfigurasi bawaan berikut (dicocokkan dari nama depan karyawan):"),
     ...teamRows,
     React.createElement("p", { style: { fontWeight: 600, color: "var(--navy-900)", marginTop: 10 } }, "Bonus Rute:"),
-    React.createElement("p", null, `Kalau pada tanggal yang sama kedua tim sama-sama patroli, DAN checkpoint yang benar-benar mereka rit (bukan sekadar rute resmi di atas kertas) ternyata berbeda satu sama lain \u2014 setiap sesi patroli anggota kedua tim pada tanggal itu mendapat tambahan +${Math.round(ROUTE_BONUS_AMOUNT * 100)} poin pada Skor Patroli hari itu (dibatasi maksimal 100 poin/sesi).`),
+    React.createElement("p", null, `Kalau pada tanggal yang sama kedua tim sama-sama patroli, DAN checkpoint yang benar-benar mereka lewati (CP) (bukan sekadar rute resmi di atas kertas) ternyata berbeda satu sama lain \u2014 setiap sesi patroli anggota kedua tim pada tanggal itu mendapat tambahan +${Math.round(ROUTE_BONUS_AMOUNT * 100)} poin pada Skor Patroli hari itu (dibatasi maksimal 100 poin/sesi).`),
     React.createElement(GuideList, {
       items: [
-        "Bonus dihitung dari checkpoint AKTUAL yang di-rit tim (data Rekap Rit), bukan cuma rute resmi yang diatur admin \u2014 jadi kalaupun rutenya sama di atas kertas tapi kenyataannya salah satu tim melenceng ke checkpoint lain, bonus tetap bisa didapat.",
+        "Bonus dihitung dari checkpoint AKTUAL yang benar-benar dilewati (CP) oleh tim (data Rekap Checkpoint (CP)), bukan cuma rute resmi yang diatur admin \u2014 jadi kalaupun rutenya sama di atas kertas tapi kenyataannya salah satu tim melenceng ke checkpoint lain, bonus tetap bisa didapat.",
         "Kalau salah satu tim belum patroli sama sekali hari itu, bonus tidak berlaku (harus dua-duanya aktif).",
-        "Bisa dicek langsung di Rekap Rit \u2192 Per Tanggal \u2192 kartu \"Perbandingan Rute Tim\", yang menunjukkan checkpoint apa saja yang dilewati tiap tim hari itu dan status bonusnya."
+        "Bisa dicek langsung di Rekap Checkpoint (CP) \u2192 Per Tanggal \u2192 kartu \"Perbandingan Rute Tim\", yang menunjukkan checkpoint apa saja yang dilewati tiap tim hari itu dan status bonusnya."
       ]
     })
   );
 
   const patrolScoreSection = React.createElement(GuideSection, { icon: "footprints", title: "Perhitungan Skor Patroli" },
-    React.createElement("p", null, "Dihitung dari rata-rata persentase checkpoint yang dikunjungi pada setiap sesi patroli yang berstatus Selesai bulan berjalan (checklist checkpoint per sesi, dedup 1x \u2014 beda dengan rit di atas). Sesi yang tidak pernah dijalankan tidak dihitung sama sekali."),
+    React.createElement("p", null, "Dihitung dari rata-rata persentase checkpoint yang dikunjungi pada setiap sesi patroli yang berstatus Selesai bulan berjalan (checklist checkpoint per sesi, dedup 1x \u2014 beda dengan CP di atas). Sesi yang tidak pernah dijalankan tidak dihitung sama sekali."),
     React.createElement(GuideList, {
       items: [
         `Setiap sesi yang dijalankan otomatis dapat nilai dasar ${Math.round(PATROL_SESSION_BASELINE * 100)}%, sisanya ditambah sesuai persentase checkpoint yang berhasil dikunjungi.`,
@@ -12076,7 +12177,7 @@ function PanduanPage() {
       items: [
         "Jam & Presensi \u2014 Jam Potong Masuk (checkInDeadline): batas jam check-in supaya masih dihitung \"Hadir\", lewat dari jam ini otomatis \"Terlambat\". Jam Pulang Normal (shiftEndTime): jam pulang yang diharapkan untuk shift Hadir/Terlambat, dipakai mendeteksi \"pulang lebih awal\". Mulai/Selesai Piket Malam (nightShiftStart/nightShiftEnd): jendela jam untuk mendeteksi otomatis status Piket Malam kalau tidak ada Jadwal resmi.",
         `Checkpoint & Lokasi \u2014 kartu Tim & Rute Checkpoint (atur anggota tim & urutan rute, lihat bagian "Tim & Rute Patroli" di atas); daftar Checkpoint Patroli (nama, koordinat, radius), maksimal ${MAX_CHECKPOINTS} titik \u2014 checkpoint otomatis tercentang saat petugas berada dalam radiusnya; Lokasi Kantor (officeLocations), maksimal ${MAX_OFFICE_LOCATIONS} lokasi, tiap lokasi bisa punya radius toleransi sendiri (kalau kosong, dipakai Radius Presensi/radiusMeters sebagai nilai default); dan sakelar Wajib Dalam Radius (enforceRadius) \u2014 kalau aktif, karyawan di luar radius semua Lokasi Kantor tidak bisa presensi sama sekali.`,
-        "Hak Akses \u2014 kartu Hak Akses Pengguna (atur siapa saja yang punya akses Admin, View Only, atau Karyawan, dan tempat menambah karyawan/pengguna baru lewat tombol \"Tambah Pengguna\"), serta kartu Riwayat Login (catatan waktu setiap pengguna login, memakai jam server \u2014 bukan jam perangkat \u2014 supaya tidak bisa direkayasa, bisa difilter per nama/tanggal)."
+        "Hak Akses \u2014 kartu Hak Akses Pengguna (atur siapa saja yang punya akses Admin, View Only, atau Karyawan, dan tempat menambah karyawan/pengguna baru lewat tombol \"Tambah Pengguna\"), serta kartu Riwayat Login (catatan waktu setiap pengguna login, memakai jam server \u2014 bukan jam perangkat \u2014 supaya tidak bisa direkayasa, bisa difilter per nama/tanggal). Di daftar yang sama juga otomatis muncul dua jenis kejadian sistem: (1) Tutup Otomatis (ikon \u26a0\ufe0f kuning) \u2014 saat ada presensi/sesi patroli yang lupa diakhiri dari hari sebelumnya, lalu ditutup paksa oleh sistem; dan (2) Logout Otomatis (ikon \ud83d\udeaa biru) \u2014 setiap pengguna yang sedang login otomatis dikeluarkan begitu tanggal berganti (00:00 WITA, jam server), sehingga wajib login ulang tiap hari."
       ]
     })
   );
@@ -12149,9 +12250,9 @@ function RekapRitPage() {
   const isFiltered = mode === "harian" ? (dateFilter !== todayDateStr() || checkpointFilter || nameFilter) : (monthFilter !== todayDateStr().slice(0, 7) || checkpointFilter || nameFilter);
 
   const headerEl = React.createElement("div", { style: { marginBottom: 20 } },
-    React.createElement("h1", { style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Rekap Rit"),
+    React.createElement("h1", { style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Rekap Checkpoint (CP)"),
     React.createElement("p", { style: { color: "var(--navy-700)", fontSize: 14, marginTop: 2 } },
-      "Jumlah lintasan (rit) tiap karyawan melewati checkpoint — tiap kali masuk radius checkpoint dihitung 1 rit, KECUALI checkpoint yang sama dengan rit sebelumnya (harus mampir checkpoint lain dulu supaya terhitung lagi). Pilih mode Per Tanggal untuk rekap 1 hari, atau Per Bulan untuk melihat total per checkpoint sebulan (mis. \u201cRivaldo lewat STO Bahu berapa kali bulan ini\u201d).")
+      "Jumlah lintasan (CP) tiap karyawan melewati checkpoint — tiap kali masuk radius checkpoint dihitung 1 CP, KECUALI checkpoint yang sama dengan CP sebelumnya (harus mampir checkpoint lain dulu supaya terhitung lagi). Pilih mode Per Tanggal untuk rekap 1 hari, atau Per Bulan untuk melihat total per checkpoint sebulan (mis. \u201cRivaldo lewat STO Bahu berapa kali bulan ini\u201d).")
   );
 
   const modeToggleEl = React.createElement("div", {
@@ -12180,7 +12281,7 @@ function RekapRitPage() {
     style: { gap: 12, marginBottom: 20, flexWrap: "wrap" }
   },
     React.createElement("div", { className: "card", style: { padding: "14px 18px", flex: "1 1 160px" } },
-      React.createElement("p", { style: { fontSize: 12, color: "var(--navy-700)" } }, mode === "harian" ? "Total Rit (tanggal ini)" : "Total Rit (bulan ini)"),
+      React.createElement("p", { style: { fontSize: 12, color: "var(--navy-700)" } }, mode === "harian" ? "Total CP (tanggal ini)" : "Total CP (bulan ini)"),
       React.createElement("p", { style: { fontSize: 24, fontWeight: 700, color: "var(--navy-900)" } }, mode === "harian" ? totalDaily : totalMonthly)
     ),
     React.createElement("div", { className: "card", style: { padding: "14px 18px", flex: "1 1 160px" } },
@@ -12207,7 +12308,7 @@ function RekapRitPage() {
       return React.createElement("div", null,
         React.createElement("p", { style: { fontSize: 12.5, fontWeight: 700, color: "var(--navy-800)", marginBottom: 6 } }, team.label),
         map.size === 0
-          ? React.createElement("p", { style: { fontSize: 12.5, color: "#94a3b8" } }, "Belum ada rit tanggal ini.")
+          ? React.createElement("p", { style: { fontSize: 12.5, color: "#94a3b8" } }, "Belum ada CP tanggal ini.")
           : React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6 } },
               ...known.map(name => React.createElement("span", {
                 key: "k-" + name,
@@ -12222,7 +12323,7 @@ function RekapRitPage() {
     }
     return React.createElement("div", { className: "card", style: { padding: 16, marginBottom: 20 } },
       React.createElement("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 } },
-        React.createElement("p", { style: { fontSize: 13, fontWeight: 700, color: "var(--navy-900)" } }, "⭐ Bonus Rit — Perbandingan Rute Tim — ", dateFilter),
+        React.createElement("p", { style: { fontSize: 13, fontWeight: 700, color: "var(--navy-900)" } }, "⭐ Bonus CP — Perbandingan Rute Tim — ", dateFilter),
         bothPatrolled ? React.createElement("span", {
           style: {
             fontSize: 11, fontWeight: 700,
@@ -12230,7 +12331,7 @@ function RekapRitPage() {
             background: bonus ? "var(--green-soft)" : "var(--navy-50)",
             padding: "3px 8px", borderRadius: 999
           }
-        }, bonus ? "🟢 Bonus Rit Didapat" : "⚪ Tidak Ada Bonus") : null
+        }, bonus ? "🟢 Bonus CP Didapat" : "⚪ Tidak Ada Bonus") : null
       ),
       React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 } },
         renderTeamColumn(manadoTeam, manadoMap),
@@ -12414,7 +12515,7 @@ function RekapRitPage() {
                   fontSize: 12, color: "var(--navy-900)", background: "#fff",
                   border: "1px solid var(--line)", borderRadius: 20, padding: "4px 10px"
                 }
-              }, `${formatDateShortID(d.date)} \u00b7 ${d.count} rit`))
+              }, `${formatDateShortID(d.date)} \u00b7 ${d.count} CP`))
             )
           )
         ));
@@ -12543,15 +12644,28 @@ function LoginHistoryCard() {
 
   const dataRowEls = paged.map(l => {
     const u = getUserById(l.userId);
+    const isAutoClose = l.type === "autoClose";
+    const isAutoLogout = l.type === "autoLogout";
+    const isSystemEvent = isAutoClose || isAutoLogout;
     const nameCell = React.createElement("td", null,
       React.createElement("div", { className: "flex", style: { alignItems: "center", gap: 10 } },
-        React.createElement(Avatar, { name: l.userName || "?", color: u && u.avatarColor, size: 28 }),
-        React.createElement("span", { style: { fontWeight: 500, color: "var(--navy-900)" } }, l.userName || "(pengguna dihapus)")
+        isSystemEvent
+          ? React.createElement("div", { style: { width: 28, height: 28, borderRadius: "50%", background: isAutoLogout ? "var(--blue-soft, #dbeafe)" : "var(--amber-soft, #fef3c7)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } },
+              React.createElement(Icon, { name: isAutoLogout ? "log-out" : "alert-triangle", size: 14 }))
+          : React.createElement(Avatar, { name: l.userName || "?", color: u && u.avatarColor, size: 28 }),
+        React.createElement("div", null,
+          React.createElement("span", { style: { fontWeight: 500, color: "var(--navy-900)" } }, l.userName || "(pengguna dihapus)"),
+          isSystemEvent && l.note ? React.createElement("div", { style: { fontSize: 11.5, color: "var(--navy-700)", marginTop: 2 } }, l.note) : null
+        )
       )
     );
     const usernameCell = React.createElement("td", { style: { color: "var(--navy-700)" } }, l.username || "\u2014");
     const timeCell = React.createElement("td", { style: { color: "var(--navy-700)" } }, formatDateTimeShortID(l.at));
-    const deviceCell = React.createElement("td", { style: { color: "var(--navy-700)", fontSize: 12.5 } }, loginDeviceLabel(l.userAgent));
+    const deviceCell = React.createElement("td", { style: { color: "var(--navy-700)", fontSize: 12.5 } },
+      isSystemEvent
+        ? `Zona device: UTC${l.deviceTzOffsetMin != null ? (-l.deviceTzOffsetMin / 60 >= 0 ? "+" : "") + -l.deviceTzOffsetMin / 60 : "?"}`
+        : loginDeviceLabel(l.userAgent)
+    );
     return React.createElement("tr", { key: l.id }, nameCell, usernameCell, timeCell, deviceCell);
   });
 
@@ -14107,7 +14221,7 @@ function App() {
       icon: "map"
     }, {
       key: "rekap-rit",
-      label: "Rekap Rit",
+      label: "Rekap Checkpoint (CP)",
       icon: "repeat"
     }, {
       key: "jadwal",
