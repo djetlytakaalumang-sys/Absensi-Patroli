@@ -12177,6 +12177,26 @@ function GuideBadgeRow({
     }
   }, label), /*#__PURE__*/React.createElement("span", null, desc));
 }
+// Kotak "Contoh" berwarna hijau muda, dipakai buat kasih contoh perhitungan pakai angka
+// nyata supaya orang awam (bukan cuma admin/developer) gampang ngikutin logikanya.
+function GuideExampleBox({
+  title,
+  children
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "var(--green-soft)",
+      border: "1px solid var(--green)",
+      borderRadius: 10,
+      padding: "12px 14px",
+      display: "flex",
+      flexDirection: "column",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: { fontWeight: 700, color: "var(--navy-900)", fontSize: 13, margin: 0 }
+  }, "\uD83D\uDCA1 ", title || "Contoh"), children);
+}
 function PanduanPage() {
   const s = getSettings();
   const teams = getRouteTeamsConfig();
@@ -12187,7 +12207,30 @@ function PanduanPage() {
       "Penjelasan cara kerja setiap status, skor, CP, dan pengaturan di aplikasi ini \u2014 klik tiap bagian untuk membuka.")
   );
 
-  const statusSection = React.createElement(GuideSection, { icon: "badge-check", title: "Status Kehadiran", defaultOpen: true },
+  const ringkasanSection = React.createElement(GuideSection, { icon: "sparkles", title: "Ringkasan Cepat: Dari Mana Nilai Saya?", defaultOpen: true },
+    React.createElement("p", null, "Nilai akhir yang muncul di Penilaian Tim itu gabungan dari 2 hal saja:"),
+    React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap" } },
+      React.createElement("div", { style: { flex: "1 1 200px", background: "var(--slate-mist)", borderRadius: 10, padding: "12px 14px" } },
+        React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", margin: 0 } }, `1. Rajin Masuk Kerja (${Math.round(SCORE_WEIGHT_ATTENDANCE * 100)}%)`),
+        React.createElement("p", { style: { margin: "4px 0 0", fontSize: 13 } }, "Sering disebut \"Kehadiran\". Dilihat dari: datang tepat waktu apa telat, dan tidak bolos (Alpa).")
+      ),
+      React.createElement("div", { style: { flex: "1 1 200px", background: "var(--slate-mist)", borderRadius: 10, padding: "12px 14px" } },
+        React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", margin: 0 } }, `2. Rajin & Lengkap Patroli (${Math.round(SCORE_WEIGHT_PATROL * 100)}%)`),
+        React.createElement("p", { style: { margin: "4px 0 0", fontSize: 13 } }, "Sering disebut \"Patroli\". Dilihat dari: seberapa lengkap checkpoint yang dilewati tiap kali patroli.")
+      )
+    ),
+    React.createElement(GuideExampleBox, { title: "Contoh gampangnya" },
+      React.createElement("p", { style: { margin: 0, fontSize: 13.5 } },
+        `Kalau Kehadiran = 97 dan Patroli = 84, maka Nilai Akhir = (97 \u00d7 ${SCORE_WEIGHT_ATTENDANCE}) + (84 \u00d7 ${SCORE_WEIGHT_PATROL}) = ${(97 * SCORE_WEIGHT_ATTENDANCE).toFixed(1)} + ${(84 * SCORE_WEIGHT_PATROL).toFixed(1)} = ${Math.round(97 * SCORE_WEIGHT_ATTENDANCE + 84 * SCORE_WEIGHT_PATROL)}.`
+      ),
+      React.createElement("p", { style: { margin: 0, fontSize: 13.5 } },
+        "Jadi Kehadiran memang lebih menentukan (bobotnya lebih besar) \u2014 tapi Patroli yang jelek tetap bikin nilai turun, tidak bisa cuma mengandalkan rajin masuk kerja doang.")
+    ),
+    React.createElement("p", { style: { fontSize: 12.5, fontStyle: "italic" } },
+      "Detail cara hitung tiap bagian ada di bawah ini \u2014 tinggal klik judulnya untuk buka.")
+  );
+
+  const statusSection = React.createElement(GuideSection, { icon: "badge-check", title: "Status Kehadiran" },
     React.createElement(GuideBadgeRow, {
       label: "Hadir", color: "var(--green)", bg: "var(--green-soft)",
       desc: `Check-in pada atau sebelum jam batas masuk (saat ini pukul ${s.checkInDeadline}, bisa diubah di Pengaturan \u2192 Jam & Presensi).`
@@ -12217,12 +12260,20 @@ function PanduanPage() {
   );
 
   const attendanceScoreSection = React.createElement(GuideSection, { icon: "gauge", title: "Perhitungan Skor Kehadiran" },
-    React.createElement("p", null, "Dihitung per hari lalu dirata-rata satu bulan. Hari Izin tidak ikut dihitung sama sekali (bukan 0, bukan 100 \u2014 dikecualikan)."),
-    React.createElement(GuideList, { items: ["Hadir / Piket Malam (tepat waktu) \u2192 100 poin", "Alpa \u2192 0 poin", "Terlambat \u2192 poin bertingkat sesuai lama telat (lihat tabel di bawah)"] }),
+    React.createElement("p", null, "Gampangnya: tiap hari kerja dapat \"nilai harian\" 0\u2013100, lalu semua nilai harian dalam sebulan dirata-rata. Hari Izin tidak ikut dihitung sama sekali (tidak dianggap 0, tidak dianggap 100 \u2014 dilewatin/dikecualikan)."),
+    React.createElement("p", { style: { fontWeight: 600, color: "var(--navy-900)" } }, "Nilai harian ditentukan seperti ini:"),
+    React.createElement(GuideList, { items: ["Hadir tepat waktu / Piket Malam \u2192 100 poin (nilai penuh)", "Alpa (tidak absen sama sekali) \u2192 0 poin", "Terlambat \u2192 makin lama telatnya, makin kecil poinnya (lihat tabel di bawah)"] }),
     React.createElement("div", { style: { background: "var(--slate-mist)", borderRadius: 10, padding: "10px 14px", fontSize: 13 } },
       React.createElement(GuideList, { items: ["Telat \u2264 15 menit \u2192 90 poin", "Telat 16\u201330 menit \u2192 80 poin", "Telat 31\u201360 menit \u2192 65 poin", "Telat > 60 menit \u2192 50 poin"] })
     ),
-    React.createElement("p", null, `Potongan tambahan: kalau pulang lebih dari ${EARLY_CHECKOUT_TOLERANCE_MIN} menit sebelum jam pulang seharusnya, poin hari itu dipotong ${EARLY_CHECKOUT_PENALTY} poin (minimal 0). Berlaku untuk status Hadir, Terlambat, maupun Piket Malam.`)
+    React.createElement("p", null, `Ada juga potongan kalau pulang cepat: kalau pulang lebih dari ${EARLY_CHECKOUT_TOLERANCE_MIN} menit sebelum jam pulang seharusnya, nilai hari itu dipotong ${EARLY_CHECKOUT_PENALTY} poin (paling rendah tetap 0, tidak sampai minus). Berlaku walau statusnya Hadir, Terlambat, atau Piket Malam.`),
+    React.createElement(GuideExampleBox, { title: "Contoh 1 bulan (20 hari kerja)" },
+      React.createElement("p", { style: { margin: 0, fontSize: 13.5 } },
+        "17 hari Hadir tepat waktu (100), 2 hari Terlambat 16\u201330 menit (80), 1 hari Alpa (0):"),
+      React.createElement("p", { style: { margin: 0, fontSize: 13.5, fontFamily: "monospace" } },
+        "(17\u00d7100 + 2\u00d780 + 1\u00d70) \u00f7 20 = 1860 \u00f7 20 = 93"),
+      React.createElement("p", { style: { margin: 0, fontSize: 13.5 } }, "Jadi Skor Kehadiran bulan itu = 93.")
+    )
   );
 
   const ritSection = React.createElement(GuideSection, { icon: "repeat", title: "CP & Checkpoint Patroli (Rekap Checkpoint (CP))" },
@@ -12268,29 +12319,46 @@ function PanduanPage() {
   );
 
   const patrolScoreSection = React.createElement(GuideSection, { icon: "footprints", title: "Perhitungan Skor Patroli" },
-    React.createElement("p", null, "Dihitung dari rata-rata persentase checkpoint yang dikunjungi pada setiap sesi patroli yang berstatus Selesai bulan berjalan. Sesi yang tidak pernah dijalankan sama sekali tidak dihitung."),
+    React.createElement("p", null, "Gampangnya: tiap kali selesai 1 sesi patroli, sesi itu dapat \"nilai sesi\" 0\u2013100%, tergantung seberapa lengkap checkpoint yang dilewati. Semua nilai sesi dalam sebulan lalu dirata-rata jadi Skor Patroli. Sesi yang tidak pernah dijalankan sama sekali tidak ikut dihitung."),
+    React.createElement("p", { style: { fontWeight: 600, color: "var(--navy-900)" } }, "Nilai 1 sesi dihitung begini:"),
     React.createElement(GuideList, {
       items: [
-        `Setiap sesi yang dijalankan otomatis dapat nilai dasar ${Math.round(PATROL_SESSION_BASELINE * 100)}%, sisanya ditambah sesuai persentase checkpoint yang berhasil dikunjungi (dari total seluruh checkpoint yang terdaftar di sistem).`,
-        "Checkpoint yang dihitung untuk sebuah sesi digabung dari 2 sumber: (1) checklist checkpoint sesi itu sendiri, dan (2) catatan CP/rit (lihat bagian \"CP & Checkpoint Patroli\" di atas) pada tanggal yang sama \u2014 supaya checkpoint yang sempat tercatat sebagai CP tapi entah kenapa tidak ikut masuk ke checklist sesi tetap ikut dihitung ke skor.",
-        "Sesi yang ditutup otomatis oleh sistem (lupa Absen Pulang) dihitung SAMA PERSIS seperti sesi yang diselesaikan manual \u2014 tidak ada pengurangan atau perlakuan khusus.",
-        "Kalau dalam satu hari yang sama karyawan punya lebih dari 1 sesi patroli, checkpoint dari catatan CP hari itu ikut dihitung ke semua sesi pada tanggal tsb (bukan dipisah per sesi).",
-        "Sesi Piket Malam tanpa checkpoint dihitung penuh (100%) karena memang tidak ada checkpoint untuk dikunjungi.",
-        "Bonus Rute (lihat bagian \"Tim & Rute Patroli\" di atas) ditambahkan ke sesi kalau berlaku pada tanggal tsb.",
-        "Skor akhir = rata-rata semua sesi selesai bulan itu, dikali 100."
+        `Begitu sesi dimulai & selesai, otomatis dapat "nilai dasar" ${Math.round(PATROL_SESSION_BASELINE * 100)}% (modal awal, walau checkpoint-nya belum lengkap sekalipun).`,
+        `Sisanya (${Math.round((1 - PATROL_SESSION_BASELINE) * 100)}%) didapat sesuai berapa persen checkpoint yang berhasil dilewati dari total checkpoint yang ada di sistem.`,
+        "Checkpoint yang dihitung diambil dari 2 sumber sekaligus (dijumlah, bukan pilih salah satu): checklist sesi itu sendiri, DAN catatan CP/rit di tanggal yang sama \u2014 supaya checkpoint yang sempat tercatat lewat rit tapi tidak masuk checklist sesi tetap dihargai.",
+        "Sesi Piket Malam (tanpa checkpoint) otomatis dapat nilai penuh 100%, karena memang tidak ada checkpoint untuk dilewati.",
+        "Sesi yang ditutup otomatis oleh sistem (karena lupa Absen Pulang) dinilai SAMA PERSIS seperti sesi yang diakhiri manual \u2014 tidak dikurangi atau dianggap gagal."
       ]
-    })
+    }),
+    React.createElement(GuideExampleBox, { title: "Contoh 1 sesi (misal total checkpoint di sistem = 7)" },
+      React.createElement("p", { style: { margin: 0, fontSize: 13.5 } }, "Petugas berhasil melewati 4 dari 7 checkpoint dalam 1 sesi:"),
+      React.createElement("p", { style: { margin: 0, fontSize: 13.5, fontFamily: "monospace" } },
+        `${Math.round(PATROL_SESSION_BASELINE * 100)}% + (4 \u00f7 7 \u00d7 ${Math.round((1 - PATROL_SESSION_BASELINE) * 100)}%) = ${Math.round(PATROL_SESSION_BASELINE * 100)}% + ${Math.round(4 / 7 * (1 - PATROL_SESSION_BASELINE) * 100)}% = ${Math.round((PATROL_SESSION_BASELINE + 4 / 7 * (1 - PATROL_SESSION_BASELINE)) * 100)}%`),
+      React.createElement("p", { style: { margin: 0, fontSize: 13.5 } },
+        "Jadi walau baru dapat setengah checkpoint, nilai sesinya sudah di atas 70% \u2014 bukan 4/7 = 57% doang \u2014 karena ada nilai dasar tadi.")
+    ),
+    React.createElement("p", { style: { fontSize: 12.5, fontStyle: "italic" } },
+      "Kalau dalam 1 hari yang sama ada lebih dari 1 sesi patroli, checkpoint dari catatan rit hari itu dihitung ke semua sesi pada tanggal tersebut (tidak dipecah per sesi). Bonus Rute (lihat bagian \"Tim & Rute Patroli\" di bawah) juga ditambahkan ke sesi kalau berlaku pada tanggal itu.")
   );
 
   const teamScoreSection = React.createElement(GuideSection, { icon: "trophy", title: "Skor Tim Gabungan (Leaderboard)" },
-    React.createElement("p", null, `Skor akhir yang tampil di Penilaian Tim / Leaderboard adalah gabungan Skor Kehadiran ${Math.round(SCORE_WEIGHT_ATTENDANCE * 100)}% + Skor Patroli ${Math.round(SCORE_WEIGHT_PATROL * 100)}% (Skor Patroli di sini sudah termasuk Bonus Rute kalau ada).`),
+    React.createElement("p", null, `Nilai akhir yang tampil di Penilaian Tim / Leaderboard = (Skor Kehadiran \u00d7 ${Math.round(SCORE_WEIGHT_ATTENDANCE * 100)}%) + (Skor Patroli \u00d7 ${Math.round(SCORE_WEIGHT_PATROL * 100)}%). Skor Patroli yang dipakai di sini sudah termasuk Bonus Rute kalau ada.`),
     React.createElement(GuideList, {
       items: [
-        "Kalau karyawan belum punya data patroli sama sekali bulan itu, skor 100% berasal dari Skor Kehadiran saja.",
-        "Kalau tidak ada data kehadiran maupun patroli, skor tidak ditampilkan (dianggap belum ada data)."
+        "Kalau karyawan belum punya data patroli sama sekali bulan itu (belum pernah jalanin sesi), nilai akhirnya 100% mengikuti Skor Kehadiran saja \u2014 tidak dianggap 0.",
+        "Kalau tidak ada data kehadiran maupun patroli sama sekali, nilai tidak ditampilkan (dianggap belum ada data, bukan nilai jelek)."
       ]
     }),
-    React.createElement("p", { style: { fontSize: 12.5, fontStyle: "italic" } }, "Grade huruf: A \u2265 90, B \u2265 75, di bawah itu C/D mengikuti ambang yang sama pada tiap 15 poin.")
+    React.createElement("p", { style: { fontWeight: 600, color: "var(--navy-900)", marginTop: 4 } }, "Arti huruf Grade-nya:"),
+    React.createElement("div", { style: { background: "var(--slate-mist)", borderRadius: 10, padding: "10px 14px", fontSize: 13 } },
+      React.createElement(GuideList, { items: ["Nilai \u2265 90 \u2192 Grade A", "Nilai \u2265 75 \u2192 Grade B", "Nilai \u2265 60 \u2192 Grade C", "Nilai < 60 \u2192 Grade D"] })
+    ),
+    React.createElement(GuideExampleBox, { title: "Contoh lengkap" },
+      React.createElement("p", { style: { margin: 0, fontSize: 13.5 } }, "Kehadiran = 97, Patroli = 84:"),
+      React.createElement("p", { style: { margin: 0, fontSize: 13.5, fontFamily: "monospace" } },
+        `(97 \u00d7 ${SCORE_WEIGHT_ATTENDANCE}) + (84 \u00d7 ${SCORE_WEIGHT_PATROL}) = ${Math.round(97 * SCORE_WEIGHT_ATTENDANCE + 84 * SCORE_WEIGHT_PATROL)}`),
+      React.createElement("p", { style: { margin: 0, fontSize: 13.5 } }, `Nilai akhir = ${Math.round(97 * SCORE_WEIGHT_ATTENDANCE + 84 * SCORE_WEIGHT_PATROL)} \u2192 Grade A.`)
+    )
   );
 
   const settingsSection = React.createElement(GuideSection, { icon: "settings", title: "Arti Setiap Pengaturan (Settings)" },
@@ -12319,6 +12387,7 @@ function PanduanPage() {
 
   return React.createElement("div", { className: "container-app" },
     headerEl,
+    ringkasanSection,
     statusSection,
     attendanceScoreSection,
     ritSection,
