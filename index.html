@@ -1083,7 +1083,12 @@ function recordCheckpointPass(user, checkpoint, lat, lng) {
     lng
   };
   store.checkpointPasses = [pass, ...store.checkpointPasses];
-  db.collection(COL.CHECKPOINT_PASSES).doc(pass.id).set(pass).catch(console.error);
+  // Pakai jalur native (CapacitorHttp) — sama seperti perbaikan update lokasi patroli
+  // sebelumnya — supaya pencatatan rit checkpoint TIDAK ikut kena batasan Android yang
+  // menghentikan request jaringan dari WebView setelah ~5 menit app di background. Kalau
+  // petugas melewati checkpoint saat HP sudah terkunci cukup lama, catatan rit ini tetap
+  // sampai ke Firestore, tidak "hilang" seperti sebelumnya.
+  firestoreSetNative(COL.CHECKPOINT_PASSES, pass.id, pass);
   return pass;
 }
 function getCheckpointPasses() {
