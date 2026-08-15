@@ -426,11 +426,94 @@ function _toFirestoreFields(obj) {
   });
   return fields;
 }
+/* ======================= ANTRIAN OFFLINE (retry otomatis) =======================
+   Kalau HP benar-benar tidak ada sinyal sama sekali, request ke Firestore (baik
+   native HTTP maupun fallback SDK) bisa gagal total — titik itu jangan dibuang,
+   tapi disimpan dulu di HP (localStorage), lalu dicoba kirim ulang otomatis begitu
+   sinyal balik. Ini TERPISAH TOTAL dari logic GPS/watcher background — cuma
+   menambah lapisan "coba lagi nanti" di atas fungsi tulis Firestore yang sudah ada,
+   tidak mengubah cara GPS dipantau atau kapan tracking berjalan/berhenti. */
+const PENDING_WRITES_KEY = "nit_pending_writes_v1";
+function _loadPendingWrites() {
+  try {
+    return JSON.parse(localStorage.getItem(PENDING_WRITES_KEY) || "[]");
+  } catch (e) {
+    return [];
+  }
+}
+function _savePendingWrites(list) {
+  try {
+    // Batasi 500 item terakhir supaya tidak membengkak tanpa batas kalau offline lama sekali
+    localStorage.setItem(PENDING_WRITES_KEY, JSON.stringify(list.slice(-500)));
+  } catch (e) {
+    console.warn("Gagal simpan antrian offline:", e);
+  }
+}
+function _enqueuePendingWrite(collection, id, data) {
+  const list = _loadPendingWrites();
+  list.push({
+    collection,
+    id,
+    data,
+    queuedAt: Date.now()
+  });
+  _savePendingWrites(list);
+}
+let _flushingPendingWrites = false;
+async function flushPendingWrites() {
+  if (_flushingPendingWrites) return; // hindari 2 proses flush tumpang tindih
+  const list = _loadPendingWrites();
+  if (list.length === 0) return;
+  const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  const Http = isNative && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp;
+  _flushingPendingWrites = true;
+  const remaining = [];
+  for (const item of list) {
+    try {
+      if (Http) {
+        const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_CONFIG.projectId}/databases/(default)/documents/${item.collection}/${item.id}`;
+        await Http.request({
+          url,
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          data: {
+            fields: _toFirestoreFields(item.data)
+          }
+        });
+      } else {
+        await db.collection(item.collection).doc(item.id).set(item.data);
+      }
+    } catch (err) {
+      remaining.push(item); // masih gagal (masih offline) — coba lagi di kesempatan berikutnya
+    }
+  }
+  _savePendingWrites(remaining);
+  _flushingPendingWrites = false;
+  if (remaining.length < list.length) {
+    console.log(`Antrian offline: ${list.length - remaining.length} titik terkirim susulan, ${remaining.length} masih menunggu sinyal.`);
+  }
+}
+// Coba flush setiap kali sinyal balik, dan sebagai jaring pengaman tambahan tiap 20 detik
+// (independen dari siklus GPS — jalan terus selama app terbuka, ringan karena langsung
+// keluar kalau antrian kosong).
+if (typeof window !== "undefined") {
+  window.addEventListener("online", () => {
+    flushPendingWrites();
+  });
+  setInterval(() => {
+    flushPendingWrites();
+  }, 20000);
+}
+
 function firestoreSetNative(collection, id, data) {
   const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
   const Http = isNative && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp;
   if (!Http) {
-    return db.collection(collection).doc(id).set(data).catch(console.error);
+    return db.collection(collection).doc(id).set(data).catch(() => {
+      _enqueuePendingWrite(collection, id, data);
+    });
   }
   const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_CONFIG.projectId}/databases/(default)/documents/${collection}/${id}`;
   return Http.request({
@@ -443,8 +526,11 @@ function firestoreSetNative(collection, id, data) {
       fields: _toFirestoreFields(data)
     }
   }).catch(err => {
-    console.error("firestoreSetNative GAGAL, fallback ke SDK:", err);
-    return db.collection(collection).doc(id).set(data).catch(console.error);
+    console.warn("firestoreSetNative gagal (kemungkinan offline), coba fallback SDK:", err);
+    return db.collection(collection).doc(id).set(data).catch(() => {
+      console.warn("Fallback SDK juga gagal — disimpan ke antrian offline untuk dikirim ulang nanti.");
+      _enqueuePendingWrite(collection, id, data);
+    });
   });
 }
 const COL = {
@@ -1077,7 +1163,7 @@ function recordCheckpointPass(user, checkpoint, lat, lng) {
     userName: user.name,
     checkpointId: checkpoint.id,
     checkpointName: checkpoint.name,
-    date: todayDateStr(trustedNow),
+    date: todayDateStrWITA(trustedNow),
     time: trustedNow.toISOString(),
     lat,
     lng
@@ -1295,7 +1381,7 @@ function startPatrolSession(user, pos, opts = {}) {
     id: generatePatrolId(),
     userId: user.id,
     userName: user.name,
-    date: todayDateStr(trustedNow),
+    date: todayDateStrWITA(trustedNow),
     status: PATROL_STATUS.ACTIVE,
     startTime: trustedNow.toISOString(),
     endTime: null,
@@ -1636,6 +1722,24 @@ function hasRouteBonusOnDate(dateStr) {
   const [manado, minut] = getRouteTeamsConfig();
   return routeSetsDiffer(getTeamCheckpointNamesForDate(manado, dateStr), getTeamCheckpointNamesForDate(minut, dateStr));
 }
+// Jumlah checkpoint UNIK yang dianggap dilewati petugas pada sebuah sesi, dipakai untuk Skor
+// Patroli. Digabung dari 2 sumber supaya tidak ada checkpoint yang sebenarnya sudah tercatat
+// tapi "hilang" dari perhitungan:
+//  1) p.checkpointsVisited — dicatat live selama sesi berstatus ACTIVE (lihat handleNewPosition).
+//  2) store.checkpointPasses (rit) pada tanggal & user yang sama — catatan ini SENGAJA ditulis
+//     lewat jalur native (CapacitorHttp/firestoreSetNative) supaya tahan dari batasan Android yang
+//     menghentikan request WebView setelah app lama di background (lihat recordCheckpointPass).
+//     Kalau karena race/timing tertentu sebuah checkpoint sempat tercatat sebagai rit tapi entah
+//     kenapa tidak ikut masuk ke checkpointsVisited sesi tsb, sumber #2 ini menutup celah itu.
+function getSessionCheckpointNames(p) {
+  const names = new Set((p.checkpointsVisited || []).map(v => matchCheckpointNameLoose(v.name)));
+  store.checkpointPasses.forEach(cp => {
+    if (cp.userId === p.userId && cp.date === p.date) {
+      names.add(matchCheckpointNameLoose(cp.checkpointName));
+    }
+  });
+  return names;
+}
 function computePatrolScore(userId, monthKey) {
   const sessions = getPatrolsByUser(userId).filter(p => p.status === PATROL_STATUS.COMPLETED && p.date.startsWith(monthKey));
   if (sessions.length === 0) return null;
@@ -1646,7 +1750,8 @@ function computePatrolScore(userId, monthKey) {
     if (p.usesCheckpoints === false) {
       sessionScore = 1; // Piket Malam tanpa checkpoint = penuh
     } else {
-      const ratio = Math.min(1, (p.checkpointsVisited || []).length / totalCp);
+      const visitedCount = getSessionCheckpointNames(p).size;
+      const ratio = Math.min(1, visitedCount / totalCp);
       sessionScore = PATROL_SESSION_BASELINE + ratio * (1 - PATROL_SESSION_BASELINE);
     }
     if (userTeam && hasRouteBonusOnDate(p.date)) {
@@ -4069,7 +4174,11 @@ function AttendanceCard({
     refreshRecord();
   }, [user.id]);
   function refreshRecord() {
-    setRecord(getTodayRecordForUser(user.id, todayDateStr()));
+    // Pakai todayDateStrWITA (bukan todayDateStr biasa) supaya konsisten dengan tanggal
+    // yang dipakai saat record ini DIBUAT (lihat handlePhotoConfirmed) — kalau tidak,
+    // petugas dengan HP yang salah setting zona waktu bisa gagal menemukan record
+    // presensinya sendiri hari ini.
+    setRecord(getTodayRecordForUser(user.id, todayDateStrWITA(getTrustedNow())));
   }
   async function beginFlow(flowMode) {
     setError("");
@@ -4141,7 +4250,12 @@ function AttendanceCard({
       return;
     }
     const nowDate = getTrustedNow();
-    const dateStr = todayDateStr(nowDate);
+    // PENTING: pakai todayDateStrWITA (BUKAN todayDateStr biasa) — todayDateStr menghitung
+    // tanggal pakai zona waktu SETELAN PERANGKAT petugas sendiri. Kalau HP petugas salah
+    // setting zona waktu, tanggal presensi/patroli akan tersimpan SALAH sejak awal, dan nanti
+    // dianggap "sudah lewat" oleh auto-close walau menurut WITA sebenarnya masih hari yang
+    // sama — persis penyebab kejadian presensi/patroli ditutup otomatis di siang/sore hari.
+    const dateStr = todayDateStrWITA(nowDate);
     const timeStr = nowTimeStr(nowDate);
     try {
       if (mode === "in") {
@@ -8720,7 +8834,7 @@ function PatrolTracker({
           insideCheckpointRef.current[cp.id] = true;
           // Ambil rit TERAKHIR hari ini langsung dari catatan asli (bukan field sekunder di sesi) —
           // supaya tetap akurat walau ada jeda panjang / HP sempat restart di tengah sesi.
-          const lastPassToday = getLastCheckpointPassForUserOnDate(user.id, todayDateStr(getTrustedNow()));
+          const lastPassToday = getLastCheckpointPassForUserOnDate(user.id, todayDateStrWITA(getTrustedNow()));
           if (lastPassToday && lastPassToday.checkpointId === cp.id) {
             // Checkpoint yang sama dengan rit terakhir — belum mampir ke checkpoint lain, jangan dihitung.
             return;
@@ -12154,10 +12268,13 @@ function PanduanPage() {
   );
 
   const patrolScoreSection = React.createElement(GuideSection, { icon: "footprints", title: "Perhitungan Skor Patroli" },
-    React.createElement("p", null, "Dihitung dari rata-rata persentase checkpoint yang dikunjungi pada setiap sesi patroli yang berstatus Selesai bulan berjalan (checklist checkpoint per sesi, dedup 1x \u2014 beda dengan CP di atas). Sesi yang tidak pernah dijalankan tidak dihitung sama sekali."),
+    React.createElement("p", null, "Dihitung dari rata-rata persentase checkpoint yang dikunjungi pada setiap sesi patroli yang berstatus Selesai bulan berjalan. Sesi yang tidak pernah dijalankan sama sekali tidak dihitung."),
     React.createElement(GuideList, {
       items: [
-        `Setiap sesi yang dijalankan otomatis dapat nilai dasar ${Math.round(PATROL_SESSION_BASELINE * 100)}%, sisanya ditambah sesuai persentase checkpoint yang berhasil dikunjungi.`,
+        `Setiap sesi yang dijalankan otomatis dapat nilai dasar ${Math.round(PATROL_SESSION_BASELINE * 100)}%, sisanya ditambah sesuai persentase checkpoint yang berhasil dikunjungi (dari total seluruh checkpoint yang terdaftar di sistem).`,
+        "Checkpoint yang dihitung untuk sebuah sesi digabung dari 2 sumber: (1) checklist checkpoint sesi itu sendiri, dan (2) catatan CP/rit (lihat bagian \"CP & Checkpoint Patroli\" di atas) pada tanggal yang sama \u2014 supaya checkpoint yang sempat tercatat sebagai CP tapi entah kenapa tidak ikut masuk ke checklist sesi tetap ikut dihitung ke skor.",
+        "Sesi yang ditutup otomatis oleh sistem (lupa Absen Pulang) dihitung SAMA PERSIS seperti sesi yang diselesaikan manual \u2014 tidak ada pengurangan atau perlakuan khusus.",
+        "Kalau dalam satu hari yang sama karyawan punya lebih dari 1 sesi patroli, checkpoint dari catatan CP hari itu ikut dihitung ke semua sesi pada tanggal tsb (bukan dipisah per sesi).",
         "Sesi Piket Malam tanpa checkpoint dihitung penuh (100%) karena memang tidak ada checkpoint untuk dikunjungi.",
         "Bonus Rute (lihat bagian \"Tim & Rute Patroli\" di atas) ditambahkan ke sesi kalau berlaku pada tanggal tsb.",
         "Skor akhir = rata-rata semua sesi selesai bulan itu, dikali 100."
