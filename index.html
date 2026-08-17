@@ -664,12 +664,16 @@ async function initFirestore() {
     }
     store.users = [...SEED_USERS];
   }
+  // PENTING: sinkronkan jam ke server DULU sebelum auto-close pertama kali dijalankan.
+  // Kalau autoClose dipanggil sebelum sync selesai, dia masih pakai jam mentah dari HP
+  // (offset 0) — kalau kebetulan jam/tanggal HP itu ngaco, sesi presensi/patroli hari
+  // ini bisa keliru dianggap "sisa kemarin" lalu ditutup paksa padahal belum selesai.
+  await syncServerTime();
   autoCloseStaleAttendance();
   autoCloseStalePatrols();
   _notifyStore();
-  // Sinkronkan jam ke server begitu app siap, lalu ulangi tiap 5 menit supaya
-  // offset tidak meleset kalau app dibiarkan terbuka lama.
-  syncServerTime();
+  // Ulangi sinkronisasi tiap 5 menit supaya offset tidak meleset kalau app dibiarkan
+  // terbuka lama.
   setInterval(() => {
     syncServerTime();
   }, 5 * 60 * 1000);
@@ -939,6 +943,12 @@ function saveCheckOut(recordId, data) {
 // menggantung selamanya dan tidak mengganggu rekap/laporan bulanan. Ditandai autoCheckOut: true
 // supaya bisa dibedakan dari absen pulang manual di riwayat/laporan.
 function autoCloseStaleAttendance() {
+  // JANGAN jalan kalau jam server belum pernah berhasil disinkronkan sama sekali (mis. app
+  // dibuka saat offline) — getTrustedNow() saat itu masih murni jam device (offset 0), jadi
+  // kalau jam/tanggal device kebetulan ngaco, presensi hari ini bisa keliru ditutup paksa.
+  // Lebih aman menunda auto-close sampai sinkronisasi berikutnya berhasil (dicoba tiap 5 menit)
+  // daripada bertindak berdasarkan jam yang belum terverifikasi.
+  if (!_serverTimeSyncedOnce) return 0;
   const todayStr = todayDateStrWITA(getTrustedNow());
   const stale = store.records.filter(r => r.date !== todayStr && r.checkInTime && !r.checkOutTime);
   stale.forEach(r => saveCheckOut(r.id, {
@@ -1427,6 +1437,9 @@ function endPatrolSession(id, data) {
 // - totalDistanceMeters terus terakumulasi dari noise GPS karena sesi tidak pernah berhenti.
 // Dipanggil sekali setiap kali aplikasi (siapa pun: admin/karyawan) selesai memuat data dari Firestore.
 function autoCloseStalePatrols() {
+  // Sama seperti autoCloseStaleAttendance() — jangan tutup paksa sesi patroli berdasarkan
+  // jam yang belum terverifikasi ke server. Kalau belum pernah sinkron, tunda dulu.
+  if (!_serverTimeSyncedOnce) return 0;
   const todayStr = todayDateStrWITA(getTrustedNow());
   const stale = store.patrols.filter(p => p.status === PATROL_STATUS.ACTIVE && p.date !== todayStr);
   stale.forEach(p => endPatrolSession(p.id, {
@@ -1733,8 +1746,14 @@ function hasRouteBonusOnDate(dateStr) {
 //     kenapa tidak ikut masuk ke checkpointsVisited sesi tsb, sumber #2 ini menutup celah itu.
 function getSessionCheckpointNames(p) {
   const names = new Set((p.checkpointsVisited || []).map(v => matchCheckpointNameLoose(v.name)));
+  // PENTING: dibatasi ke rentang waktu sesi ini (startTime..endTime), BUKAN cuma tanggal yang
+  // sama. Kalau 1 petugas kebetulan punya lebih dari 1 sesi patroli COMPLETED di tanggal yang
+  // sama (mis. tidak sengaja "Selesai Patroli" lalu "Mulai Patroli" lagi hari itu juga), tanpa
+  // batas waktu ini checkpoint dari sesi LAIN ikut "kebagi" ke sesi ini juga — skor jadi
+  // dobel-dihitung padahal rit itu terjadi di sesi yang berbeda.
+  const sessionEnd = p.endTime || new Date(8640000000000000).toISOString(); // sesi masih ACTIVE: tanpa batas atas
   store.checkpointPasses.forEach(cp => {
-    if (cp.userId === p.userId && cp.date === p.date) {
+    if (cp.userId === p.userId && cp.date === p.date && cp.time >= p.startTime && cp.time <= sessionEnd) {
       names.add(matchCheckpointNameLoose(cp.checkpointName));
     }
   });
@@ -1842,8 +1861,17 @@ function todayDateStrWITA(d = new Date()) {
     day = String(wita.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
+// PENTING: dipaksa hitung dalam WITA (UTC+8), sama prinsipnya dengan todayDateStrWITA() —
+// TIDAK pakai d.toTimeString() biasa, karena itu mengikuti zona waktu SETELAN PERANGKAT.
+// Kalau HP petugas zona waktunya nggak persis WITA (auto-detect meleset, dsb), jam yang
+// kesimpen sebagai checkInTime/checkOutTime bisa geser beberapa jam walau TANGGALnya sudah
+// benar WITA — dan jam inilah dasar penentuan status Hadir/Terlambat serta pulang cepat.
 function nowTimeStr(d = new Date()) {
-  return d.toTimeString().slice(0, 8);
+  const wita = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+  const h = String(wita.getUTCHours()).padStart(2, "0");
+  const m = String(wita.getUTCMinutes()).padStart(2, "0");
+  const s = String(wita.getUTCSeconds()).padStart(2, "0");
+  return `${h}:${m}:${s}`;
 }
 function formatDateID(dateStr) {
   return new Date(dateStr + "T00:00:00").toLocaleDateString("id-ID", {
@@ -1932,7 +1960,12 @@ function getEffectiveRecordsForUserMonth(userId, userName, monthKey) {
   const realDates = new Set(real.map(r => r.date));
   const [y, m] = monthKey.split("-").map(Number);
   const daysInMonth = new Date(y, m, 0).getDate();
-  const todayStr = todayDateStr();
+  // Pakai jam server terpercaya + WITA dipaksa (bukan todayDateStr() device-lokal) — dipakai
+  // sebagai batas "sampai tanggal berapa yang sudah lewat" untuk deteksi Alpa otomatis, rekap
+  // bulanan, dan skor kehadiran. Kalau device yang membuka rekap zona waktunya bukan WITA,
+  // batas ini bisa geser ±1 hari dan salah menandai/tidak menandai Alpa di hari yang belum
+  // benar-benar berlalu menurut WITA.
+  const todayStr = todayDateStrWITA(getTrustedNow());
   const user = getUserById(userId);
   const joinDate = user && user.joinDate ? user.joinDate : null;
   const synthetic = [];
@@ -2824,8 +2857,12 @@ function exportRekapPDF(user, monthKey, records) {
 
 /* ======================= DETEKSI "LUPA ABSEN PULANG" ======================= */
 function getLupaAbsenPulang(users, checkOutReminderHour = 17) {
-  const today = todayDateStr();
-  const nowHour = new Date().getHours();
+  // Pakai jam server terpercaya + WITA dipaksa (bukan jam/tanggal device polos) supaya
+  // pengingat ini konsisten dengan seluruh logika presensi lain, dan tidak salah muncul/
+  // tidak muncul gara-gara zona waktu perangkat yang membuka dashboard berbeda-beda.
+  const trustedNow = getTrustedNow();
+  const today = todayDateStrWITA(trustedNow);
+  const nowHour = Number(nowTimeStr(trustedNow).slice(0, 2));
   if (nowHour < checkOutReminderHour) return [];
   const records = getRecords().filter(r => r.date === today);
   return users.filter(u => {
@@ -3493,9 +3530,17 @@ function AuthProvider({
   // pengecekan sekali saat load saja tidak cukup. Cek setiap menit apakah tanggal sudah berganti
   // sejak terakhir kali dicek — kalau iya, jalankan lagi auto absen-pulang & auto tutup patroli.
   useEffect(() => {
-    let lastDateStr = todayDateStr();
+    // PENTING: pakai todayDateStrWITA(getTrustedNow()) — BUKAN todayDateStr() biasa.
+    // todayDateStr() menghitung tanggal dari jam & zona waktu HP yang menjalankan kode
+    // ini, jadi kalau ada 1 device (HP officer/laptop admin) yang setelan zona waktu
+    // atau jamnya salah, watcher ini bisa keliru mengira hari sudah berganti padahal
+    // menurut WITA/jam server sebenarnya belum — akibatnya autoClose kepanggil di
+    // tengah hari dan menutup paksa sesi presensi/patroli yang masih aktif & belum
+    // selesai. todayDateStrWITA(getTrustedNow()) selalu berpatokan ke jam server +
+    // zona WITA yang dipaksa, jadi tidak terpengaruh setelan device.
+    let lastDateStr = todayDateStrWITA(getTrustedNow());
     const t = setInterval(() => {
-      const nowDateStr = todayDateStr();
+      const nowDateStr = todayDateStrWITA(getTrustedNow());
       if (nowDateStr !== lastDateStr) {
         lastDateStr = nowDateStr;
         autoCloseStaleAttendance();
@@ -3523,6 +3568,9 @@ function AuthProvider({
       if (!u) return;
       const session = getSession();
       if (!session || !session.loginDateWITA) return;
+      // Jangan logout paksa kalau jam server belum pernah berhasil disinkronkan — sama
+      // alasannya dengan autoCloseStaleAttendance()/autoCloseStalePatrols().
+      if (!_serverTimeSyncedOnce) return;
       const nowWita = todayDateStrWITA(getTrustedNow());
       if (session.loginDateWITA !== nowWita) {
         recordAutoLogoutLog(u.name);
@@ -7492,7 +7540,7 @@ function AdminDashboard({
   }), " Excel"), /*#__PURE__*/React.createElement(Button, {
     variant: "primary",
     size: "sm",
-    onClick: () => onNavigate && onNavigate("settings")
+    onClick: () => onNavigate && onNavigate("settings-akses")
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "user-plus",
     size: 15
