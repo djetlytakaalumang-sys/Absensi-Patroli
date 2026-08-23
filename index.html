@@ -9333,7 +9333,8 @@ function PatrolPage({
   }
   // TAMPILAN LIVE (per-hari, bukan dibatasi sesi) — konsisten dengan Rekap Rit walau petugas
   // sempat ganti sesi (Selesai lalu Mulai lagi) hari itu.
-  const visitedIdSet = activePatrol ? new Set(getLiveVisitedCheckpoints(activePatrol, checkpoints).map(v => v.checkpointId)) : new Set();
+  const visited = activePatrol ? getLiveVisitedCheckpoints(activePatrol, checkpoints) : [];
+  const visitedIdSet = new Set(visited.map(v => v.checkpointId));
   const mappedCheckpoints = checkpoints.map(cp => ({
     ...cp,
     __visited: visitedIdSet.has(cp.id)
