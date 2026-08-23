@@ -1761,6 +1761,28 @@ function getSessionCheckpointNames(p) {
   });
   return names;
 }
+// Daftar checkpoint (dari daftar checkpoint AKTIF saat ini) yang sudah dianggap dikunjungi pada
+// sesi p, digabung dari 2 sumber (checkpointsVisited + checkpointPasses) — sama seperti
+// getSessionCheckpointNames() di atas. Dipakai di kartu ringkasan "Peta Live Patroli" (Dashboard
+// & halaman Peta Live Patroli) supaya daftar checkpoint yang ditampilkan (hijau/checklist vs
+// abu-abu/belum) konsisten dengan skor patroli — checkpoint yang rit-nya sudah tercatat tidak lagi
+// "nyangkut" kelihatan belum dilewati hanya karena checkpointsVisited sesi ini telat ke-update.
+function getSessionVisitedCheckpoints(p, checkpointList) {
+  const visitedNames = getSessionCheckpointNames(p);
+  const timeByName = new Map((p.checkpointsVisited || []).map(v => [matchCheckpointNameLoose(v.name), v.time]));
+  const sessionEnd = p.endTime || new Date(8640000000000000).toISOString();
+  store.checkpointPasses.forEach(cp => {
+    if (cp.userId === p.userId && cp.date === p.date && cp.time >= p.startTime && cp.time <= sessionEnd) {
+      const key = matchCheckpointNameLoose(cp.checkpointName);
+      if (!timeByName.has(key) || cp.time < timeByName.get(key)) timeByName.set(key, cp.time);
+    }
+  });
+  return checkpointList.filter(cp => visitedNames.has(matchCheckpointNameLoose(cp.name))).map(cp => ({
+    checkpointId: cp.id,
+    name: cp.name,
+    time: timeByName.get(matchCheckpointNameLoose(cp.name)) || null
+  }));
+}
 function computePatrolScore(userId, monthKey) {
   const sessions = getPatrolsByUser(userId).filter(p => p.status === PATROL_STATUS.COMPLETED && p.date.startsWith(monthKey));
   if (sessions.length === 0) return null;
@@ -7741,7 +7763,7 @@ function AdminDashboard({
       marginBottom: 10
     }
   }, activePatrols.slice(0, 3).map((p, i) => {
-    const visited = p.checkpointsVisited || [];
+    const visited = getSessionVisitedCheckpoints(p, checkpoints);
     const isLast = i === Math.min(activePatrols.length, 3) - 1;
     return /*#__PURE__*/React.createElement("div", {
       key: p.id,
@@ -10781,7 +10803,7 @@ function AdminPatrolMapPage() {
     const elapsed = now - new Date(p.startTime).getTime();
     const lastPt = p.path?.[p.path.length - 1];
     const lastAgoSec = lastPt ? Math.floor((now - new Date(lastPt.t).getTime()) / 1000) : null;
-    const visited = p.checkpointsVisited || [];
+    const visited = getSessionVisitedCheckpoints(p, checkpoints);
     const visitedIds = new Set(visited.map(v => v.checkpointId));
     const pending = checkpoints.filter(cp => !visitedIds.has(cp.id));
     return /*#__PURE__*/React.createElement("div", {
