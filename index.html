@@ -1686,6 +1686,21 @@ function getEditableRouteTeamState(teamId) {
     routeCheckpointIds
   };
 }
+// Semua tim yang diikuti user (BUKAN cuma yang pertama cocok) — beberapa petugas SENGAJA
+// ditugaskan merangkap di lebih dari 1 tim (mis. Rivaldo di Tim Manado & Tim Minut sekaligus),
+// jadi tidak boleh berhenti di kecocokan pertama saja seperti getUserRouteTeam() lama.
+function getUserRouteTeams(user) {
+  if (!user) return [];
+  const teams = getRouteTeamsConfig();
+  return teams.filter(t => {
+    if (t.memberIds) return t.memberIds.includes(user.id);
+    if (t.memberNamesLower && user.name) {
+      const name = user.name.toLowerCase();
+      return t.memberNamesLower.some(m => name.includes(m));
+    }
+    return false;
+  });
+}
 function getUserRouteTeam(user) {
   if (!user) return null;
   const teams = getRouteTeamsConfig();
@@ -1701,7 +1716,7 @@ function getUserRouteTeam(user) {
 }
 // Kumpulan nama checkpoint (lowercase) yang berhasil di-rit oleh anggota sebuah tim pada 1 tanggal.
 function getTeamCheckpointNamesForDate(team, dateStr) {
-  const teamUserIds = new Set(getUsers().filter(u => getUserRouteTeam(u)?.id === team.id).map(u => u.id));
+  const teamUserIds = new Set(getUsers().filter(u => getUserRouteTeams(u).some(t => t.id === team.id)).map(u => u.id));
   const names = new Set();
   store.checkpointPasses.forEach(p => {
     if (p.date === dateStr && teamUserIds.has(p.userId)) {
@@ -1714,7 +1729,7 @@ function getTeamCheckpointNamesForDate(team, dateStr) {
 // supaya bisa ditampilkan dengan huruf besar/kecil aslinya, bukan versi lowercase yang dipakai
 // untuk pencocokan internal.
 function getTeamCheckpointOriginalNamesForDate(team, dateStr) {
-  const teamUserIds = new Set(getUsers().filter(u => getUserRouteTeam(u)?.id === team.id).map(u => u.id));
+  const teamUserIds = new Set(getUsers().filter(u => getUserRouteTeams(u).some(t => t.id === team.id)).map(u => u.id));
   const map = new Map();
   store.checkpointPasses.forEach(p => {
     if (p.date === dateStr && teamUserIds.has(p.userId)) {
@@ -1783,11 +1798,35 @@ function getSessionVisitedCheckpoints(p, checkpointList) {
     time: timeByName.get(matchCheckpointNameLoose(cp.name)) || null
   }));
 }
+// Sama seperti getSessionVisitedCheckpoints(), TAPI untuk TAMPILAN LIVE (peta live & kartu status
+// "Petugas Sedang Patroli") — BUKAN untuk skor. Bedanya: tidak dibatasi ke rentang waktu sesi INI
+// saja, cukup dicek per-HARI (sama seperti Rekap Rit) — supaya kalau petugas kebetulan sempat
+// "Selesai Patroli" lalu "Mulai Patroli" lagi di hari yang sama, checkpoint yang sudah dilewati di
+// sesi SEBELUMNYA hari itu tetap kelihatan hijau di sesi yang SEKARANG aktif (konsisten dengan apa
+// yang admin lihat di Rekap Rit), bukan malah kelihatan "belum" padahal sudah tercatat.
+// Skor Patroli TETAP pakai getSessionCheckpointNames()/getSessionVisitedCheckpoints() yang dibatasi
+// per sesi, supaya rit dari sesi lain tidak dobel dihitung ke skor.
+function getLiveVisitedCheckpoints(p, checkpointList) {
+  const visitedNames = new Set((p.checkpointsVisited || []).map(v => matchCheckpointNameLoose(v.name)));
+  const timeByName = new Map((p.checkpointsVisited || []).map(v => [matchCheckpointNameLoose(v.name), v.time]));
+  store.checkpointPasses.forEach(cp => {
+    if (cp.userId === p.userId && cp.date === p.date) {
+      const key = matchCheckpointNameLoose(cp.checkpointName);
+      visitedNames.add(key);
+      if (!timeByName.has(key) || cp.time < timeByName.get(key)) timeByName.set(key, cp.time);
+    }
+  });
+  return checkpointList.filter(cp => visitedNames.has(matchCheckpointNameLoose(cp.name))).map(cp => ({
+    checkpointId: cp.id,
+    name: cp.name,
+    time: timeByName.get(matchCheckpointNameLoose(cp.name)) || null
+  }));
+}
 function computePatrolScore(userId, monthKey) {
   const sessions = getPatrolsByUser(userId).filter(p => p.status === PATROL_STATUS.COMPLETED && p.date.startsWith(monthKey));
   if (sessions.length === 0) return null;
   const totalCp = Math.max(1, getCheckpoints().length);
-  const userTeam = getUserRouteTeam(getUserById(userId));
+  const userTeams = getUserRouteTeams(getUserById(userId));
   const total = sessions.reduce((sum, p) => {
     let sessionScore;
     if (p.usesCheckpoints === false) {
@@ -1797,7 +1836,7 @@ function computePatrolScore(userId, monthKey) {
       const ratio = Math.min(1, visitedCount / totalCp);
       sessionScore = PATROL_SESSION_BASELINE + ratio * (1 - PATROL_SESSION_BASELINE);
     }
-    if (userTeam && hasRouteBonusOnDate(p.date)) {
+    if (userTeams.length > 0 && hasRouteBonusOnDate(p.date)) {
       sessionScore = Math.min(1, sessionScore + ROUTE_BONUS_AMOUNT);
     }
     return sum + sessionScore;
@@ -3442,14 +3481,10 @@ function AdminLivePatrolMap({
     const map = mapRef.current;
     if (!map || !window.L) return;
     const seen = new Set();
-    // PENTING: jangan cuma cek p.checkpointsVisited di sini — dipakai sumber yang sama seperti
-    // getSessionCheckpointNames() (skor patroli), yaitu digabung dengan store.checkpointPasses.
-    // Kalau tidak, ada kasus rit sudah tercatat/terhitung ke skor tapi pin di peta masih
-    // kelihatan merah karena checkpointsVisited sesi ini belum sempat ke-update (race/delay saat
-    // app di background). Dicocokkan pakai nama checkpoint (matchCheckpointNameLoose), sama
-    // seperti logika skor, karena checkpointPasses menyimpan nama bukan id.
+    // PENTING: dipakai fungsi TAMPILAN LIVE (per-hari, bukan dibatasi sesi) — supaya pin di peta
+    // konsisten dengan Rekap Rit walau petugas sempat ganti sesi (Selesai lalu Mulai lagi) hari itu.
     const visitedNames = new Set();
-    patrols.forEach(p => getSessionCheckpointNames(p).forEach(n => visitedNames.add(n)));
+    patrols.forEach(p => getLiveVisitedCheckpoints(p, checkpoints).forEach(v => visitedNames.add(matchCheckpointNameLoose(v.name))));
     checkpoints.forEach(cp => {
       if (cp.lat == null || cp.lng == null) return;
       seen.add(cp.id);
@@ -7763,7 +7798,7 @@ function AdminDashboard({
       marginBottom: 10
     }
   }, activePatrols.slice(0, 3).map((p, i) => {
-    const visited = getSessionVisitedCheckpoints(p, checkpoints);
+    const visited = getLiveVisitedCheckpoints(p, checkpoints);
     const isLast = i === Math.min(activePatrols.length, 3) - 1;
     return /*#__PURE__*/React.createElement("div", {
       key: p.id,
@@ -9079,12 +9114,24 @@ function PatrolTracker({
 }
 // Kartu kecil di halaman Patroli Karyawan yang menampilkan rute checkpoint wajib untuk tim
 // karyawan (kalau namanya cocok dengan salah satu ROUTE_TEAMS), plus status rit hari ini dan
-// info bonus kalau rute tim ini berbeda dari tim satunya hari ini.
+// info bonus kalau rute tim ini berbeda dari tim satunya hari ini. Kalau user merangkap di lebih
+// dari 1 tim (mis. ditugaskan bantu Tim Manado & Tim Minut), tampilkan 1 kartu per tim supaya
+// rute masing-masing tim tetap kelihatan lengkap (bukan salah satunya dianggap "di luar rute").
 function TeamRouteCard({
   user
 }) {
-  const team = getUserRouteTeam(user);
-  if (!team) return null;
+  const teams = getUserRouteTeams(user);
+  if (teams.length === 0) return null;
+  return /*#__PURE__*/React.createElement(React.Fragment, null, teams.map(team => /*#__PURE__*/React.createElement(TeamRouteCardSingle, {
+    key: team.id,
+    team,
+    user
+  })));
+}
+function TeamRouteCardSingle({
+  team,
+  user
+}) {
   const today = todayDateStr();
   const doneMap = useMemo(() => getTeamCheckpointOriginalNamesForDate(team, today), [today, store.checkpointPasses, store.users]);
   const bonusToday = useMemo(() => hasRouteBonusOnDate(today), [today, store.checkpointPasses, store.users]);
@@ -9284,12 +9331,12 @@ function PatrolPage({
     setJustFinished(finished);
     setEnding(false);
   }
-  // Sama seperti di peta admin: gabung checkpointsVisited + checkpointPasses (getSessionCheckpointNames)
-  // supaya pin checkpoint tidak "nyangkut" merah padahal ritnya sudah tercatat/terhitung.
-  const visitedNamesSet = activePatrol ? getSessionCheckpointNames(activePatrol) : new Set();
+  // TAMPILAN LIVE (per-hari, bukan dibatasi sesi) — konsisten dengan Rekap Rit walau petugas
+  // sempat ganti sesi (Selesai lalu Mulai lagi) hari itu.
+  const visitedIdSet = activePatrol ? new Set(getLiveVisitedCheckpoints(activePatrol, checkpoints).map(v => v.checkpointId)) : new Set();
   const mappedCheckpoints = checkpoints.map(cp => ({
     ...cp,
-    __visited: visitedNamesSet.has(matchCheckpointNameLoose(cp.name))
+    __visited: visitedIdSet.has(cp.id)
   }));
   const elapsedMs = activePatrol ? now - new Date(activePatrol.startTime).getTime() : 0;
   const hasCheckpoints = checkpoints.length > 0;
@@ -10591,11 +10638,16 @@ function AdminPatrolMapPage() {
   }, []);
   const checkpoints = useMemo(() => getCheckpoints(), [store.checkpoints]);
   const visitCounts = useMemo(() => {
+    // PENTING: dihitung PER PETUGAS (bukan digabung semua orang) — sebelumnya key cuma
+    // checkpointId, jadi angka "X checkpoint hari ini" yang tampil di kartu Si A ikut kehitung
+    // rit Si B juga untuk checkpoint yang sama, bikin kelihatan seolah Si A sudah lewat padahal
+    // itu rit orang lain.
     const today = todayDateStr();
     const counts = {};
     store.checkpointPasses.forEach(p => {
       if (p.date !== today) return;
-      counts[p.checkpointId] = (counts[p.checkpointId] || 0) + 1;
+      const key = `${p.userId}|${p.checkpointId}`;
+      counts[key] = (counts[key] || 0) + 1;
     });
     return counts;
   }, [store.checkpointPasses]);
@@ -10803,7 +10855,7 @@ function AdminPatrolMapPage() {
     const elapsed = now - new Date(p.startTime).getTime();
     const lastPt = p.path?.[p.path.length - 1];
     const lastAgoSec = lastPt ? Math.floor((now - new Date(lastPt.t).getTime()) / 1000) : null;
-    const visited = getSessionVisitedCheckpoints(p, checkpoints);
+    const visited = getLiveVisitedCheckpoints(p, checkpoints);
     const visitedIds = new Set(visited.map(v => v.checkpointId));
     const pending = checkpoints.filter(cp => !visitedIds.has(cp.id));
     return /*#__PURE__*/React.createElement("div", {
@@ -10868,7 +10920,7 @@ function AdminPatrolMapPage() {
     }, /*#__PURE__*/React.createElement(Icon, {
       name: "check",
       size: 11
-    }), " ", v.name, " · ", formatClock(new Date(v.time)), " · ", visitCounts[v.checkpointId] || 0, " checkpoint hari ini")), pending.map(cp => /*#__PURE__*/React.createElement("span", {
+    }), " ", v.name, " · ", formatClock(new Date(v.time)), " · ", visitCounts[`${p.userId}|${v.checkpointId}`] || 0, " checkpoint hari ini")), pending.map(cp => /*#__PURE__*/React.createElement("span", {
       key: cp.id,
       className: "badge",
       style: {
@@ -10879,7 +10931,7 @@ function AdminPatrolMapPage() {
     }, /*#__PURE__*/React.createElement(Icon, {
       name: "circle-dashed",
       size: 11
-    }), " ", cp.name, " · ", visitCounts[cp.id] || 0, " checkpoint hari ini"))));
+    }), " ", cp.name, " · ", visitCounts[`${p.userId}|${cp.id}`] || 0, " checkpoint hari ini"))));
   }))), completedToday.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
