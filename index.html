@@ -3420,13 +3420,19 @@ function AdminLivePatrolMap({
     const map = mapRef.current;
     if (!map || !window.L) return;
     const seen = new Set();
-    const visitedIds = new Set();
-    patrols.forEach(p => (p.checkpointsVisited || []).forEach(v => visitedIds.add(v.checkpointId)));
+    // PENTING: jangan cuma cek p.checkpointsVisited di sini — dipakai sumber yang sama seperti
+    // getSessionCheckpointNames() (skor patroli), yaitu digabung dengan store.checkpointPasses.
+    // Kalau tidak, ada kasus rit sudah tercatat/terhitung ke skor tapi pin di peta masih
+    // kelihatan merah karena checkpointsVisited sesi ini belum sempat ke-update (race/delay saat
+    // app di background). Dicocokkan pakai nama checkpoint (matchCheckpointNameLoose), sama
+    // seperti logika skor, karena checkpointPasses menyimpan nama bukan id.
+    const visitedNames = new Set();
+    patrols.forEach(p => getSessionCheckpointNames(p).forEach(n => visitedNames.add(n)));
     checkpoints.forEach(cp => {
       if (cp.lat == null || cp.lng == null) return;
       seen.add(cp.id);
       const radius = cp.radius || DEFAULT_CHECKPOINT_RADIUS;
-      const visited = visitedIds.has(cp.id);
+      const visited = visitedNames.has(matchCheckpointNameLoose(cp.name));
       const color = visited ? "#16A34A" : "#DC2626";
       const kind = checkpointIconKind(cp.name);
       const icon = window.L.divIcon({
@@ -9256,11 +9262,12 @@ function PatrolPage({
     setJustFinished(finished);
     setEnding(false);
   }
-  const visited = activePatrol ? activePatrol.checkpointsVisited || [] : [];
-  const visitedIds = new Set(visited.map(v => v.checkpointId));
+  // Sama seperti di peta admin: gabung checkpointsVisited + checkpointPasses (getSessionCheckpointNames)
+  // supaya pin checkpoint tidak "nyangkut" merah padahal ritnya sudah tercatat/terhitung.
+  const visitedNamesSet = activePatrol ? getSessionCheckpointNames(activePatrol) : new Set();
   const mappedCheckpoints = checkpoints.map(cp => ({
     ...cp,
-    __visited: visitedIds.has(cp.id)
+    __visited: visitedNamesSet.has(matchCheckpointNameLoose(cp.name))
   }));
   const elapsedMs = activePatrol ? now - new Date(activePatrol.startTime).getTime() : 0;
   const hasCheckpoints = checkpoints.length > 0;
