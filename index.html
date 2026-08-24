@@ -3466,6 +3466,38 @@ function assignDistinctColors(userIds) {
   });
   return map;
 }
+// Gabungkan titik "live" (p.path, selalu kecil karena titik lama diarsipkan otomatis di
+// handleNewPosition) dengan titik ARSIP (pathChunks) yang sudah pernah diambil & di-cache —
+// supaya garis rute yang ditampilkan tetap LENGKAP dari awal sesi, TANPA perlu terus-menerus
+// men-download ulang arsip itu tiap kali ada 1 titik live baru masuk (arsip cuma diambil
+// SEKALI per potongan baru, lalu disimpan di cache selama komponen peta ini masih terbuka).
+function getFullPatrolLatLngs(patrol, chunkCacheRef, onArchiveLoaded) {
+  const cache = chunkCacheRef.current[patrol.id] || (chunkCacheRef.current[patrol.id] = {
+    fetchedUpTo: 0,
+    points: []
+  });
+  const totalChunks = patrol.pathChunkSeq || 0;
+  if (totalChunks > cache.fetchedUpTo) {
+    const from = cache.fetchedUpTo;
+    cache.fetchedUpTo = totalChunks; // tandai duluan supaya tidak nembak fetch dobel selagi menunggu
+    (async () => {
+      const newPoints = [];
+      for (let seq = from; seq < totalChunks; seq++) {
+        const chunkId = `c${String(seq).padStart(6, "0")}`;
+        try {
+          const snap = await db.collection(`${COL.PATROLS}/${patrol.id}/pathChunks`).doc(chunkId).get();
+          if (snap.exists) newPoints.push(...(snap.data().points || []));
+        } catch (e) {
+          console.warn("Gagal ambil arsip jejak:", chunkId, e);
+        }
+      }
+      cache.points = [...cache.points, ...newPoints].sort((a, b) => new Date(a.t) - new Date(b.t));
+      if (onArchiveLoaded) onArchiveLoaded();
+    })();
+  }
+  const combined = [...cache.points, ...(patrol.path || [])];
+  return combined.map(pt => [pt.lat, pt.lng]);
+}
 function colorForUserId(userId) {
   let hash = 0;
   for (let i = 0; i < userId.length; i++) hash = hash * 31 + userId.charCodeAt(i) >>> 0;
@@ -3503,6 +3535,7 @@ function AdminLivePatrolMap({
   const cpMarkersRef = useRef({});
   const cpCirclesRef = useRef({});
   const fittedOnceRef = useRef(false);
+  const chunkCacheRef = useRef({}); // { [patrolId]: { fetchedUpTo: number, points: [] } } — arsip diambil SEKALI, di-cache, tidak diulang
   const colorMap = useMemo(() => assignDistinctColors(patrols.filter(p => p.path?.length).map(p => p.userId)), [patrols.filter(p => p.path?.length).map(p => p.userId).join(",")]);
   useEffect(() => {
     if (!containerRef.current || mapRef.current || !window.L) return;
@@ -3633,7 +3666,12 @@ function AdminLivePatrolMap({
           duration: 0.8
         });
       }
-      const latlngs = p.path.map(pt => [pt.lat, pt.lng]);
+      const latlngs = getFullPatrolLatLngs(p, chunkCacheRef, () => {
+        // Callback dipanggil setelah arsip baru selesai diambil (async) — redraw garis
+        // dengan data lengkap begitu tersedia, tanpa perlu nunggu titik live berikutnya.
+        const merged = getFullPatrolLatLngs(p, chunkCacheRef, null);
+        if (userLinesRef.current[p.userId]) userLinesRef.current[p.userId].setLatLngs(merged);
+      });
       if (userLinesRef.current[p.userId]) userLinesRef.current[p.userId].setLatLngs(latlngs);else userLinesRef.current[p.userId] = window.L.polyline(latlngs, {
         color,
         weight: 4,
@@ -9045,6 +9083,30 @@ function PatrolTracker({
     const currentPatrol = getActivePatrolForUser(user.id);
     activePatrolRef.current = currentPatrol;
 
+    // PENTING (hemat data): field `path` di dokumen sesi ini terus-menerus di-"nonton"
+    // (onSnapshot) oleh peta live admin & petugas sendiri — Firestore mengirim ULANG
+    // SELURUH dokumen setiap ada 1 titik baru ditambahkan, BUKAN cuma titik barunya.
+    // Kalau path dibiarkan terus membesar sepanjang sesi (bisa ratusan/ribuan titik untuk
+    // patroli panjang), setiap titik baru jadi transfer data yang makin besar juga —
+    // inilah penyebab pemakaian data jadi belasan GB. Solusinya: begitu path sudah
+    // cukup panjang, titik-titik LAMA "diarsipkan" ke dokumen kecil terpisah (yang tidak
+    // terus-menerus di-listen, cuma dibaca sekali saat perlu lihat rute lengkap), dan
+    // field `path` yang di-broadcast live cuma menyisakan beberapa titik TERBARU saja —
+    // ukurannya jadi tetap kecil & konstan sepanjang sesi, berapa lama pun durasinya.
+    const PATH_LIVE_MAX = 15; // maksimal titik yang tetap "live" di dokumen utama
+    const PATH_ARCHIVE_CHUNK = 12; // jumlah titik lama yang diarsipkan sekaligus
+    let pathForWrite = nextPath;
+    let nextChunkSeq = currentPatrol?.pathChunkSeq || 0;
+    if (currentPatrol && nextPath.length > PATH_LIVE_MAX) {
+      const toArchive = nextPath.slice(0, PATH_ARCHIVE_CHUNK);
+      pathForWrite = nextPath.slice(PATH_ARCHIVE_CHUNK);
+      firestoreSetNative(`${COL.PATROLS}/${currentPatrol.id}/pathChunks`, `c${String(nextChunkSeq).padStart(6, "0")}`, {
+        seq: nextChunkSeq,
+        points: toArchive
+      });
+      nextChunkSeq += 1;
+    }
+
     // Simpan ke Firestore hanya jika berpindah cukup jauh dari titik tersimpan terakhir (hemat penulisan)
     const lastSaved = lastSavedRef.current;
     const movedFar = !lastSaved || distanceMeters(lastSaved.lat, lastSaved.lng, lat, lng) >= 8;
@@ -9053,7 +9115,8 @@ function PatrolTracker({
       let totalDist = currentPatrol.totalDistanceMeters || 0;
       if (prevPath.length > 0) totalDist += distanceMeters(prevPath[prevPath.length - 1].lat, prevPath[prevPath.length - 1].lng, lat, lng);
       updatePatrolSession(currentPatrol.id, {
-        path: nextPath,
+        path: pathForWrite,
+        pathChunkSeq: nextChunkSeq,
         totalDistanceMeters: totalDist
       });
     }
