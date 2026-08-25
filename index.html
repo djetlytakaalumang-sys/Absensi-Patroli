@@ -3471,27 +3471,33 @@ function assignDistinctColors(userIds) {
 // supaya garis rute yang ditampilkan tetap LENGKAP dari awal sesi, TANPA perlu terus-menerus
 // men-download ulang arsip itu tiap kali ada 1 titik live baru masuk (arsip cuma diambil
 // SEKALI per potongan baru, lalu disimpan di cache selama komponen peta ini masih terbuka).
+// Gabungkan titik "live" (p.path, selalu kecil karena titik lama diarsipkan otomatis di
+// handleNewPosition/heartbeat) dengan titik ARSIP (pathChunks) yang sudah pernah diambil &
+// di-cache — supaya garis rute yang ditampilkan tetap LENGKAP dari awal sesi, TANPA perlu
+// terus-menerus men-download ulang arsip itu tiap kali ada 1 titik live baru masuk.
+// Ambil SELURUH subcollection sekaligus (bukan tebak ID nomor urut satu-satu) — supaya aman
+// walau ID arsip acak (tidak berurutan), dan tetap benar walau `pathChunkCount` sesekali
+// meleset (cuma dipakai sebagai "hint kapan perlu refresh", bukan kunci pengambilan).
 function getFullPatrolLatLngs(patrol, chunkCacheRef, onArchiveLoaded) {
   const cache = chunkCacheRef.current[patrol.id] || (chunkCacheRef.current[patrol.id] = {
-    fetchedUpTo: 0,
+    fetchedCount: -1,
     points: []
   });
-  const totalChunks = patrol.pathChunkSeq || 0;
-  if (totalChunks > cache.fetchedUpTo) {
-    const from = cache.fetchedUpTo;
-    cache.fetchedUpTo = totalChunks; // tandai duluan supaya tidak nembak fetch dobel selagi menunggu
+  const hintCount = patrol.pathChunkCount || 0;
+  if (hintCount !== cache.fetchedCount && !cache.fetching) {
+    cache.fetching = true;
     (async () => {
-      const newPoints = [];
-      for (let seq = from; seq < totalChunks; seq++) {
-        const chunkId = `c${String(seq).padStart(6, "0")}`;
-        try {
-          const snap = await db.collection(`${COL.PATROLS}/${patrol.id}/pathChunks`).doc(chunkId).get();
-          if (snap.exists) newPoints.push(...(snap.data().points || []));
-        } catch (e) {
-          console.warn("Gagal ambil arsip jejak:", chunkId, e);
-        }
+      try {
+        const snap = await db.collection(`${COL.PATROLS}/${patrol.id}/pathChunks`).get();
+        const allPoints = [];
+        snap.forEach(doc => allPoints.push(...(doc.data().points || [])));
+        cache.points = allPoints.sort((a, b) => new Date(a.t) - new Date(b.t));
+        cache.fetchedCount = hintCount;
+      } catch (e) {
+        console.warn("Gagal ambil arsip jejak:", patrol.id, e);
+      } finally {
+        cache.fetching = false;
       }
-      cache.points = [...cache.points, ...newPoints].sort((a, b) => new Date(a.t) - new Date(b.t));
       if (onArchiveLoaded) onArchiveLoaded();
     })();
   }
@@ -3628,37 +3634,42 @@ function AdminLivePatrolMap({
       const speed = prev ? Math.round(speedKmh(prev, last)) : 0;
       const statusText = speed > 1 ? `Bergerak · ${speed} km/j` : "Sedang patroli";
       const agoText = timeAgoShortID(last.t);
-      const tooltipText = `${p.userName}${speed > 0 ? ` · ${speed} km/j` : ""}`;
+      const initials = (p.userName || "?").split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
+      const popupHtml = `<div style="font-family:var(--font-body),Inter,sans-serif;min-width:150px;">
+          <div style="font-size:13px;font-weight:800;color:#0f172a;">${p.userName}</div>
+          <div style="font-size:11.5px;font-weight:600;color:${color};margin-top:2px;">${statusText}</div>
+          <div style="font-size:10.5px;color:#94a3b8;margin-top:1px;">${agoText}</div>
+        </div>`;
+      // Marker cuma pin kompak + inisial (SELALU kelihatan, tidak numpuk walau berdekatan).
+      // Nama lengkap/status/waktu dipindah ke popup yang CUMA MUNCUL SAAT DI-TAP marker-nya —
+      // supaya kalau beberapa petugas posisinya berdekatan, peta tidak penuh label yang
+      // saling tumpang tindih seperti sebelumnya.
       const icon = window.L.divIcon({
         className: "",
-        html: `<div style="position:relative;width:172px;height:90px;pointer-events:none;font-family:var(--font-body),Inter,sans-serif;">
-          <div style="position:absolute;left:50%;bottom:42px;transform:translateX(-50%);background:${color};color:#fff;padding:6px 11px 7px;border-radius:11px;box-shadow:0 6px 14px rgba(0,0,0,.25),0 1px 2px rgba(0,0,0,.15);white-space:nowrap;text-align:center;line-height:1.35;">
-            <div style="font-size:11.5px;font-weight:800;">${p.userName}</div>
-            <div style="font-size:10px;font-weight:600;opacity:.92;">${statusText}</div>
-            <div style="font-size:9.5px;font-weight:500;opacity:.78;">${agoText}</div>
-            <div style="position:absolute;left:50%;bottom:-6px;transform:translateX(-50%);width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:7px solid ${color};"></div>
-          </div>
-          <div style="position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:34px;height:34px;">
-            <div style="position:absolute;inset:-9px;border-radius:50%;border:2px solid ${color};animation:nit-marker-pulse 1.8s ease-out infinite;"></div>
-            <div style="position:absolute;inset:0;transform:rotate(${heading}deg);transition:transform .8s ease;filter:drop-shadow(0 2px 3px rgba(0,0,0,.35));">
-              <svg width="34" height="34" viewBox="0 0 34 34">
-                <path d="M17 2.5 L28.5 30 L17 23.5 L5.5 30 Z" fill="${color}" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"/>
-              </svg>
-            </div>
-          </div>
+        html: `<div style="position:relative;width:44px;height:44px;">
+          <svg width="44" height="44" viewBox="0 0 44 44" style="position:absolute;top:0;left:0;overflow:visible;">
+            <g style="transform-origin:22px 25px;transform:rotate(${heading}deg);transition:transform .8s ease;">
+              <path d="M22 4 L31 19 A13 13 0 1 1 13 19 Z" fill="${color}" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"></path>
+            </g>
+            <circle cx="22" cy="25" r="12" fill="${color}" stroke="#fff" stroke-width="2"></circle>
+            <text x="22" y="26" text-anchor="middle" dominant-baseline="central" fill="#fff" font-size="11" font-weight="700" style="letter-spacing:-.3px;">${initials}</text>
+          </svg>
         </div>`,
-        iconSize: [172, 90],
-        iconAnchor: [86, 34]
+        iconSize: [44, 44],
+        iconAnchor: [22, 25]
       });
       if (userMarkersRef.current[p.userId]) {
         animateMarkerMove(userMarkersRef.current[p.userId], [last.lat, last.lng]);
         userMarkersRef.current[p.userId].setIcon(icon);
-        userMarkersRef.current[p.userId].setTooltipContent(tooltipText);
+        userMarkersRef.current[p.userId].setPopupContent(popupHtml);
       } else {
         userMarkersRef.current[p.userId] = window.L.marker([last.lat, last.lng], {
           icon,
           zIndexOffset: 1000
-        }).addTo(map).bindTooltip(tooltipText);
+        }).addTo(map).bindPopup(popupHtml, {
+          closeButton: true,
+          offset: [0, -20]
+        });
       }
       if (followUserId === p.userId) {
         map.panTo([last.lat, last.lng], {
@@ -9034,6 +9045,37 @@ function PatrolTracker({
     };
   }, [activePatrol?.id]);
 
+  // Helper BERSAMA (dipakai di heartbeat maupun handleNewPosition di bawah) supaya field
+  // `path` yang di-broadcast live SELALU dipangkas & titik lama diarsipkan — tidak ada lagi
+  // celah salah satu jalur penulisan lupa dipangkas seperti sebelumnya.
+  const PATH_LIVE_MAX = 15;
+  const PATH_ARCHIVE_CHUNK = 12;
+  function trimAndArchivePatrolPath(patrol, fullPath) {
+    let pathForWrite = fullPath;
+    // pathChunkCount cuma "hint" buat peta admin tahu ada arsip baru yang perlu diambil —
+    // BUKAN kunci pengambilan arsip (arsip diambil dengan get() seluruh subcollection,
+    // diurutkan pakai waktu tiap titik). Jadi walau hint ini sesekali meleset 1 angka
+    // (karena ada 2 penulis: handleNewPosition & heartbeat jalan hampir bersamaan),
+    // TIDAK menyebabkan data hilang — cuma telat kelihatan sebentar, akan menyusul benar
+    // sendiri di update berikutnya.
+    let nextChunkCount = (patrol?.pathChunkCount || 0) + (fullPath.length > PATH_LIVE_MAX ? 1 : 0);
+    if (patrol && fullPath.length > PATH_LIVE_MAX) {
+      const toArchive = fullPath.slice(0, PATH_ARCHIVE_CHUNK);
+      pathForWrite = fullPath.slice(PATH_ARCHIVE_CHUNK);
+      // ID arsip pakai waktu+acak (BUKAN nomor urut 1,2,3,...) — supaya walau
+      // handleNewPosition & heartbeat kebetulan jalan bersamaan, ID-nya PASTI beda,
+      // tidak akan saling menimpa/menghapus arsip satu sama lain.
+      const chunkId = "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+      firestoreSetNative(`${COL.PATROLS}/${patrol.id}/pathChunks`, chunkId, {
+        points: toArchive
+      });
+    }
+    return {
+      pathForWrite,
+      nextChunkCount
+    };
+  }
+
   // Heartbeat: kirim titik posisi terakhir ke Firestore secara berkala walau petugas belum
   // berpindah 15m (mis. sesi Piket Malam yang stasioner di satu pos).
   useEffect(() => {
@@ -9048,14 +9090,23 @@ function PatrolTracker({
       };
       const nextPath = [...store.tracker.path, point];
       lastSavedRef.current = point;
+      // Pakai sesi TERKINI (lookup ulang), bukan `activePatrol` dari closure yang bisa basi.
+      const freshPatrol = getActivePatrolForUser(user.id);
+      const {
+        pathForWrite,
+        nextChunkCount
+      } = trimAndArchivePatrolPath(freshPatrol, nextPath);
       store.tracker = {
         ...store.tracker,
         path: nextPath
       };
-      updatePatrolSession(activePatrol.id, {
-        path: nextPath,
-        lastSeen: point.t
-      });
+      if (freshPatrol) {
+        updatePatrolSession(freshPatrol.id, {
+          path: pathForWrite,
+          pathChunkCount: nextChunkCount,
+          lastSeen: point.t
+        });
+      }
       _notifyStore();
     }, 7000);
     return () => clearInterval(hb);
@@ -9083,29 +9134,10 @@ function PatrolTracker({
     const currentPatrol = getActivePatrolForUser(user.id);
     activePatrolRef.current = currentPatrol;
 
-    // PENTING (hemat data): field `path` di dokumen sesi ini terus-menerus di-"nonton"
-    // (onSnapshot) oleh peta live admin & petugas sendiri — Firestore mengirim ULANG
-    // SELURUH dokumen setiap ada 1 titik baru ditambahkan, BUKAN cuma titik barunya.
-    // Kalau path dibiarkan terus membesar sepanjang sesi (bisa ratusan/ribuan titik untuk
-    // patroli panjang), setiap titik baru jadi transfer data yang makin besar juga —
-    // inilah penyebab pemakaian data jadi belasan GB. Solusinya: begitu path sudah
-    // cukup panjang, titik-titik LAMA "diarsipkan" ke dokumen kecil terpisah (yang tidak
-    // terus-menerus di-listen, cuma dibaca sekali saat perlu lihat rute lengkap), dan
-    // field `path` yang di-broadcast live cuma menyisakan beberapa titik TERBARU saja —
-    // ukurannya jadi tetap kecil & konstan sepanjang sesi, berapa lama pun durasinya.
-    const PATH_LIVE_MAX = 15; // maksimal titik yang tetap "live" di dokumen utama
-    const PATH_ARCHIVE_CHUNK = 12; // jumlah titik lama yang diarsipkan sekaligus
-    let pathForWrite = nextPath;
-    let nextChunkSeq = currentPatrol?.pathChunkSeq || 0;
-    if (currentPatrol && nextPath.length > PATH_LIVE_MAX) {
-      const toArchive = nextPath.slice(0, PATH_ARCHIVE_CHUNK);
-      pathForWrite = nextPath.slice(PATH_ARCHIVE_CHUNK);
-      firestoreSetNative(`${COL.PATROLS}/${currentPatrol.id}/pathChunks`, `c${String(nextChunkSeq).padStart(6, "0")}`, {
-        seq: nextChunkSeq,
-        points: toArchive
-      });
-      nextChunkSeq += 1;
-    }
+    const {
+      pathForWrite,
+      nextChunkCount
+    } = trimAndArchivePatrolPath(currentPatrol, nextPath);
 
     // Simpan ke Firestore hanya jika berpindah cukup jauh dari titik tersimpan terakhir (hemat penulisan)
     const lastSaved = lastSavedRef.current;
@@ -9116,7 +9148,7 @@ function PatrolTracker({
       if (prevPath.length > 0) totalDist += distanceMeters(prevPath[prevPath.length - 1].lat, prevPath[prevPath.length - 1].lng, lat, lng);
       updatePatrolSession(currentPatrol.id, {
         path: pathForWrite,
-        pathChunkSeq: nextChunkSeq,
+        pathChunkCount: nextChunkCount,
         totalDistanceMeters: totalDist
       });
     }
