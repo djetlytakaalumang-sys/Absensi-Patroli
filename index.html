@@ -11338,9 +11338,7 @@ function PenilaianPage({
     Legend,
     ResponsiveContainer,
     CartesianGrid,
-    Cell,
-    Area,
-    ComposedChart
+    Cell
   } = Recharts;
   return /*#__PURE__*/React.createElement("div", {
     className: "container-app"
@@ -11788,7 +11786,7 @@ function PenilaianAdminPage() {
   }, /*#__PURE__*/React.createElement(ResponsiveContainer, {
     width: "100%",
     height: 230
-  }, /*#__PURE__*/React.createElement(ComposedChart, {
+  }, /*#__PURE__*/React.createElement(LineChart, {
     data: compareData,
     margin: {
       top: 4,
@@ -11796,35 +11794,7 @@ function PenilaianAdminPage() {
       left: 0,
       bottom: 0
     }
-  }, /*#__PURE__*/React.createElement("defs", null, /*#__PURE__*/React.createElement("linearGradient", {
-    id: "gradKehadiran",
-    x1: "0",
-    y1: "0",
-    x2: "0",
-    y2: "1"
-  }, /*#__PURE__*/React.createElement("stop", {
-    offset: "5%",
-    stopColor: "#e11d48",
-    stopOpacity: 0.28
-  }), /*#__PURE__*/React.createElement("stop", {
-    offset: "95%",
-    stopColor: "#e11d48",
-    stopOpacity: 0
-  })), /*#__PURE__*/React.createElement("linearGradient", {
-    id: "gradPatroli",
-    x1: "0",
-    y1: "0",
-    x2: "0",
-    y2: "1"
-  }, /*#__PURE__*/React.createElement("stop", {
-    offset: "5%",
-    stopColor: "#7c3aed",
-    stopOpacity: 0.28
-  }), /*#__PURE__*/React.createElement("stop", {
-    offset: "95%",
-    stopColor: "#7c3aed",
-    stopOpacity: 0
-  }))), /*#__PURE__*/React.createElement(CartesianGrid, {
+  }, /*#__PURE__*/React.createElement(CartesianGrid, {
     vertical: false,
     stroke: "var(--line)",
     strokeDasharray: "3 3"
@@ -11860,58 +11830,31 @@ function PenilaianAdminPage() {
     }
   }), /*#__PURE__*/React.createElement(Legend, {
     wrapperStyle: {
-      fontSize: 12,
-      fontWeight: 600
+      fontSize: 12
     },
     iconType: "circle",
-    iconSize: 9
-  }), /*#__PURE__*/React.createElement(Area, {
-    type: "monotone",
-    dataKey: "Kehadiran",
-    stroke: "none",
-    fill: "url(#gradKehadiran)",
-    legendType: "none",
-    tooltipType: "none",
-    activeDot: false
-  }), /*#__PURE__*/React.createElement(Area, {
-    type: "monotone",
-    dataKey: "Patroli",
-    stroke: "none",
-    fill: "url(#gradPatroli)",
-    legendType: "none",
-    tooltipType: "none",
-    activeDot: false
+    iconSize: 8
   }), /*#__PURE__*/React.createElement(Line, {
     type: "monotone",
     dataKey: "Kehadiran",
-    stroke: "#e11d48",
-    strokeWidth: 3,
+    stroke: "var(--accent-600)",
+    strokeWidth: 2,
     dot: {
-      r: 5,
-      fill: "#e11d48",
-      stroke: "#fff",
-      strokeWidth: 2
+      r: 4
     },
     activeDot: {
-      r: 7,
-      stroke: "#fff",
-      strokeWidth: 2
+      r: 6
     }
   }), /*#__PURE__*/React.createElement(Line, {
     type: "monotone",
     dataKey: "Patroli",
-    stroke: "#7c3aed",
-    strokeWidth: 3,
+    stroke: "var(--indigo)",
+    strokeWidth: 2,
     dot: {
-      r: 5,
-      fill: "#7c3aed",
-      stroke: "#fff",
-      strokeWidth: 2
+      r: 4
     },
     activeDot: {
-      r: 7,
-      stroke: "#fff",
-      strokeWidth: 2
+      r: 6
     }
   }))))))), /*#__PURE__*/React.createElement(Leaderboard, {
     rows: rows,
