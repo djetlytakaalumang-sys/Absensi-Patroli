@@ -3633,7 +3633,7 @@ function AdminLivePatrolMap({
       const heading = prev ? bearingDeg(prev.lat, prev.lng, last.lat, last.lng) : 0;
       const speed = prev ? Math.round(speedKmh(prev, last)) : 0;
       const statusText = speed > 1 ? `Bergerak · ${speed} km/j` : "Sedang patroli";
-      const agoText = timeAgoShortID(last.t);
+      const agoText = timeAgoShortID(p.lastSeen || last.t);
       const initials = (p.userName || "?").split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
       const popupHtml = `<div style="font-family:var(--font-body),Inter,sans-serif;min-width:150px;">
           <div style="font-size:13px;font-weight:800;color:#0f172a;">${p.userName}</div>
@@ -8899,6 +8899,12 @@ function PatrolTracker({
   // resync manual (di luar interval otomatis 5 menit) tidak spam Firestore.
   const clockSkewWarnedRef = useRef(false);
   const resyncAttemptedRef = useRef(false);
+  // Stempel waktu penulisan "lastSeen" (keep-alive) terakhir — dipakai untuk throttle waktu
+  // (bukan jarak) supaya status "Live" di admin tetap akurat & selalu di-update dari setiap
+  // callback lokasi ASLI (native), TIDAK bergantung pada setInterval heartbeat JS yang bisa
+  // di-throttle Android/Chromium saat layar terkunci / app di-background lama. Lihat komentar
+  // lengkap di dalam handleNewPosition.
+  const lastKeepAliveRef = useRef(null);
   // Ref selalu berisi sesi patroli TERKINI (di-refresh setiap render). Wajib dipakai di dalam
   // handleNewPosition (bukan variabel `activePatrol` langsung), karena handleNewPosition dibungkus
   // watchPosition/BgGeo callback yang hanya didaftarkan SEKALI saat sesi mulai (lihat effect dengan
@@ -9139,9 +9145,18 @@ function PatrolTracker({
       nextChunkCount
     } = trimAndArchivePatrolPath(currentPatrol, nextPath);
 
-    // Simpan ke Firestore hanya jika berpindah cukup jauh dari titik tersimpan terakhir (hemat penulisan)
+    // PENTING: kalau titik ini berada di dalam radius checkpoint manapun, PAKSA titik ini ikut
+    // tersimpan ke jalur (path) — walau belum bergeser 8m dari titik tersimpan terakhir. Tanpa ini,
+    // titik yang justru MEMICU checkpoint/rit tercatat bisa saja tidak pernah masuk ke `path` yang
+    // ditampilkan di peta (karena pengecekan checkpoint di bawah tidak tunduk pada ambang 8m ini),
+    // sehingga checkpoint sudah sah tercatat tapi garis jejak di peta terlihat tidak melewatinya.
+    const checkpointsForForceSave = currentPatrol && currentPatrol.usesCheckpoints !== false ? getCheckpoints() : [];
+    const nearAnyCheckpoint = checkpointsForForceSave.some(cp => cp.lat != null && cp.lng != null && distanceMeters(lat, lng, cp.lat, cp.lng) <= (cp.radius || DEFAULT_CHECKPOINT_RADIUS));
+
+    // Simpan ke Firestore hanya jika berpindah cukup jauh dari titik tersimpan terakhir (hemat penulisan),
+    // KECUALI titik ini sedang di dalam radius checkpoint (lihat komentar di atas) — dalam kasus itu tetap disimpan.
     const lastSaved = lastSavedRef.current;
-    const movedFar = !lastSaved || distanceMeters(lastSaved.lat, lastSaved.lng, lat, lng) >= 8;
+    const movedFar = !lastSaved || distanceMeters(lastSaved.lat, lastSaved.lng, lat, lng) >= 8 || nearAnyCheckpoint;
     if (movedFar && currentPatrol) {
       lastSavedRef.current = point;
       let totalDist = currentPatrol.totalDistanceMeters || 0;
@@ -9149,13 +9164,40 @@ function PatrolTracker({
       updatePatrolSession(currentPatrol.id, {
         path: pathForWrite,
         pathChunkCount: nextChunkCount,
-        totalDistanceMeters: totalDist
+        totalDistanceMeters: totalDist,
+        lastSeen: point.t
       });
+    }
+
+    // KEEP-ALIVE "masih live": status "● Live"/"Terputus" di admin sebelumnya dihitung dari
+    // stempel waktu titik TERAKHIR di `path` — padahal `path` SENGAJA jarang ditulis (hanya saat
+    // bergeser ≥8m, lihat `movedFar` di atas) supaya jalur tidak bengkak. Akibatnya kalau petugas
+    // sedang diam di satu titik (mis. piket statis) untuk waktu lama, admin melihat "Terputus"
+    // walau HP-nya sebenarnya masih aktif mengirim lokasi — cuma tidak ada titik BARU yang perlu
+    // disimpan ke jalur.
+    //
+    // Perbaikan: tulis `lastSeen` SETIAP kali ada callback lokasi ASLI dari GPS/BgGeo (bukan
+    // ditunggu movedFar, dan bukan lewat setInterval heartbeat JS yang bisa di-throttle Android/
+    // Chromium sampai hanya jalan 1x/menit saat layar terkunci/app di-background lama). Ditahan
+    // (throttle) berdasar WAKTU — bukan jarak — supaya tidak menulis ke Firestore terlalu rapat
+    // kalau plugin lokasi mengirim update sangat sering.
+    const KEEP_ALIVE_MIN_INTERVAL_MS = 15000;
+    const lastKeepAliveAt = lastKeepAliveRef.current;
+    const dueForKeepAlive = !lastKeepAliveAt || Date.now() - lastKeepAliveAt >= KEEP_ALIVE_MIN_INTERVAL_MS;
+    if (dueForKeepAlive && currentPatrol && !movedFar) {
+      // Kalau movedFar true, lastSeen sudah ikut ditulis di update path di atas — di sini cukup
+      // tangani kasus TIDAK bergerak, supaya tidak menulis 2x ke Firestore untuk 1 posisi yang sama.
+      lastKeepAliveRef.current = Date.now();
+      updatePatrolSession(currentPatrol.id, {
+        lastSeen: point.t
+      });
+    } else if (dueForKeepAlive) {
+      lastKeepAliveRef.current = Date.now();
     }
 
     // Cek kedekatan ke checkpoint yang belum dikunjungi (dilewati untuk sesi Piket Malam tanpa checkpoint)
     if (currentPatrol && currentPatrol.usesCheckpoints !== false) {
-      const checkpoints = getCheckpoints();
+      const checkpoints = checkpointsForForceSave;
       const visitedIds = new Set((currentPatrol.checkpointsVisited || []).map(v => v.checkpointId));
       const newlyVisited = [];
       checkpoints.forEach(cp => {
@@ -10999,7 +11041,12 @@ function AdminPatrolMapPage() {
   }, activePatrols.map(p => {
     const elapsed = now - new Date(p.startTime).getTime();
     const lastPt = p.path?.[p.path.length - 1];
-    const lastAgoSec = lastPt ? Math.floor((now - new Date(lastPt.t).getTime()) / 1000) : null;
+    // Pakai `lastSeen` (di-update dari SETIAP callback lokasi asli, lihat handleNewPosition) kalau
+    // ada — lebih akurat daripada titik terakhir di `path`, yang sengaja jarang ditulis saat petugas
+    // diam di tempat (lihat komentar `movedFar`/keep-alive di handleNewPosition). Fallback ke titik
+    // path terakhir untuk sesi lama yang belum sempat punya field lastSeen.
+    const lastSeenIso = p.lastSeen || lastPt?.t;
+    const lastAgoSec = lastSeenIso ? Math.floor((now - new Date(lastSeenIso).getTime()) / 1000) : null;
     const visited = getLiveVisitedCheckpoints(p, checkpoints);
     const visitedIds = new Set(visited.map(v => v.checkpointId));
     const pending = checkpoints.filter(cp => !visitedIds.has(cp.id));
