@@ -2295,7 +2295,7 @@ function speedKmh(prevPoint, curPoint) {
 // iterations=2 sengaja tidak dibuat lebih tinggi: tiap iterasi ±2x lipat jumlah titik garis,
 // jadi 2 iterasi = 4x titik (masih cukup halus di mata) — 3 iterasi (8x titik) bikin peta berat
 // waktu zoom in/out karena renderer harus hitung ulang belasan ribu titik tiap kali.
-function smoothLatLngs(latlngs, iterations = 2) {
+function smoothLatLngs(latlngs, iterations = 1) {
   if (!latlngs || latlngs.length < 3) return latlngs;
   let pts = latlngs;
   for (let iter = 0; iter < iterations; iter++) {
@@ -2318,7 +2318,7 @@ function smoothLatLngs(latlngs, iterations = 2) {
 // persis sama (karena smoothLatLngs mempertahankan titik awal/akhir apa adanya), jadi tidak ada
 // patahan/kedutan di titik sambung antara bagian beku & bagian segar.
 function getSmoothedRouteCached(cache, rawLatlngs, opts = {}) {
-  const { window = 220, iterations = 2 } = opts;
+  const { window = 220, iterations = 1 } = opts;
   if (!rawLatlngs || rawLatlngs.length < 3) return rawLatlngs || [];
   // Rute lebih pendek dari cache (mis. sesi baru dimulai) → reset total.
   if (rawLatlngs.length < cache.frozenCount) {
@@ -3595,6 +3595,7 @@ function AdminLivePatrolMap({
   const fittedOnceRef = useRef(false);
   const chunkCacheRef = useRef({}); // { [patrolId]: { fetchedUpTo: number, points: [] } } — arsip diambil SEKALI, di-cache, tidak diulang
   const smoothCacheRef = useRef({}); // { [userId]: { frozen, frozenCount } } — cache penghalusan per-petugas, biar biaya hitung tidak membesar seiring rute makin panjang / makin banyak petugas aktif
+  const redrawThrottleRef = useRef({ lastRun: 0, timeoutId: null }); // batasi frekuensi rebuild marker+garis, biar tidak rebutan CPU dgn gesture zoom
   const colorMap = useMemo(() => assignDistinctColors(patrols.filter(p => p.path?.length).map(p => p.userId)), [patrols.filter(p => p.path?.length).map(p => p.userId).join(",")]);
   useEffect(() => {
     if (!containerRef.current || mapRef.current || !window.L) return;
@@ -3677,8 +3678,14 @@ function AdminLivePatrolMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !window.L) return;
-    const seen = new Set();
-    patrols.forEach(p => {
+    // Rebuild marker+garis semua petugas itu berat (bikin ulang HTML ikon SVG, setLatLngs titik
+    // ribuan panjang) — kalau dijalankan tiap kali ADA SATU ping GPS masuk dari petugas manapun,
+    // bisa terjadi berkali-kali per detik saat banyak petugas aktif, rebutan CPU dgn gesture zoom
+    // sehingga zoom terasa berat/patah. Di-throttle max 1x / 1000ms, dgn trailing call supaya data
+    // akhir tetap ter-render walau ada ping yang "dilewati".
+    const applyUpdate = () => {
+      const seen = new Set();
+      patrols.forEach(p => {
       if (!p.path?.length) return;
       seen.add(p.userId);
       const last = p.path[p.path.length - 1];
@@ -3743,7 +3750,8 @@ function AdminLivePatrolMap({
         weight: 4,
         opacity: .85,
         lineCap: "round",
-        lineJoin: "round"
+        lineJoin: "round",
+        smoothFactor: 3 // simplifikasi titik saat render per level zoom (Douglas-Peucker bawaan Leaflet) — meringankan gambar ulang saat zoom in/out
       }).addTo(map);
     });
     Object.keys(userMarkersRef.current).forEach(id => {
@@ -3762,6 +3770,31 @@ function AdminLivePatrolMap({
       map.fitBounds(group.getBounds().pad(0.3));
       fittedOnceRef.current = true;
     }
+    }; // akhir applyUpdate
+
+    const throttleMs = 1000;
+    const now = performance.now();
+    const elapsed = now - redrawThrottleRef.current.lastRun;
+    if (redrawThrottleRef.current.timeoutId) {
+      clearTimeout(redrawThrottleRef.current.timeoutId);
+      redrawThrottleRef.current.timeoutId = null;
+    }
+    if (elapsed >= throttleMs) {
+      redrawThrottleRef.current.lastRun = now;
+      applyUpdate();
+    } else {
+      redrawThrottleRef.current.timeoutId = setTimeout(() => {
+        redrawThrottleRef.current.lastRun = performance.now();
+        redrawThrottleRef.current.timeoutId = null;
+        applyUpdate();
+      }, throttleMs - elapsed);
+    }
+    return () => {
+      if (redrawThrottleRef.current.timeoutId) {
+        clearTimeout(redrawThrottleRef.current.timeoutId);
+        redrawThrottleRef.current.timeoutId = null;
+      }
+    };
   }, [patrols]);
   const activeForLegend = patrols.filter(p => p.path?.length);
   return /*#__PURE__*/React.createElement("div", {
