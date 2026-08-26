@@ -2289,6 +2289,50 @@ function speedKmh(prevPoint, curPoint) {
   return distM / dtSec * 3.6;
 }
 
+// Menghaluskan garis rute yang patah-patah (zig-zag antar titik GPS) memakai algoritma
+// "Chaikin corner-cutting" — dijalankan beberapa iterasi supaya sudut tajam jadi lengkung
+// halus, TANPA melewati/keluar dari jalur titik aslinya (beda dgn spline yg bisa overshoot).
+function smoothLatLngs(latlngs, iterations = 3) {
+  if (!latlngs || latlngs.length < 3) return latlngs;
+  let pts = latlngs;
+  for (let iter = 0; iter < iterations; iter++) {
+    const next = [pts[0]]; // titik awal & akhir dipertahankan persis (posisi start/akhir rute)
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i],
+        p1 = pts[i + 1];
+      next.push([p0[0] * 0.75 + p1[0] * 0.25, p0[1] * 0.75 + p1[1] * 0.25], [p0[0] * 0.25 + p1[0] * 0.75, p0[1] * 0.25 + p1[1] * 0.75]);
+    }
+    next.push(pts[pts.length - 1]);
+    pts = next;
+  }
+  return pts;
+}
+
+// Versi "windowed" dari smoothLatLngs — supaya biaya hitung TIDAK terus membesar seiring rute
+// makin panjang (shift 8+ jam bisa punya ribuan titik GPS) atau makin banyak petugas aktif.
+// Bagian rute yang sudah lewat & tidak berubah lagi "dibekukan" (dihitung sekali, disimpan di cache),
+// hanya bagian ekor (titik-titik terbaru) yang dihitung ulang tiap update. Titik sambungan selalu
+// persis sama (karena smoothLatLngs mempertahankan titik awal/akhir apa adanya), jadi tidak ada
+// patahan/kedutan di titik sambung antara bagian beku & bagian segar.
+function getSmoothedRouteCached(cache, rawLatlngs, opts = {}) {
+  const { window = 220, iterations = 3 } = opts;
+  if (!rawLatlngs || rawLatlngs.length < 3) return rawLatlngs || [];
+  // Rute lebih pendek dari cache (mis. sesi baru dimulai) → reset total.
+  if (rawLatlngs.length < cache.frozenCount) {
+    cache.frozen = [];
+    cache.frozenCount = 0;
+  }
+  // Ekor yang belum dibekukan sudah cukup panjang → bekukan bagian lama sekali saja.
+  if (rawLatlngs.length - cache.frozenCount > window * 1.5) {
+    const newBoundary = rawLatlngs.length - window;
+    cache.frozen = smoothLatLngs(rawLatlngs.slice(0, newBoundary), iterations);
+    cache.frozenCount = newBoundary;
+  }
+  const tailRaw = rawLatlngs.slice(Math.max(0, cache.frozenCount - 1)); // -1 = 1 titik overlap utk sambungan mulus
+  const tailSmoothed = smoothLatLngs(tailRaw, iterations);
+  return cache.frozen.length ? cache.frozen.concat(tailSmoothed.slice(1)) : tailSmoothed;
+}
+
 /* ======================= DETEKSI WAJAH (wajib wajah utk presensi) =======================
    Memakai face-api.js (TensorFlow.js) — model Tiny Face Detector diunduh sekali dari CDN
    lalu dipakai untuk memvalidasi bahwa objek di depan kamera memang wajah manusia,
@@ -3291,6 +3335,7 @@ function PatrolMap({
   const mapRef = useRef(null);
   const liveMarkerRef = useRef(null);
   const pathLineRef = useRef(null);
+  const smoothCacheRef = useRef({ frozen: [], frozenCount: 0 });
   const cpMarkersRef = useRef({});
   const cpCirclesRef = useRef({});
 
@@ -3409,14 +3454,17 @@ function PatrolMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !window.L || path.length < 2) return;
-    const latlngs = path.map(p => [p.lat, p.lng]);
+    const rawLatlngs = path.map(p => [p.lat, p.lng]);
+    const latlngs = getSmoothedRouteCached(smoothCacheRef.current, rawLatlngs);
     if (pathLineRef.current) {
       pathLineRef.current.setLatLngs(latlngs);
     } else {
       pathLineRef.current = window.L.polyline(latlngs, {
         color: "#2563EB",
         weight: 4,
-        opacity: .8
+        opacity: .8,
+        lineCap: "round",
+        lineJoin: "round"
       }).addTo(map);
     }
   }, [path]);
@@ -3542,6 +3590,7 @@ function AdminLivePatrolMap({
   const cpCirclesRef = useRef({});
   const fittedOnceRef = useRef(false);
   const chunkCacheRef = useRef({}); // { [patrolId]: { fetchedUpTo: number, points: [] } } — arsip diambil SEKALI, di-cache, tidak diulang
+  const smoothCacheRef = useRef({}); // { [userId]: { frozen, frozenCount } } — cache penghalusan per-petugas, biar biaya hitung tidak membesar seiring rute makin panjang / makin banyak petugas aktif
   const colorMap = useMemo(() => assignDistinctColors(patrols.filter(p => p.path?.length).map(p => p.userId)), [patrols.filter(p => p.path?.length).map(p => p.userId).join(",")]);
   useEffect(() => {
     if (!containerRef.current || mapRef.current || !window.L) return;
@@ -3677,12 +3726,13 @@ function AdminLivePatrolMap({
           duration: 0.8
         });
       }
-      const latlngs = getFullPatrolLatLngs(p, chunkCacheRef, () => {
+      if (!smoothCacheRef.current[p.userId]) smoothCacheRef.current[p.userId] = { frozen: [], frozenCount: 0 };
+      const latlngs = getSmoothedRouteCached(smoothCacheRef.current[p.userId], getFullPatrolLatLngs(p, chunkCacheRef, () => {
         // Callback dipanggil setelah arsip baru selesai diambil (async) — redraw garis
         // dengan data lengkap begitu tersedia, tanpa perlu nunggu titik live berikutnya.
         const merged = getFullPatrolLatLngs(p, chunkCacheRef, null);
-        if (userLinesRef.current[p.userId]) userLinesRef.current[p.userId].setLatLngs(merged);
-      });
+        if (userLinesRef.current[p.userId]) userLinesRef.current[p.userId].setLatLngs(getSmoothedRouteCached(smoothCacheRef.current[p.userId], merged));
+      }));
       if (userLinesRef.current[p.userId]) userLinesRef.current[p.userId].setLatLngs(latlngs);else userLinesRef.current[p.userId] = window.L.polyline(latlngs, {
         color,
         weight: 4,
@@ -3699,6 +3749,7 @@ function AdminLivePatrolMap({
           map.removeLayer(userLinesRef.current[id]);
           delete userLinesRef.current[id];
         }
+        delete smoothCacheRef.current[id];
       }
     });
     if (!fittedOnceRef.current && seen.size > 0) {
