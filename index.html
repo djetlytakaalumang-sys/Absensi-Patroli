@@ -2292,7 +2292,10 @@ function speedKmh(prevPoint, curPoint) {
 // Menghaluskan garis rute yang patah-patah (zig-zag antar titik GPS) memakai algoritma
 // "Chaikin corner-cutting" — dijalankan beberapa iterasi supaya sudut tajam jadi lengkung
 // halus, TANPA melewati/keluar dari jalur titik aslinya (beda dgn spline yg bisa overshoot).
-function smoothLatLngs(latlngs, iterations = 3) {
+// iterations=2 sengaja tidak dibuat lebih tinggi: tiap iterasi ±2x lipat jumlah titik garis,
+// jadi 2 iterasi = 4x titik (masih cukup halus di mata) — 3 iterasi (8x titik) bikin peta berat
+// waktu zoom in/out karena renderer harus hitung ulang belasan ribu titik tiap kali.
+function smoothLatLngs(latlngs, iterations = 2) {
   if (!latlngs || latlngs.length < 3) return latlngs;
   let pts = latlngs;
   for (let iter = 0; iter < iterations; iter++) {
@@ -2315,7 +2318,7 @@ function smoothLatLngs(latlngs, iterations = 3) {
 // persis sama (karena smoothLatLngs mempertahankan titik awal/akhir apa adanya), jadi tidak ada
 // patahan/kedutan di titik sambung antara bagian beku & bagian segar.
 function getSmoothedRouteCached(cache, rawLatlngs, opts = {}) {
-  const { window = 220, iterations = 3 } = opts;
+  const { window = 220, iterations = 2 } = opts;
   if (!rawLatlngs || rawLatlngs.length < 3) return rawLatlngs || [];
   // Rute lebih pendek dari cache (mis. sesi baru dimulai) → reset total.
   if (rawLatlngs.length < cache.frozenCount) {
@@ -3344,7 +3347,8 @@ function PatrolMap({
     if (!containerRef.current || mapRef.current || !window.L) return;
     const map = window.L.map(containerRef.current, {
       zoomControl: true,
-      attributionControl: false
+      attributionControl: false,
+      preferCanvas: true // render polyline/circle via Canvas, jauh lebih ringan saat zoom in/out drpd SVG DOM
     });
     window.L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
       maxZoom: 20,
@@ -3596,7 +3600,8 @@ function AdminLivePatrolMap({
     if (!containerRef.current || mapRef.current || !window.L) return;
     const map = window.L.map(containerRef.current, {
       zoomControl: true,
-      attributionControl: false
+      attributionControl: false,
+      preferCanvas: true // render polyline/circle via Canvas, jauh lebih ringan saat zoom in/out drpd SVG DOM
     });
     window.L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
       maxZoom: 20,
