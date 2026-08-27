@@ -3202,8 +3202,8 @@ function CheckpointMiniMap({ lat, lng, radius, height = 150 }) {
       // jangan buat instance baru — itu yang bikin Leaflet error "already initialized".
       if (containerRef.current._leaflet_id) return;
       const map = window.L.map(containerRef.current, { zoomControl: false, attributionControl: false, dragging: true, scrollWheelZoom: false });
-      window.L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-        maxZoom: 20, attribution: "©OpenStreetMap, ©CARTO", subdomains: "abcd",
+      window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19, attribution: "© OpenStreetMap contributors", subdomains: "abc",
       }).addTo(map);
       map.setView([lat ?? -8.6, lng ?? 115.2], 15);
       mapRef.current = map;
@@ -3350,10 +3350,10 @@ function PatrolMap({
       attributionControl: false,
       preferCanvas: true // render polyline/circle via Canvas, jauh lebih ringan saat zoom in/out drpd SVG DOM
     });
-    window.L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-      maxZoom: 20,
-      attribution: "©OpenStreetMap, ©CARTO",
-      subdomains: "abcd"
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "© OpenStreetMap contributors",
+      subdomains: "abc"
     }).addTo(map);
     const initial = position || checkpoints.find(c => c.lat != null && c.lng != null) || {
       lat: -8.6,
@@ -3604,10 +3604,10 @@ function AdminLivePatrolMap({
       attributionControl: false,
       preferCanvas: true // render polyline/circle via Canvas, jauh lebih ringan saat zoom in/out drpd SVG DOM
     });
-    window.L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-      maxZoom: 20,
-      attribution: "©OpenStreetMap, ©CARTO",
-      subdomains: "abcd"
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "© OpenStreetMap contributors",
+      subdomains: "abc"
     }).addTo(map);
     const firstPos = patrols.find(p => p.path?.length)?.path.slice(-1)[0] || checkpoints.find(c => c.lat != null);
     map.setView([firstPos?.lat ?? -8.6, firstPos?.lng ?? 115.2], 15);
