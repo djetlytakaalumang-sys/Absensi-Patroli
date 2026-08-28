@@ -611,7 +611,16 @@ const store = {
   tracker: {
     position: null,
     path: [],
-    gpsError: ""
+    gpsError: "",
+    // Dipakai utk mendeteksi & memperingatkan petugas kalau GPS lokal masih aktif (peta di HP-nya
+    // kelihatan "hidup"/bergerak) TAPI datanya diam-diam tidak sampai ke server sama sekali — mis.
+    // karena sesi patroli sempat tidak terbaca di data lokal, atau semua percobaan kirim ke Firestore
+    // gagal terus (offline lama). Tanpa ini petugas tidak akan tahu, karena tampilan peta lokalnya
+    // tetap terlihat normal walau sebenarnya tidak terkirim. Lihat handleNewPosition & heartbeat.
+    syncStatus: {
+      lastGpsAt: null,
+      lastServerSyncAt: null
+    }
   }
 };
 const _storeListeners = new Set();
@@ -9241,6 +9250,10 @@ function PatrolTracker({
           pathChunkCount: nextChunkCount,
           lastSeen: point.t
         });
+        store.tracker.syncStatus = {
+          ...store.tracker.syncStatus,
+          lastServerSyncAt: Date.now()
+        };
       }
       _notifyStore();
     }, 7000);
@@ -9250,6 +9263,11 @@ function PatrolTracker({
     currentPosRef.current = {
       lat,
       lng
+    };
+    // Catat SETIAP kali ada callback lokasi lokal (dipakai indikator "GPS masih hidup" di banner peringatan)
+    store.tracker.syncStatus = {
+      ...store.tracker.syncStatus,
+      lastGpsAt: Date.now()
     };
     if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return;
     const point = {
@@ -9296,6 +9314,10 @@ function PatrolTracker({
         totalDistanceMeters: totalDist,
         lastSeen: point.t
       });
+      store.tracker.syncStatus = {
+        ...store.tracker.syncStatus,
+        lastServerSyncAt: Date.now()
+      };
     }
 
     // KEEP-ALIVE "masih live": status "● Live"/"Terputus" di admin sebelumnya dihitung dari
@@ -9320,6 +9342,10 @@ function PatrolTracker({
       updatePatrolSession(currentPatrol.id, {
         lastSeen: point.t
       });
+      store.tracker.syncStatus = {
+        ...store.tracker.syncStatus,
+        lastServerSyncAt: Date.now()
+      };
     } else if (dueForKeepAlive) {
       lastKeepAliveRef.current = Date.now();
     }
@@ -9569,6 +9595,15 @@ function PatrolPage({
   const livePosition = store.tracker.position;
   const path = store.tracker.path;
   const gpsError = store.tracker.gpsError;
+  // Peringatan "GPS lokal aktif TAPI tidak tersinkron ke server": GPS lokal dianggap masih hidup
+  // kalau ada callback dlm 30 detik terakhir; dianggap tidak tersinkron kalau tidak ada satu pun
+  // penulisan ke server yang berhasil dieksekusi dalam 90 detik terakhir. Kalau ini terjadi padahal
+  // sesi sedang aktif, tampilkan banner — supaya petugas TAHU & bisa coba buka ulang app, bukannya
+  // baru ketahuan lewat laporan admin yang melihat status "Terputus" di dashboard.
+  const syncStatus = store.tracker.syncStatus || {};
+  const gpsLiveLocally = syncStatus.lastGpsAt && now - syncStatus.lastGpsAt < 30000;
+  const serverNotSynced = !syncStatus.lastServerSyncAt || now - syncStatus.lastServerSyncAt > 90000;
+  const showSyncWarning = !!activePatrol && gpsLiveLocally && serverNotSynced;
 
   // Jam berjalan untuk durasi patroli
   useEffect(() => {
@@ -9722,7 +9757,17 @@ function PatrolPage({
       padding: "10px 14px",
       borderRadius: 10
     }
-  }, gpsError), activePatrol && showBatteryTip && /*#__PURE__*/React.createElement("div", {
+  }, gpsError), showSyncWarning && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 16,
+      background: "var(--red-soft)",
+      color: "var(--red)",
+      fontSize: 13,
+      fontWeight: 600,
+      padding: "10px 14px",
+      borderRadius: 10
+    }
+  }, "⚠ Lokasi GPS berjalan di HP ini, tapi belum berhasil tersinkron ke server sejak lebih dari 1,5 menit. Cek sinyal internet Anda — kalau tetap muncul, coba tutup & buka ulang aplikasi."), activePatrol && showBatteryTip && /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: "14px 16px",
