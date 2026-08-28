@@ -13760,13 +13760,13 @@ function SettingsPage({
       fontWeight: 700,
       color: "var(--navy-900)"
     }
-  }, section === "akses" ? "Pengaturan — Hak Akses" : section === "checkpoint" ? "Pengaturan — Checkpoint & Lokasi" : "Pengaturan — Jam & Presensi"), /*#__PURE__*/React.createElement("p", {
+  }, section === "akses" ? "Pengaturan — Hak Akses" : section === "checkpoint" ? "Pengaturan — Checkpoint & Lokasi" : section === "backup" ? "Pengaturan — Backup & Arsip Data" : "Pengaturan — Jam & Presensi"), /*#__PURE__*/React.createElement("p", {
     style: {
       color: "var(--navy-700)",
       fontSize: 14,
       marginTop: 2
     }
-  }, section === "akses" ? "Kelola hak akses pengguna dan lihat riwayat login." : section === "checkpoint" ? "Atur checkpoint patroli, tim rute, dan lokasi kantor." : "Atur jam kerja dan validasi lokasi kantor untuk presensi.")), toast && /*#__PURE__*/React.createElement("div", {
+  }, section === "akses" ? "Kelola hak akses pengguna dan lihat riwayat login." : section === "checkpoint" ? "Atur checkpoint patroli, tim rute, dan lokasi kantor." : section === "backup" ? "Unduh dan arsipkan data lama untuk menjaga kuota Firestore tetap aman." : "Atur jam kerja dan validasi lokasi kantor untuk presensi.")), toast && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 16,
       background: "var(--green-soft)",
@@ -13785,7 +13785,7 @@ function SettingsPage({
       padding: "10px 14px",
       borderRadius: 10
     }
-  }, error), section === "akses" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(RoleAccessCard, null), /*#__PURE__*/React.createElement(LoginHistoryCard, null)), /*#__PURE__*/React.createElement("fieldset", {
+  }, error), section === "akses" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(RoleAccessCard, null), /*#__PURE__*/React.createElement(LoginHistoryCard, null)), section === "backup" && /*#__PURE__*/React.createElement(BackupArchiveCard, null), /*#__PURE__*/React.createElement("fieldset", {
     disabled: !canEdit,
     style: {
       border: 0,
@@ -13794,7 +13794,7 @@ function SettingsPage({
       minWidth: 0,
       opacity: canEdit ? 1 : 0.55
     }
-  }, !canEdit && /*#__PURE__*/React.createElement("p", {
+  }, !canEdit && section !== "backup" && section !== "akses" && /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 12,
       color: "var(--navy-700)",
@@ -14240,6 +14240,222 @@ function SettingsPage({
       transition: ".15s"
     }
   }))))))));
+}
+// Backup & arsipkan data lama: unduh dulu ke Excel (SheetJS, sudah dipakai fitur export
+// lain di app ini), baru (opsional, terpisah, butuh konfirmasi) hapus dari Firestore supaya
+// tidak lagi ikut ke-download tiap kali ada yang buka app — mengurangi kuota Reads harian
+// jangka panjang. Data TIDAK pernah dihapus tanpa file backup diunduh lebih dulu.
+function BackupArchiveCard() {
+  const [days, setDays] = useState(180);
+  const [busy, setBusy] = useState(false);
+  const [step, setStep] = useState("idle"); // idle -> exported -> done
+  const [summary, setSummary] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [error, setError] = useState("");
+  async function runBackup() {
+    setBusy(true);
+    setError("");
+    try {
+      const cutoffDateObj = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      const cutoffStr = todayDateStrWITA(cutoffDateObj);
+      const cutoffISO = cutoffDateObj.toISOString();
+      const [recordsSnap, patrolsSnap, cpSnap, kejadianSnap] = await Promise.all([db.collection(COL.RECORDS).where("date", "<", cutoffStr).get(), db.collection(COL.PATROLS).where("date", "<", cutoffStr).get(), db.collection(COL.CHECKPOINT_PASSES).where("date", "<", cutoffStr).get(), db.collection(COL.KEJADIAN).where("createdAt", "<", cutoffISO).get()]);
+      const recordsData = recordsSnap.docs.map(d => d.data());
+      const patrolsData = patrolsSnap.docs.map(d => d.data());
+      const cpData = cpSnap.docs.map(d => d.data());
+      const kejadianData = kejadianSnap.docs.map(d => d.data());
+      const total = recordsData.length + patrolsData.length + cpData.length + kejadianData.length;
+      if (total > 0) {
+        const wb = XLSX.utils.book_new();
+        if (recordsData.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(recordsData), "Presensi");
+        if (patrolsData.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(patrolsData), "Patroli");
+        if (cpData.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cpData), "CheckpointPasses");
+        if (kejadianData.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(kejadianData), "Kejadian");
+        XLSX.writeFile(wb, `backup-arsip-sebelum-${cutoffStr}.xlsx`);
+      }
+      setSummary({
+        total,
+        records: recordsData.length,
+        patrols: patrolsData.length,
+        checkpointPasses: cpData.length,
+        kejadian: kejadianData.length,
+        cutoffStr,
+        cutoffISO,
+        refs: {
+          recordsSnap,
+          patrolsSnap,
+          cpSnap,
+          kejadianSnap
+        }
+      });
+      setStep("exported");
+    } catch (err) {
+      setError(err.message || "Gagal mengambil data untuk backup. Cek koneksi internet.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function runDelete() {
+    if (!summary) return;
+    setBusy(true);
+    setError("");
+    try {
+      const allDocs = [...summary.refs.recordsSnap.docs, ...summary.refs.patrolsSnap.docs, ...summary.refs.cpSnap.docs, ...summary.refs.kejadianSnap.docs];
+      // Batch Firestore maksimal 500 operasi — pecah jadi beberapa batch kalau datanya banyak.
+      for (let i = 0; i < allDocs.length; i += 400) {
+        const batch = db.batch();
+        allDocs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
+      // Bersihkan juga dari data yang lagi tampil di layar (in-memory) supaya UI langsung update
+      // tanpa perlu tunggu listener live menyusul.
+      store.records = store.records.filter(r => r.date >= summary.cutoffStr);
+      store.patrols = store.patrols.filter(p => p.date >= summary.cutoffStr);
+      store.checkpointPasses = store.checkpointPasses.filter(c => c.date >= summary.cutoffStr);
+      store.kejadian = store.kejadian.filter(k => k.createdAt >= summary.cutoffISO);
+      _notifyStore();
+      setStep("done");
+    } catch (err) {
+      setError(err.message || "Gagal menghapus data lama dari server. File backup Excel tetap aman di perangkat kamu — coba lagi nanti.");
+    } finally {
+      setBusy(false);
+      setConfirmDelete(false);
+    }
+  }
+  function resetFlow() {
+    setStep("idle");
+    setSummary(null);
+    setConfirmDelete(false);
+    setError("");
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card",
+    style: {
+      padding: 20,
+      marginTop: 20
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontSize: 14,
+      fontWeight: 700,
+      color: "var(--navy-900)"
+    }
+  }, "Backup & Arsipkan Data Lama"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 13,
+      color: "var(--navy-700)",
+      marginTop: 2,
+      marginBottom: 16
+    }
+  }, "Unduh data presensi, patroli, checkpoint, dan laporan kejadian yang sudah lama sebagai file Excel — lalu, kalau mau, hapus dari server supaya tidak ikut membebani kuota baca Firestore setiap kali ada yang membuka aplikasi. Data yang lebih baru dari batas ini tidak akan disentuh."), step === "idle" && /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      gap: 12,
+      alignItems: "center",
+      flexWrap: "wrap",
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: {
+      fontSize: 13,
+      fontWeight: 600,
+      color: "var(--navy-900)"
+    }
+  }, "Arsipkan data lebih lama dari:"), /*#__PURE__*/React.createElement("select", {
+    value: days,
+    onChange: e => setDays(Number(e.target.value)),
+    disabled: busy,
+    className: "input",
+    style: {
+      width: "auto"
+    }
+  }, [{
+    v: 90,
+    l: "3 bulan"
+  }, {
+    v: 180,
+    l: "6 bulan"
+  }, {
+    v: 365,
+    l: "1 tahun"
+  }].map(o => /*#__PURE__*/React.createElement("option", {
+    key: o.v,
+    value: o.v
+  }, o.l)))), error && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 16,
+      background: "var(--red-soft)",
+      color: "var(--red)",
+      fontSize: 13,
+      padding: "10px 14px",
+      borderRadius: 10
+    }
+  }, error), step === "idle" && /*#__PURE__*/React.createElement(Button, {
+    variant: "primary",
+    size: "sm",
+    onClick: runBackup,
+    disabled: busy
+  }, busy ? "Mengambil data…" : "1. Backup ke Excel"), step === "exported" && summary && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 13,
+      color: summary.total > 0 ? "var(--green)" : "var(--navy-700)",
+      fontWeight: 600,
+      marginBottom: 12
+    }
+  }, summary.total === 0 ? `Tidak ada data yang lebih lama dari batas ini (${summary.cutoffStr}).` : `File Excel berhasil diunduh — ${summary.total} baris total (${summary.records} presensi, ${summary.patrols} patroli, ${summary.checkpointPasses} checkpoint, ${summary.kejadian} kejadian) sebelum ${summary.cutoffStr}.`), summary.total > 0 && !confirmDelete && /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      gap: 10,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement(Button, {
+    variant: "outline",
+    size: "sm",
+    onClick: () => setConfirmDelete(true)
+  }, "2. Hapus dari Server (opsional)"), /*#__PURE__*/React.createElement(Button, {
+    variant: "outline",
+    size: "sm",
+    onClick: resetFlow
+  }, "Selesai, jangan hapus")), confirmDelete && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "var(--red-soft)",
+      borderRadius: 10,
+      padding: 14,
+      marginTop: 4
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 13,
+      color: "var(--red)",
+      fontWeight: 600,
+      marginBottom: 10
+    }
+  }, `Yakin hapus ${summary.total} data ini dari Firestore? Pastikan file Excel yang barusan terunduh sudah tersimpan aman — tindakan ini TIDAK BISA dibatalkan.`), /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement(Button, {
+    variant: "danger",
+    size: "sm",
+    onClick: runDelete,
+    disabled: busy
+  }, busy ? "Menghapus…" : "Ya, Hapus Sekarang"), /*#__PURE__*/React.createElement(Button, {
+    variant: "outline",
+    size: "sm",
+    onClick: () => setConfirmDelete(false),
+    disabled: busy
+  }, "Batal"))), summary.total === 0 && /*#__PURE__*/React.createElement(Button, {
+    variant: "outline",
+    size: "sm",
+    onClick: resetFlow
+  }, "Kembali")), step === "done" && /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 13,
+      color: "var(--green)",
+      fontWeight: 600
+    }
+  }, "Data lama berhasil dihapus dari server. File backup Excel tetap tersimpan di perangkat kamu."));
 }
 function RoleAccessCard() {
   useStoreSync();
@@ -15238,6 +15454,10 @@ function App() {
       key: "settings-akses",
       label: "Hak Akses",
       icon: "shield"
+    }, {
+      key: "settings-backup",
+      label: "Backup & Arsip",
+      icon: "database"
     }]
   }, {
     key: "panduan",
@@ -15293,6 +15513,9 @@ function App() {
       });
       if (page === "settings-akses") return /*#__PURE__*/React.createElement(SettingsPage, {
         section: "akses"
+      });
+      if (page === "settings-backup") return /*#__PURE__*/React.createElement(SettingsPage, {
+        section: "backup"
       });
       if (page === "settings") return /*#__PURE__*/React.createElement(SettingsPage, {
         section: "jam"
