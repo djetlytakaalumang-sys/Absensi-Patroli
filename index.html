@@ -649,7 +649,19 @@ async function initFirestore() {
     ref: db.collection(COL.CHECKPOINTS)
   }, {
     key: "patrols",
-    ref: db.collection(COL.PATROLS)
+    // PENTING: dulu listener ini tanpa filter (ambil SELURUH riwayat sesi patroli sejak
+    // awal aplikasi dipakai). Akibatnya setiap kali SIAPAPUN buka aplikasi (admin ATAUPUN
+    // tiap HP petugas — listener ini jalan untuk semua akun), Firestore mengirim ulang
+    // ribuan dokumen lama yang sudah selesai & tidak berubah lagi, membuat kuota "Reads"
+    // membengkak drastis (lihat diskusi soal 189K reads/hari). Sesi yang sudah lewat 60 hari
+    // sangat jarang dibutuhkan realtime — dibatasi di sini, bukan dihapus datanya (tetap ada
+    // di Firestore, cuma tidak ikut dipantau live). Kalau nanti riwayat lebih lama dari itu
+    // perlu ditampilkan, sebaiknya diambil terpisah lewat query sekali-ambil (bukan listener),
+    // khusus saat halaman Riwayat benar-benar dibuka.
+    ref: db.collection(COL.PATROLS).where("date", ">=", (() => {
+      const cutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+      return todayDateStrWITA(cutoff);
+    })())
   }, {
     key: "kejadian",
     ref: db.collection(COL.KEJADIAN)
