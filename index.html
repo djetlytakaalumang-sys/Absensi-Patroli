@@ -14247,17 +14247,22 @@ function SettingsPage({
 // jangka panjang. Data TIDAK pernah dihapus tanpa file backup diunduh lebih dulu.
 function BackupArchiveCard() {
   const [days, setDays] = useState(180);
+  const [customDate, setCustomDate] = useState("");
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState("idle"); // idle -> exported -> done
   const [summary, setSummary] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState("");
   async function runBackup() {
+    if (days === "custom" && !customDate) {
+      setError("Pilih tanggal batas arsip terlebih dahulu.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
-      const cutoffDateObj = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-      const cutoffStr = todayDateStrWITA(cutoffDateObj);
+      const cutoffDateObj = days === "custom" ? new Date(`${customDate}T00:00:00+08:00`) : new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      const cutoffStr = days === "custom" ? customDate : todayDateStrWITA(cutoffDateObj);
       const cutoffISO = cutoffDateObj.toISOString();
       const [recordsSnap, patrolsSnap, cpSnap, kejadianSnap] = await Promise.all([db.collection(COL.RECORDS).where("date", "<", cutoffStr).get(), db.collection(COL.PATROLS).where("date", "<", cutoffStr).get(), db.collection(COL.CHECKPOINT_PASSES).where("date", "<", cutoffStr).get(), db.collection(COL.KEJADIAN).where("createdAt", "<", cutoffISO).get()]);
       const recordsData = recordsSnap.docs.map(d => d.data());
@@ -14363,13 +14368,19 @@ function BackupArchiveCard() {
     }
   }, "Arsipkan data lebih lama dari:"), /*#__PURE__*/React.createElement("select", {
     value: days,
-    onChange: e => setDays(Number(e.target.value)),
+    onChange: e => setDays(e.target.value === "custom" ? "custom" : Number(e.target.value)),
     disabled: busy,
     className: "input",
     style: {
       width: "auto"
     }
   }, [{
+    v: 30,
+    l: "1 bulan"
+  }, {
+    v: 60,
+    l: "2 bulan"
+  }, {
     v: 90,
     l: "3 bulan"
   }, {
@@ -14378,10 +14389,23 @@ function BackupArchiveCard() {
   }, {
     v: 365,
     l: "1 tahun"
+  }, {
+    v: "custom",
+    l: "Pilih tanggal sendiri…"
   }].map(o => /*#__PURE__*/React.createElement("option", {
     key: o.v,
     value: o.v
-  }, o.l)))), error && /*#__PURE__*/React.createElement("div", {
+  }, o.l))), days === "custom" && /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: customDate,
+    onChange: e => setCustomDate(e.target.value),
+    disabled: busy,
+    max: todayDateStrWITA(),
+    className: "input",
+    style: {
+      width: "auto"
+    }
+  })), error && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 16,
       background: "var(--red-soft)",
@@ -14394,7 +14418,7 @@ function BackupArchiveCard() {
     variant: "primary",
     size: "sm",
     onClick: runBackup,
-    disabled: busy
+    disabled: busy || days === "custom" && !customDate
   }, busy ? "Mengambil data…" : "1. Backup ke Excel"), step === "exported" && summary && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
