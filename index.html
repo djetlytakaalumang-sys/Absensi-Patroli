@@ -611,7 +611,16 @@ const store = {
   tracker: {
     position: null,
     path: [],
-    gpsError: ""
+    gpsError: "",
+    // Dipakai utk mendeteksi & memperingatkan petugas kalau GPS lokal masih aktif (peta di HP-nya
+    // kelihatan "hidup"/bergerak) TAPI datanya diam-diam tidak sampai ke server sama sekali — mis.
+    // karena sesi patroli sempat tidak terbaca di data lokal, atau semua percobaan kirim ke Firestore
+    // gagal terus (offline lama). Tanpa ini petugas tidak akan tahu, karena tampilan peta lokalnya
+    // tetap terlihat normal walau sebenarnya tidak terkirim. Lihat handleNewPosition & heartbeat.
+    syncStatus: {
+      lastGpsAt: null,
+      lastServerSyncAt: null
+    }
   }
 };
 const _storeListeners = new Set();
@@ -640,7 +649,19 @@ async function initFirestore() {
     ref: db.collection(COL.CHECKPOINTS)
   }, {
     key: "patrols",
-    ref: db.collection(COL.PATROLS)
+    // PENTING: dulu listener ini tanpa filter (ambil SELURUH riwayat sesi patroli sejak
+    // awal aplikasi dipakai). Akibatnya setiap kali SIAPAPUN buka aplikasi (admin ATAUPUN
+    // tiap HP petugas — listener ini jalan untuk semua akun), Firestore mengirim ulang
+    // ribuan dokumen lama yang sudah selesai & tidak berubah lagi, membuat kuota "Reads"
+    // membengkak drastis (lihat diskusi soal 189K reads/hari). Sesi yang sudah lewat 60 hari
+    // sangat jarang dibutuhkan realtime — dibatasi di sini, bukan dihapus datanya (tetap ada
+    // di Firestore, cuma tidak ikut dipantau live). Kalau nanti riwayat lebih lama dari itu
+    // perlu ditampilkan, sebaiknya diambil terpisah lewat query sekali-ambil (bukan listener),
+    // khusus saat halaman Riwayat benar-benar dibuka.
+    ref: db.collection(COL.PATROLS).where("date", ">=", (() => {
+      const cutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+      return todayDateStrWITA(cutoff);
+    })())
   }, {
     key: "kejadian",
     ref: db.collection(COL.KEJADIAN)
@@ -3888,8 +3909,27 @@ function AuthProvider({
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [initError, setInitError] = useState(null);
+  const [initRetryCount, setInitRetryCount] = useState(0);
+  const retryInit = useCallback(() => {
+    setInitError(null);
+    setLoading(true);
+    setInitRetryCount(c => c + 1);
+  }, []);
   useEffect(() => {
-    initFirestore().then(() => {
+    let cancelled = false;
+    // PENTING: initFirestore() menunggu SEMUA listener onSnapshot menyala sekali sebelum
+    // resolve. Kalau koneksi ke server Firestore tidak pernah tersambung (mis. HP/emulator
+    // tidak ada internet, atau permintaan diblokir jaringan) tapi juga tidak pernah memicu
+    // callback error, promise-nya bisa menggantung SELAMANYA — layar jadi macet di
+    // "Menghubungkan ke server..." tanpa pesan apa pun. Timeout di bawah ini memastikan
+    // setelah beberapa detik, kalau belum juga selesai, pengguna diberi tahu (bukan dibiarkan
+    // menunggu tanpa kepastian) supaya bisa cek koneksi / coba lagi.
+    const TIMEOUT_MS = 15000;
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("Koneksi ke server timeout (15 detik). Periksa koneksi internet perangkat Anda, lalu coba lagi.")), TIMEOUT_MS);
+    });
+    Promise.race([initFirestore(), timeoutPromise]).then(() => {
+      if (cancelled) return;
       const session = getSession();
       if (session && session.userId) {
         const u = getUserById(session.userId);
@@ -3905,11 +3945,15 @@ function AuthProvider({
       }
       setLoading(false);
     }).catch(err => {
+      if (cancelled) return;
       console.error("Firebase init error:", err);
       setInitError(err.message || "Gagal terhubung ke server. Periksa konfigurasi Firebase.");
       setLoading(false);
     });
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [initRetryCount]);
   useEffect(() => {
     if (!user) return;
     const fn = () => {
@@ -4051,7 +4095,21 @@ function AuthProvider({
       paddingLeft: 18,
       lineHeight: 2
     }
-  }, /*#__PURE__*/React.createElement("li", null, "Buka ", /*#__PURE__*/React.createElement("code", null, "FIREBASE_CONFIG"), " di bagian atas script"), /*#__PURE__*/React.createElement("li", null, "Isi ", /*#__PURE__*/React.createElement("code", null, "apiKey"), ", ", /*#__PURE__*/React.createElement("code", null, "projectId"), ", dll dari Firebase Console"), /*#__PURE__*/React.createElement("li", null, "Aktifkan Firestore di Firebase: Build → Firestore Database"), /*#__PURE__*/React.createElement("li", null, "Set Firestore Rules: ", /*#__PURE__*/React.createElement("code", null, "allow read, write: if true;"))))));
+  }, /*#__PURE__*/React.createElement("li", null, "Cek koneksi internet perangkat ini (WiFi/data seluler)"), /*#__PURE__*/React.createElement("li", null, "Buka ", /*#__PURE__*/React.createElement("code", null, "FIREBASE_CONFIG"), " di bagian atas script"), /*#__PURE__*/React.createElement("li", null, "Isi ", /*#__PURE__*/React.createElement("code", null, "apiKey"), ", ", /*#__PURE__*/React.createElement("code", null, "projectId"), ", dll dari Firebase Console"), /*#__PURE__*/React.createElement("li", null, "Aktifkan Firestore di Firebase: Build → Firestore Database"), /*#__PURE__*/React.createElement("li", null, "Set Firestore Rules: ", /*#__PURE__*/React.createElement("code", null, "allow read, write: if true;"))), /*#__PURE__*/React.createElement("button", {
+    onClick: retryInit,
+    style: {
+      marginTop: 20,
+      width: "100%",
+      padding: "12px 16px",
+      borderRadius: 10,
+      border: "none",
+      background: "var(--navy-900)",
+      color: "#fff",
+      fontWeight: 700,
+      fontSize: 14,
+      cursor: "pointer"
+    }
+  }, "Coba Lagi"))));
   return /*#__PURE__*/React.createElement(AuthContext.Provider, {
     value: {
       user,
@@ -9241,6 +9299,10 @@ function PatrolTracker({
           pathChunkCount: nextChunkCount,
           lastSeen: point.t
         });
+        store.tracker.syncStatus = {
+          ...store.tracker.syncStatus,
+          lastServerSyncAt: Date.now()
+        };
       }
       _notifyStore();
     }, 7000);
@@ -9250,6 +9312,11 @@ function PatrolTracker({
     currentPosRef.current = {
       lat,
       lng
+    };
+    // Catat SETIAP kali ada callback lokasi lokal (dipakai indikator "GPS masih hidup" di banner peringatan)
+    store.tracker.syncStatus = {
+      ...store.tracker.syncStatus,
+      lastGpsAt: Date.now()
     };
     if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return;
     const point = {
@@ -9296,6 +9363,10 @@ function PatrolTracker({
         totalDistanceMeters: totalDist,
         lastSeen: point.t
       });
+      store.tracker.syncStatus = {
+        ...store.tracker.syncStatus,
+        lastServerSyncAt: Date.now()
+      };
     }
 
     // KEEP-ALIVE "masih live": status "● Live"/"Terputus" di admin sebelumnya dihitung dari
@@ -9320,6 +9391,10 @@ function PatrolTracker({
       updatePatrolSession(currentPatrol.id, {
         lastSeen: point.t
       });
+      store.tracker.syncStatus = {
+        ...store.tracker.syncStatus,
+        lastServerSyncAt: Date.now()
+      };
     } else if (dueForKeepAlive) {
       lastKeepAliveRef.current = Date.now();
     }
@@ -9569,6 +9644,15 @@ function PatrolPage({
   const livePosition = store.tracker.position;
   const path = store.tracker.path;
   const gpsError = store.tracker.gpsError;
+  // Peringatan "GPS lokal aktif TAPI tidak tersinkron ke server": GPS lokal dianggap masih hidup
+  // kalau ada callback dlm 30 detik terakhir; dianggap tidak tersinkron kalau tidak ada satu pun
+  // penulisan ke server yang berhasil dieksekusi dalam 90 detik terakhir. Kalau ini terjadi padahal
+  // sesi sedang aktif, tampilkan banner — supaya petugas TAHU & bisa coba buka ulang app, bukannya
+  // baru ketahuan lewat laporan admin yang melihat status "Terputus" di dashboard.
+  const syncStatus = store.tracker.syncStatus || {};
+  const gpsLiveLocally = syncStatus.lastGpsAt && now - syncStatus.lastGpsAt < 30000;
+  const serverNotSynced = !syncStatus.lastServerSyncAt || now - syncStatus.lastServerSyncAt > 90000;
+  const showSyncWarning = !!activePatrol && gpsLiveLocally && serverNotSynced;
 
   // Jam berjalan untuk durasi patroli
   useEffect(() => {
@@ -9722,7 +9806,17 @@ function PatrolPage({
       padding: "10px 14px",
       borderRadius: 10
     }
-  }, gpsError), activePatrol && showBatteryTip && /*#__PURE__*/React.createElement("div", {
+  }, gpsError), showSyncWarning && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 16,
+      background: "var(--red-soft)",
+      color: "var(--red)",
+      fontSize: 13,
+      fontWeight: 600,
+      padding: "10px 14px",
+      borderRadius: 10
+    }
+  }, "⚠ Lokasi GPS berjalan di HP ini, tapi belum berhasil tersinkron ke server sejak lebih dari 1,5 menit. Cek sinyal internet Anda — kalau tetap muncul, coba tutup & buka ulang aplikasi."), activePatrol && showBatteryTip && /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: "14px 16px",
