@@ -14245,6 +14245,21 @@ function SettingsPage({
 // lain di app ini), baru (opsional, terpisah, butuh konfirmasi) hapus dari Firestore supaya
 // tidak lagi ikut ke-download tiap kali ada yang buka app — mengurangi kuota Reads harian
 // jangka panjang. Data TIDAK pernah dihapus tanpa file backup diunduh lebih dulu.
+// Buang field berisi data besar (foto base64, array jejak GPS patroli) sebelum ditulis ke
+// Excel — kalau tidak, satu sel bisa melebihi batas 32.767 karakter milik Excel dan bikin
+// SheetJS gagal nulis file (error "Text length must not exceed 32767 characters"). Field yang
+// dibuang cuma dihilangkan dari file Excel backup, TIDAK dihapus dari Firestore — foto/jejak
+// tetap ada di server sampai baris datanya benar-benar dihapus lewat langkah 2.
+function stripLargeFields(obj, fields) {
+  const copy = { ...obj };
+  fields.forEach(f => {
+    if (copy[f] != null) {
+      if (Array.isArray(copy[f])) copy[f] = `(${copy[f].length} titik — tidak disertakan di backup)`;
+      else copy[f] = "(tidak disertakan di backup)";
+    }
+  });
+  return copy;
+}
 function BackupArchiveCard() {
   const [days, setDays] = useState(180);
   const [customDate, setCustomDate] = useState("");
@@ -14265,10 +14280,10 @@ function BackupArchiveCard() {
       const cutoffStr = days === "custom" ? customDate : todayDateStrWITA(cutoffDateObj);
       const cutoffISO = cutoffDateObj.toISOString();
       const [recordsSnap, patrolsSnap, cpSnap, kejadianSnap] = await Promise.all([db.collection(COL.RECORDS).where("date", "<", cutoffStr).get(), db.collection(COL.PATROLS).where("date", "<", cutoffStr).get(), db.collection(COL.CHECKPOINT_PASSES).where("date", "<", cutoffStr).get(), db.collection(COL.KEJADIAN).where("createdAt", "<", cutoffISO).get()]);
-      const recordsData = recordsSnap.docs.map(d => d.data());
-      const patrolsData = patrolsSnap.docs.map(d => d.data());
+      const recordsData = recordsSnap.docs.map(d => stripLargeFields(d.data(), ["checkInPhoto", "checkOutPhoto"]));
+      const patrolsData = patrolsSnap.docs.map(d => stripLargeFields(d.data(), ["path"]));
       const cpData = cpSnap.docs.map(d => d.data());
-      const kejadianData = kejadianSnap.docs.map(d => d.data());
+      const kejadianData = kejadianSnap.docs.map(d => stripLargeFields(d.data(), ["photo"]));
       const total = recordsData.length + patrolsData.length + cpData.length + kejadianData.length;
       if (total > 0) {
         const wb = XLSX.utils.book_new();
@@ -14352,7 +14367,7 @@ function BackupArchiveCard() {
       marginTop: 2,
       marginBottom: 16
     }
-  }, "Unduh data presensi, patroli, checkpoint, dan laporan kejadian yang sudah lama sebagai file Excel — lalu, kalau mau, hapus dari server supaya tidak ikut membebani kuota baca Firestore setiap kali ada yang membuka aplikasi. Data yang lebih baru dari batas ini tidak akan disentuh."), step === "idle" && /*#__PURE__*/React.createElement("div", {
+  }, "Unduh data presensi, patroli, checkpoint, dan laporan kejadian yang sudah lama sebagai file Excel — lalu, kalau mau, hapus dari server supaya tidak ikut membebani kuota baca Firestore setiap kali ada yang membuka aplikasi. Data yang lebih baru dari batas ini tidak akan disentuh. Foto selfie presensi dan foto laporan kejadian tidak disertakan di file Excel (terlalu besar untuk 1 sel) — data lain seperti tanggal, nama, jam, dan lokasi tetap lengkap."), step === "idle" && /*#__PURE__*/React.createElement("div", {
     className: "flex",
     style: {
       gap: 12,
