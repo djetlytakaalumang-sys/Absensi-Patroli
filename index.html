@@ -640,7 +640,18 @@ async function initFirestore() {
     ref: db.collection(COL.USERS)
   }, {
     key: "records",
-    ref: db.collection(COL.RECORDS)
+    // PENTING: dulu tanpa filter (ambil SELURUH riwayat presensi sejak awal aplikasi dipakai)
+    // — setiap kali SIAPAPUN buka aplikasi, seluruh riwayat lama ikut ke-download ulang, jadi
+    // penyumbang besar ke kuota "Reads" harian (lihat juga catatan yang sama di listener
+    // `patrols` & `checkpointPasses` di bawah). Dibatasi 90 hari terakhir supaya rekap bulan
+    // berjalan & 2-3 bulan ke belakang tetap live seperti biasa; data yang lebih lama TETAP ADA
+    // di Firestore (tidak dihapus), cuma tidak ikut dipantau real-time. Kalau nanti perlu lihat
+    // rekap lebih lama dari itu, sebaiknya diambil terpisah lewat query sekali-ambil (bukan
+    // listener), khusus saat halaman rekap bulan lama itu benar-benar dibuka.
+    ref: db.collection(COL.RECORDS).where("date", ">=", (() => {
+      const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      return todayDateStrWITA(cutoff);
+    })())
   }, {
     key: "leaves",
     ref: db.collection(COL.LEAVES).orderBy("createdAt", "desc")
@@ -673,7 +684,15 @@ async function initFirestore() {
     ref: db.collection(COL.LOGIN_LOGS).orderBy("at", "desc").limit(500)
   }, {
     key: "checkpointPasses",
-    ref: db.collection(COL.CHECKPOINT_PASSES)
+    // PENTING: sama seperti `records` & `patrols` di atas — checkpointPasses (catatan tiap
+    // rit checkpoint) kemungkinan besar koleksi yang PALING CEPAT bertambah (bisa berkali-kali
+    // per petugas per hari, bukan cuma sekali seperti absen), jadi paling besar sumbangannya ke
+    // kuota Reads kalau tidak dibatasi. Dibatasi 90 hari terakhir dengan alasan sama seperti
+    // `records` — riwayat lebih lama tetap tersimpan, cuma tidak lagi ikut dipantau live.
+    ref: db.collection(COL.CHECKPOINT_PASSES).where("date", ">=", (() => {
+      const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      return todayDateStrWITA(cutoff);
+    })())
   }];
   function applySnapshot(key, snap) {
     const docs = snap.docs.map(d => d.data());
@@ -687,7 +706,65 @@ async function initFirestore() {
       store[key] = docs;
     }
   }
-  await new Promise((resolveReady, rejectReady) => {
+  let _oneTimeTasksStarted = false;
+  async function runOneTimeInitTasks() {
+    if (_oneTimeTasksStarted) return;
+    _oneTimeTasksStarted = true;
+    if (store.users.length === 0) {
+      for (const u of SEED_USERS) {
+        await db.collection(COL.USERS).doc(u.id).set(u);
+      }
+      store.users = [...SEED_USERS];
+    }
+    // PENTING: sinkronkan jam ke server DULU sebelum auto-close pertama kali dijalankan.
+    // Kalau autoClose dipanggil sebelum sync selesai, dia masih pakai jam mentah dari HP
+    // (offset 0) — kalau kebetulan jam/tanggal HP itu ngaco, sesi presensi/patroli hari
+    // ini bisa keliru dianggap "sisa kemarin" lalu ditutup paksa padahal belum selesai.
+    await syncServerTime();
+    autoCloseStaleAttendance();
+    autoCloseStalePatrols();
+    _notifyStore();
+    // Ulangi sinkronisasi tiap 5 menit supaya offset tidak meleset kalau app dibiarkan
+    // terbuka lama.
+    setInterval(() => {
+      syncServerTime();
+    }, 5 * 60 * 1000);
+  }
+
+  // TAHAP 1 — CACHE-FIRST: coba baca semua koleksi langsung dari cache lokal (IndexedDB)
+  // TANPA menunggu jaringan sama sekali. Kalau HP ini pernah online sebelumnya (datanya sempat
+  // tersimpan lokal lewat enablePersistence di atas), app bisa langsung tampil dari data lama
+  // itu walau sinyal sedang lemah/putus — jauh lebih tahan dibanding menunggu round-trip
+  // jaringan penuh untuk 9 listener sekaligus. Kalau gagal total (mis. baru install pertama
+  // kali, belum pernah ada cache sama sekali), cacheHit tetap false dan app jatuh balik ke
+  // perilaku lama: menunggu listener live beneran konek ke server (lihat TAHAP 2 di bawah).
+  const cacheResults = await Promise.allSettled(listenerSpecs.map(({
+    ref
+  }) => ref.get({
+    source: "cache"
+  })));
+  let cacheHit = false;
+  cacheResults.forEach((result, i) => {
+    if (result.status === "fulfilled" && !result.value.empty) {
+      applySnapshot(listenerSpecs[i].key, result.value);
+      cacheHit = true;
+    }
+  });
+  try {
+    const settingsCacheSnap = await db.collection(COL.SETTINGS).doc("config").get({
+      source: "cache"
+    });
+    if (settingsCacheSnap.exists) {
+      store.settings = settingsCacheSnap.data();
+      cacheHit = true;
+    }
+  } catch (e) {
+    // Belum ada cache untuk settings — tidak masalah, TAHAP 2 di bawah yang akan mengisinya.
+  }
+
+  // TAHAP 2 — LISTENER LIVE: SELALU dipasang (baik cache hit maupun tidak), supaya data
+  // di-update ke versi terbaru begitu server benar-benar terhubung.
+  const liveReady = new Promise((resolveReady, rejectReady) => {
     let pending = listenerSpecs.length + 1; // +1 untuk dokumen settings
     let settled = false;
     function markDone() {
@@ -713,9 +790,8 @@ async function initFirestore() {
         if (isFirst) {
           isFirst = false;
           markDone();
-        } else {
-          _notifyStore();
         }
+        _notifyStore();
       }, markError);
     });
     let settingsFirst = true;
@@ -724,31 +800,29 @@ async function initFirestore() {
       if (settingsFirst) {
         settingsFirst = false;
         markDone();
-      } else {
-        _notifyStore();
       }
+      _notifyStore();
     }, markError);
   });
-  store.ready = true;
-  if (store.users.length === 0) {
-    for (const u of SEED_USERS) {
-      await db.collection(COL.USERS).doc(u.id).set(u);
-    }
-    store.users = [...SEED_USERS];
+
+  if (cacheHit) {
+    // Data cache sudah cukup untuk render — jangan tunggu jaringan lagi, biarkan App()
+    // langsung lanjut render SEKARANG. Listener live tetap jalan di belakang layar (tidak
+    // di-await): begitu server terhubung, store di-update diam-diam dan tugas sekali-jalan
+    // (seed/auto-close/sinkron jam) baru dijalankan setelah itu.
+    store.ready = true;
+    _notifyStore();
+    liveReady.then(runOneTimeInitTasks).catch(err => {
+      console.warn("Listener live gagal setelah render dari cache (kemungkinan masih offline):", err.message);
+    });
+    return;
   }
-  // PENTING: sinkronkan jam ke server DULU sebelum auto-close pertama kali dijalankan.
-  // Kalau autoClose dipanggil sebelum sync selesai, dia masih pakai jam mentah dari HP
-  // (offset 0) — kalau kebetulan jam/tanggal HP itu ngaco, sesi presensi/patroli hari
-  // ini bisa keliru dianggap "sisa kemarin" lalu ditutup paksa padahal belum selesai.
-  await syncServerTime();
-  autoCloseStaleAttendance();
-  autoCloseStalePatrols();
-  _notifyStore();
-  // Ulangi sinkronisasi tiap 5 menit supaya offset tidak meleset kalau app dibiarkan
-  // terbuka lama.
-  setInterval(() => {
-    syncServerTime();
-  }, 5 * 60 * 1000);
+
+  // Tidak ada cache sama sekali (mis. baru install pertama kali) — perilaku lama: app
+  // menunggu listener live beneran konek ke server dulu sebelum boleh render.
+  await liveReady;
+  store.ready = true;
+  await runOneTimeInitTasks();
 }
 
 /* ======================= WAKTU SERVER TERPERCAYA (ANTI MANIPULASI JAM) =======================
@@ -760,7 +834,56 @@ async function initFirestore() {
    tetaplah jam server yang sebenarnya. */
 let _serverTimeOffsetMs = 0; // serverTime - deviceTime (ms), 0 = belum pernah sinkron
 let _serverTimeSyncedOnce = false;
+// Helper: ambil jam dari satu provider waktu eksternal (via HTTP biasa, BUKAN Firestore),
+// dengan timeout supaya tidak menggantung kalau provider itu lambat/tidak merespons.
+async function _fetchTimeFromProvider(url, parseServerMs, timeoutMs = 6000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const t0 = Date.now();
+    const res = await fetch(url, {
+      signal: controller.signal,
+      cache: "no-store"
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    const t1 = Date.now();
+    const serverMs = parseServerMs(data);
+    if (!serverMs || Number.isNaN(serverMs)) throw new Error("Format waktu tidak dikenali");
+    const roundTrip = t1 - t0;
+    // Perkirakan jam server tepat di titik tengah waktu tempuh request (sama seperti sebelumnya).
+    return serverMs - (t0 + roundTrip / 2);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 async function syncServerTime() {
+  // PENTING: sebelumnya fungsi ini melakukan WRITE + READ ke Firestore (dokumen
+  // _meta/serverTime) HANYA untuk mengetahui jam server — kedua operasi itu ikut memakai
+  // kuota harian Firestore (reads & writes). Begitu kuota Firestore project ini habis,
+  // verifikasi jam ini ikut ditolak server, sehingga isServerTimeTrusted() selalu false dan
+  // SEMUA checkpoint/rit patroli berhenti tercatat (GPS-nya sendiri tetap jalan normal — cuma
+  // pencatatan checkpoint yang butuh jam terverifikasi ini yang berhenti diam-diam). Sekarang
+  // diganti pakai server waktu independen di luar Firestore (worldtimeapi.org, fallback
+  // timeapi.io) yang TIDAK memakai kuota Firestore sama sekali. Sifat anti-curangnya TIDAK
+  // berubah/melemah: jam yang dipakai tetap dari server luar yang tidak bisa diubah lewat jam
+  // HP, tetap lewat HTTPS (tidak bisa dipalsukan tanpa membobol sertifikat SSL), dan tetap
+  // dibandingkan dengan toleransi MAX_CLOCK_SKEW_MS yang sama seperti sebelumnya — cuma
+  // sumbernya dipindah supaya tidak lagi bergantung pada (dan ikut membebani) Firestore.
+  // Firestore _meta/serverTime disisakan sebagai fallback PALING TERAKHIR kalau kedua provider
+  // luar itu gagal (mis. diblokir firewall jaringan kantor), supaya sinkronisasi jam tidak
+  // berhenti total hanya karena satu jalur bermasalah.
+  const providers = [() => _fetchTimeFromProvider("https://worldtimeapi.org/api/timezone/Etc/UTC", d => Date.parse(d.utc_datetime)), () => _fetchTimeFromProvider("https://timeapi.io/api/time/current/zone?timeZone=Etc/UTC", d => Date.UTC(d.year, d.month - 1, d.day, d.hour, d.minute, d.seconds, d.milliSeconds || 0))];
+  for (const getOffset of providers) {
+    try {
+      _serverTimeOffsetMs = await getOffset();
+      _serverTimeSyncedOnce = true;
+      return _serverTimeOffsetMs;
+    } catch (err) {
+      console.warn("Provider jam eksternal gagal, coba berikutnya:", err.message);
+    }
+  }
+  // Semua provider eksternal gagal — fallback terakhir ke Firestore (perilaku lama).
   try {
     const ref = db.collection("_meta").doc("serverTime");
     const t0 = Date.now();
@@ -775,14 +898,14 @@ async function syncServerTime() {
     if (data && data.ts) {
       const serverMs = data.ts.toMillis();
       const roundTrip = t1 - t0;
-      // Perkirakan jam server tepat di titik tengah waktu tempuh request (write+read).
       _serverTimeOffsetMs = serverMs - (t0 + roundTrip / 2);
       _serverTimeSyncedOnce = true;
     }
   } catch (err) {
-    // Gagal sinkron (mis. offline) — biarkan offset lama dipakai (fallback aman ke jam device
-    // kalau memang belum pernah berhasil sinkron sama sekali).
-    console.warn("Sinkronisasi jam server gagal:", err.message);
+    // Gagal total (semua provider + fallback Firestore) — mis. benar-benar offline. Biarkan
+    // offset lama dipakai (fallback aman ke jam device kalau memang belum pernah berhasil
+    // sinkron sama sekali).
+    console.warn("Sinkronisasi jam server gagal total:", err.message);
   }
   return _serverTimeOffsetMs;
 }
