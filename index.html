@@ -594,12 +594,7 @@ const COL = {
   KEJADIAN: "laporan_kejadian",
   SCHEDULES: "schedules",
   LOGIN_LOGS: "loginLogs",
-  CHECKPOINT_PASSES: "checkpointPasses",
-  // Rekap ringkasan (Hadir/Terlambat/Alpa dst per user per bulan) yang dibekukan SEBELUM
-  // record mentah bulan itu dihapus lewat fitur Backup & Arsip — supaya skor/rasio/rekap
-  // kehadiran bulan lama tetap akurat walau data harian aslinya sudah tidak ada lagi di
-  // Firestore. Lihat computeAttendanceScore/Ratio & getAttendanceBreakdown.
-  RECAP_ARCHIVE: "recapArchive"
+  CHECKPOINT_PASSES: "checkpointPasses"
 };
 const store = {
   users: [],
@@ -612,7 +607,6 @@ const store = {
   schedules: [],
   loginLogs: [],
   checkpointPasses: [],
-  recapArchive: [],
   ready: false,
   tracker: {
     position: null,
@@ -699,11 +693,6 @@ async function initFirestore() {
       const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
       return todayDateStrWITA(cutoff);
     })())
-  }, {
-    key: "recapArchive",
-    // Dokumennya kecil (cuma angka rekap per user per bulan, bukan data mentah harian) dan
-    // jumlahnya jauh lebih sedikit dari records/patrols — aman dibiarkan tanpa batas tanggal.
-    ref: db.collection(COL.RECAP_ARCHIVE)
   }];
   function applySnapshot(key, snap) {
     const docs = snap.docs.map(d => d.data());
@@ -1757,26 +1746,10 @@ function isEarlyCheckout(record) {
 }
 
 // Skor kehadiran harian: mempertimbangkan (1) status dasar, (2) gradasi menit terlambat, (3) potongan pulang lebih awal
-/* ======================= ARSIP REKAP (dibekukan sebelum data mentah dihapus) ======================= */
-function getArchivedRecap(userId, monthKey) {
-  return store.recapArchive.find(r => r.userId === userId && r.monthKey === monthKey) || null;
-}
-function computeAttendanceScore(userId, monthKey, overrideRealRecords) {
+function computeAttendanceScore(userId, monthKey) {
   const user = getUserById(userId);
   if (!user) return null;
-  // Kalau record mentah bulan ini sudah tidak ada sama sekali (sudah diarsipkan & dihapus
-  // lewat fitur Backup & Arsip) TAPI dulu sempat dibekukan rekapnya sebelum dihapus, pakai
-  // skor yang sudah dibekukan itu — supaya tidak salah dihitung ulang seolah-olah semua
-  // hari di bulan itu Alpa (lihat getEffectiveRecordsForUserMonth: hari tanpa record akan
-  // otomatis dianggap Alpa kalau tidak ada penanda lain).
-  if (!overrideRealRecords) {
-    const hasRealRecords = getRecordsByUser(userId).some(r => r.date.startsWith(monthKey));
-    if (!hasRealRecords) {
-      const archived = getArchivedRecap(userId, monthKey);
-      if (archived) return archived.score;
-    }
-  }
-  const records = getEffectiveRecordsForUserMonth(userId, user.name, monthKey, overrideRealRecords).filter(r => r.status !== STATUS.IZIN);
+  const records = getEffectiveRecordsForUserMonth(userId, user.name, monthKey).filter(r => r.status !== STATUS.IZIN);
   if (records.length === 0) return null;
   const total = records.reduce((sum, r) => {
     let point = r.status === STATUS.TERLAMBAT ? latePointFromMinutes(getLateMinutes(r)) : ATTENDANCE_POINTS[r.status] ?? 0;
@@ -1787,54 +1760,20 @@ function computeAttendanceScore(userId, monthKey, overrideRealRecords) {
 }
 
 // Rasio kehadiran bulanan: hari benar-benar hadir (Hadir/Terlambat/Piket Malam) dibanding hari kerja terjadwal (Izin dikecualikan dari penyebut)
-function computeAttendanceRatio(userId, monthKey, overrideRealRecords) {
+function computeAttendanceRatio(userId, monthKey) {
   const user = getUserById(userId);
   if (!user) return null;
-  if (!overrideRealRecords) {
-    const hasRealRecords = getRecordsByUser(userId).some(r => r.date.startsWith(monthKey));
-    if (!hasRealRecords) {
-      const archived = getArchivedRecap(userId, monthKey);
-      if (archived) return archived.ratio;
-    }
-  }
-  const scheduled = getEffectiveRecordsForUserMonth(userId, user.name, monthKey, overrideRealRecords).filter(r => r.status !== STATUS.IZIN);
+  const scheduled = getEffectiveRecordsForUserMonth(userId, user.name, monthKey).filter(r => r.status !== STATUS.IZIN);
   if (scheduled.length === 0) return null;
   const present = scheduled.filter(r => r.status === STATUS.HADIR || r.status === STATUS.TERLAMBAT || r.status === STATUS.PIKET_MALAM).length;
   return Math.round(present / scheduled.length * 100);
 }
 
 // Rincian kehadiran per bulan untuk ditampilkan sebagai chart (jumlah per status + rata-rata menit terlambat + jumlah pulang cepat)
-// overrideRealRecords (opsional): lihat catatan di getEffectiveRecordsForUserMonth — dipakai
-// saat membekukan rekap sebelum data dihapus, supaya tidak bergantung pada store.records yang
-// sudah dibatasi 90 hari.
-function getAttendanceBreakdown(userId, monthKey, overrideRealRecords) {
+function getAttendanceBreakdown(userId, monthKey) {
   const user = getUserById(userId);
   if (!user) return null;
-  if (!overrideRealRecords) {
-    const hasRealRecords = getRecordsByUser(userId).some(r => r.date.startsWith(monthKey));
-    if (!hasRealRecords) {
-      const archived = getArchivedRecap(userId, monthKey);
-      if (archived) {
-        // Rekap yang dibekukan tidak menyimpan riwayat harian (memang tujuannya biar ringkas),
-        // jadi grafik/tabel per-hari untuk bulan ini tetap tidak bisa ditampilkan — tapi
-        // total per status & skor/rasio tetap akurat sesuai kondisi SEBELUM data dihapus.
-        return {
-          hadir: archived.hadir,
-          terlambat: archived.terlambat,
-          pikMalam: archived.pikMalam,
-          alpha: archived.alpha,
-          izin: archived.izin,
-          avgLateMinutes: archived.avgLateMinutes,
-          maxLateMinutes: archived.maxLateMinutes,
-          outlierLateCount: archived.outlierLateCount,
-          earlyCheckoutCount: archived.earlyCheckoutCount,
-          ratio: archived.ratio,
-          archived: true
-        };
-      }
-    }
-  }
-  const records = getEffectiveRecordsForUserMonth(userId, user.name, monthKey, overrideRealRecords);
+  const records = getEffectiveRecordsForUserMonth(userId, user.name, monthKey);
   const lateRecords = records.filter(r => r.status === STATUS.TERLAMBAT);
   const lateMinutesList = lateRecords.map(getLateMinutes).sort((a, b) => a - b);
   // Pakai MEDIAN, bukan rata-rata biasa: satu record dengan jam check-in yang tidak wajar
@@ -1853,7 +1792,7 @@ function getAttendanceBreakdown(userId, monthKey, overrideRealRecords) {
     maxLateMinutes,
     outlierLateCount,
     earlyCheckoutCount: records.filter(isEarlyCheckout).length,
-    ratio: computeAttendanceRatio(userId, monthKey, overrideRealRecords)
+    ratio: computeAttendanceRatio(userId, monthKey)
   };
 }
 
@@ -2272,14 +2211,8 @@ function workDurationLabel(checkIn, checkOut) {
 }
 
 /* ======================= DETEKSI STATUS ALPHA OTOMATIS ======================= */
-// overrideRealRecords (opsional): array record mentah untuk dipakai LANGSUNG, ganti ambil dari
-// getRecordsByUser(userId)/store.records. Dipakai saat membekukan rekap SEBELUM data dihapus
-// lewat fitur Backup & Arsip — di momen itu, `store.records` di HP admin sudah dibatasi cuma
-// simpan 90 hari terakhir (lihat listener records), jadi tidak bisa dipakai untuk menghitung
-// rekap bulan yang lebih lama dari itu. overrideRealRecords diisi dari hasil query LANGSUNG ke
-// Firestore untuk rentang tanggal yang mau diarsipkan, supaya perhitungannya tetap akurat.
-function getEffectiveRecordsForUserMonth(userId, userName, monthKey, overrideRealRecords) {
-  const real = overrideRealRecords || getRecordsByUser(userId).filter(r => r.date.startsWith(monthKey));
+function getEffectiveRecordsForUserMonth(userId, userName, monthKey) {
+  const real = getRecordsByUser(userId).filter(r => r.date.startsWith(monthKey));
   const realDates = new Set(real.map(r => r.date));
   const [y, m] = monthKey.split("-").map(Number);
   const daysInMonth = new Date(y, m, 0).getDate();
@@ -3898,14 +3831,8 @@ function AdminLivePatrolMap({
       const seen = new Set();
       patrols.forEach(p => {
       if (!p.path?.length) return;
-      const last = p.path[p.path.length - 1];
-      // Pengaman: kalau field `path` sempat tertimpa data rusak (mis. string placeholder
-      // dari proses restore Excel yang salah — lihat catatan di IMPORT_FIELDS_TO_STRIP),
-      // titik terakhirnya bisa jadi bukan angka lat/lng yang valid. Leaflet akan crash total
-      // ("Invalid LatLng object") kalau dipaksa bikin marker dari koordinat kosong — lewati
-      // saja petugas ini di peta daripada bikin seluruh peta ikut error.
-      if (typeof last?.lat !== "number" || typeof last?.lng !== "number") return;
       seen.add(p.userId);
+      const last = p.path[p.path.length - 1];
       const prev = p.path.length > 1 ? p.path[p.path.length - 2] : null;
       const color = colorMap[p.userId] || colorForUserId(p.userId);
       const heading = prev ? bearingDeg(prev.lat, prev.lng, last.lat, last.lng) : 0;
@@ -7645,6 +7572,41 @@ function AdminRecordDetail({
   record,
   onClose
 }) {
+  const [status, setStatus] = useState(record.status);
+  const [fixBusy, setFixBusy] = useState(false);
+  const [fixMsg, setFixMsg] = useState("");
+  // Status Hadir/Terlambat/Piket Malam dihitung SEKALI saat check-in, berdasarkan jadwal yang
+  // berlaku SAAT ITU. Kalau jadwalnya baru diperbaiki setelah orang itu check-in (mis. tadinya
+  // "Masuk" lalu dikoreksi jadi "Piket Malam"), status yang sudah tersimpan tidak otomatis
+  // ikut berubah. Tombol ini menghitung ulang status memakai jadwal yang berlaku SEKARANG, lalu
+  // menyimpannya kalau memang berbeda dari yang tersimpan.
+  async function handleFixStatus() {
+    if (!record.checkInTime) return;
+    setFixBusy(true);
+    setFixMsg("");
+    try {
+      const sch = getScheduleFor(record.userId, record.date);
+      const newStatus = computeStatus(record.checkInTime, sch ? sch.type : undefined);
+      if (newStatus === status) {
+        setFixMsg("Status sudah sesuai dengan jadwal saat ini — tidak ada yang perlu diperbaiki.");
+      } else {
+        await withTimeout(db.collection(COL.RECORDS).doc(record.id).update({
+          status: newStatus
+        }), 20000, "Gagal memperbarui status");
+        store.records = store.records.map(r => r.id === record.id ? {
+          ...r,
+          status: newStatus
+        } : r);
+        _notifyStore();
+        setStatus(newStatus);
+        setFixMsg(`Status berhasil diperbarui jadi "${newStatus}", sesuai jadwal kerja yang berlaku sekarang.`);
+      }
+    } catch (err) {
+      setFixMsg(err.message || "Gagal memperbarui status. Cek koneksi lalu coba lagi.");
+    } finally {
+      setFixBusy(false);
+    }
+  }
   return /*#__PURE__*/React.createElement("div", {
     className: "modal-backdrop",
     onClick: onClose
@@ -7682,7 +7644,7 @@ function AdminRecordDetail({
       gap: 12
     }
   }, /*#__PURE__*/React.createElement(StatusBadge, {
-    status: record.status
+    status: status
   }), /*#__PURE__*/React.createElement("button", {
     onClick: onClose,
     style: {
@@ -7691,7 +7653,26 @@ function AdminRecordDetail({
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "x",
     size: 18
-  })))), /*#__PURE__*/React.createElement("div", {
+  })))), (status === STATUS.HADIR || status === STATUS.TERLAMBAT || status === STATUS.PIKET_MALAM) && record.checkInTime && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "12px 20px 0"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: handleFixStatus,
+    disabled: fixBusy,
+    style: {
+      fontSize: 12,
+      fontWeight: 600,
+      color: "var(--accent-700)",
+      textDecoration: "underline"
+    }
+  }, fixBusy ? "Memeriksa jadwal…" : "Perbaiki Status (sesuaikan dengan jadwal saat ini)"), fixMsg && /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12,
+      marginTop: 6,
+      color: fixMsg.startsWith("Gagal") ? "var(--red)" : "var(--green)"
+    }
+  }, fixMsg)), /*#__PURE__*/React.createElement("div", {
     style: {
       padding: 20,
       display: "flex",
@@ -14349,36 +14330,6 @@ function withTimeout(promise, ms, label) {
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
-// PENTING: batas Firestore untuk satu batch bukan cuma "maksimal 500 operasi" — ada juga
-// batas UKURAN total (~10 MiB). Dokumen patroli menyimpan field `path` (riwayat titik GPS
-// sepanjang sesi patroli, bisa ribuan titik untuk sesi 7-8 jam), dan field besar seperti ini
-// tetap dihitung ke ukuran batch walau cuma di-DELETE (Firestore tetap perlu membersihkan
-// entri index otomatis untuk tiap elemen array itu). Makanya batch bisa "Transaction too big"
-// walau jumlah dokumennya jauh di bawah 500. Fungsi ini otomatis memecah jadi bagian lebih
-// kecil (dibagi dua terus-menerus) begitu Firestore menolak karena kebesaran, sampai ukurannya
-// muat — jadi tidak perlu tahu persis batas amannya di depan.
-async function commitDeleteBatch(docs) {
-  if (docs.length === 0) return;
-  const batch = db.batch();
-  docs.forEach(d => batch.delete(d.ref));
-  try {
-    await withTimeout(batch.commit(), 20000, "Gagal menghapus sebagian data");
-  } catch (err) {
-    const msg = (err && err.message || "").toLowerCase();
-    const tooBig = msg.includes("too big") || msg.includes("transaction too big") || msg.includes("resource_exhausted") || msg.includes("payload size exceeds");
-    if (tooBig && docs.length > 1) {
-      const mid = Math.ceil(docs.length / 2);
-      await commitDeleteBatch(docs.slice(0, mid));
-      await commitDeleteBatch(docs.slice(mid));
-    } else if (tooBig && docs.length === 1) {
-      // Satu dokumen pun masih "kebesaran" untuk batch — coba hapus langsung (di luar batch)
-      // sebagai upaya terakhir.
-      await withTimeout(docs[0].ref.delete(), 20000, "Gagal menghapus satu dokumen");
-    } else {
-      throw err;
-    }
-  }
-}
 function BackupArchiveCard() {
   const todayStr = todayDateStrWITA();
   const sixMonthsAgoStr = todayDateStrWITA(new Date(Date.now() - 180 * 24 * 60 * 60 * 1000));
@@ -14446,70 +14397,12 @@ function BackupArchiveCard() {
     setBusy(true);
     setError("");
     try {
-      // TAHAP 0 — WAJIB dijalankan SEBELUM data presensi dihapus: bekukan rekap Hadir/
-      // Terlambat/Piket Malam/Alpa per user per bulan ke koleksi terpisah (recapArchive).
-      // Tanpa ini, begitu record presensi bulan itu dihapus, computeAttendanceScore/Ratio/
-      // getAttendanceBreakdown akan mengira SEMUA hari kerja di bulan itu Alpa (karena
-      // logikanya: "hari kerja tanpa record presensi = Alpa") — padahal karyawan aslinya
-      // sudah absen normal, cuma record-nya sudah dipindah ke Excel. Ini persis bug yang
-      // pernah kejadian sebelumnya. userRecords dipakai sebagai overrideRealRecords supaya
-      // perhitungan tidak bergantung pada store.records (yang cuma nyimpan 90 hari terakhir).
-      const recordsByUserMonth = {};
-      summary.refs.recordsSnap.docs.forEach(d => {
-        const r = d.data();
-        const monthKey = r.date.slice(0, 7);
-        const key = `${r.userId}|${monthKey}`;
-        (recordsByUserMonth[key] = recordsByUserMonth[key] || []).push(r);
-      });
-      const recapDocs = Object.keys(recordsByUserMonth).map(key => {
-        const [userId, monthKey] = key.split("|");
-        const userRecords = recordsByUserMonth[key];
-        const userName = userRecords[0]?.userName || getUserById(userId)?.name || "";
-        const breakdown = getAttendanceBreakdown(userId, monthKey, userRecords) || {};
-        const score = computeAttendanceScore(userId, monthKey, userRecords);
-        return {
-          id: `${userId}_${monthKey}`,
-          userId,
-          userName,
-          monthKey,
-          hadir: breakdown.hadir || 0,
-          terlambat: breakdown.terlambat || 0,
-          pikMalam: breakdown.pikMalam || 0,
-          alpha: breakdown.alpha || 0,
-          izin: breakdown.izin || 0,
-          avgLateMinutes: breakdown.avgLateMinutes || 0,
-          maxLateMinutes: breakdown.maxLateMinutes || 0,
-          outlierLateCount: breakdown.outlierLateCount || 0,
-          earlyCheckoutCount: breakdown.earlyCheckoutCount || 0,
-          ratio: breakdown.ratio ?? null,
-          score: score ?? null,
-          archivedAt: new Date().toISOString()
-        };
-      });
-      if (recapDocs.length > 0) {
-        for (let i = 0; i < recapDocs.length; i += 400) {
-          const batch = db.batch();
-          recapDocs.slice(i, i + 400).forEach(rec => {
-            batch.set(db.collection(COL.RECAP_ARCHIVE).doc(rec.id), rec, {
-              merge: true
-            });
-          });
-          await withTimeout(batch.commit(), 20000, "Gagal membekukan rekap sebelum menghapus data");
-        }
-        // Masukkan ke store lokal juga supaya langsung tersedia tanpa nunggu listener live.
-        recapDocs.forEach(rec => {
-          const idx = store.recapArchive.findIndex(r => r.id === rec.id);
-          if (idx >= 0) store.recapArchive[idx] = rec;else store.recapArchive.push(rec);
-        });
-      }
       const allDocs = [...summary.refs.recordsSnap.docs, ...summary.refs.patrolsSnap.docs, ...summary.refs.cpSnap.docs, ...summary.refs.kejadianSnap.docs];
-      // Mulai dengan potongan yang lebih kecil (50) daripada batas 500 operasi Firestore —
-      // seperti dijelaskan di commitDeleteBatch(), yang sering jadi masalah itu UKURAN data
-      // (field `path` GPS di dokumen patroli), bukan jumlah dokumen. commitDeleteBatch()
-      // otomatis memecah lebih kecil lagi sendiri kalau ternyata masih kebesaran.
-      const CHUNK = 50;
-      for (let i = 0; i < allDocs.length; i += CHUNK) {
-        await commitDeleteBatch(allDocs.slice(i, i + CHUNK));
+      // Batch Firestore maksimal 500 operasi — pecah jadi beberapa batch kalau datanya banyak.
+      for (let i = 0; i < allDocs.length; i += 400) {
+        const batch = db.batch();
+        allDocs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+        await withTimeout(batch.commit(), 20000, "Gagal menghapus sebagian data");
       }
       // Bersihkan juga dari data yang lagi tampil di layar (in-memory) supaya UI langsung update
       // tanpa perlu tunggu listener live menyusul.
@@ -14551,7 +14444,7 @@ function BackupArchiveCard() {
       marginTop: 2,
       marginBottom: 16
     }
-  }, "Unduh data presensi, patroli, checkpoint, dan laporan kejadian sebagai file Excel — lalu, kalau mau, hapus dari server supaya tidak ikut membebani kuota baca Firestore setiap kali ada yang membuka aplikasi. Data di luar rentang tanggal ini tidak akan disentuh. Foto selfie presensi dan foto laporan kejadian tidak disertakan di file Excel (terlalu besar untuk 1 sel) — data lain seperti tanggal, nama, jam, dan lokasi tetap lengkap. Sebelum data presensi dihapus, rekap Hadir/Terlambat/Alpa per karyawan per bulan otomatis dibekukan dulu, supaya skor & rasio kehadiran bulan itu tetap akurat selamanya."), step === "idle" && /*#__PURE__*/React.createElement("div", {
+  }, "Unduh data presensi, patroli, checkpoint, dan laporan kejadian sebagai file Excel — lalu, kalau mau, hapus dari server supaya tidak ikut membebani kuota baca Firestore setiap kali ada yang membuka aplikasi. Data di luar rentang tanggal ini tidak akan disentuh. Foto selfie presensi dan foto laporan kejadian tidak disertakan di file Excel (terlalu besar untuk 1 sel) — data lain seperti tanggal, nama, jam, dan lokasi tetap lengkap."), step === "idle" && /*#__PURE__*/React.createElement("div", {
     className: "flex",
     style: {
       gap: 12,
@@ -14641,7 +14534,7 @@ function BackupArchiveCard() {
       fontWeight: 600,
       marginBottom: 10
     }
-  }, `Yakin hapus ${summary.total} data ini dari Firestore? Rekap Hadir/Terlambat/Alpa bulan-bulan yang kena hapus akan dibekukan otomatis dulu sebelum penghapusan (supaya skor kehadiran tidak berubah), dan file Excel yang barusan terunduh sudah bisa dipakai sebagai cadangan penuh — tindakan hapus ini sendiri TIDAK BISA dibatalkan.`), /*#__PURE__*/React.createElement("div", {
+  }, `Yakin hapus ${summary.total} data ini dari Firestore? Pastikan file Excel yang barusan terunduh sudah tersimpan aman — tindakan ini TIDAK BISA dibatalkan.`), /*#__PURE__*/React.createElement("div", {
     className: "flex",
     style: {
       gap: 10
@@ -14677,20 +14570,6 @@ const IMPORT_SHEET_TO_COL = {
   CheckpointPasses: () => COL.CHECKPOINT_PASSES,
   Kejadian: () => COL.KEJADIAN
 };
-// PENTING — BUG YANG PERNAH TERJADI: field besar (foto, jejak GPS) di file Excel backup
-// BUKAN kosong/hilang, tapi diisi TEKS PLACEHOLDER seperti "(tidak disertakan di backup)"
-// atau "(1234 titik — tidak disertakan di backup)" (lihat stripLargeFields()). Karena teks
-// itu tetap ada nilainya (bukan null/kosong), merge:true TETAP menimpanya ke Firestore —
-// menghancurkan foto asli & jejak GPS asli yang sebenarnya masih ada di server, dan
-// membuat peta live crash ("Invalid LatLng object") karena field `path` yang tadinya array
-// titik GPS berubah jadi sekadar string. Field-field ini HARUS dibuang total dari data yang
-// ditulis balik (bukan cuma dilewati kalau kosong), supaya merge:true membiarkan field asli
-// di server apa adanya, tidak disentuh sama sekali.
-const IMPORT_FIELDS_TO_STRIP = {
-  Presensi: ["checkInPhoto", "checkOutPhoto"],
-  Patroli: ["path"],
-  Kejadian: ["photo"]
-};
 function ImportArchiveCard() {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
@@ -14724,15 +14603,9 @@ function ImportArchiveCard() {
             skippedNoId++;
             return; // baris tanpa id tidak bisa ditulis balik dengan aman, lewati
           }
-          const cleanRow = {
-            ...row
-          };
-          (IMPORT_FIELDS_TO_STRIP[sheetName] || []).forEach(f => {
-            delete cleanRow[f];
-          });
           rowsToWrite.push({
             col: getCol(),
-            data: cleanRow
+            data: row
           });
           count++;
         });
@@ -14743,10 +14616,8 @@ function ImportArchiveCard() {
         return;
       }
       // Batch Firestore maksimal 500 operasi — pecah jadi beberapa batch kalau datanya banyak.
-      // merge:true supaya field lain milik dokumen yang TIDAK ikut ditulis di sini (di luar isi
-      // Excel) tidak ikut terhapus. Field foto & path GPS sudah dibuang total di atas
-      // (IMPORT_FIELDS_TO_STRIP), BUKAN cuma dibiarkan kosong — supaya merge:true tidak
-      // menimpanya dengan teks placeholder "(tidak disertakan di backup)" dari Excel.
+      // merge:true supaya kalau dokumennya masih ada di server, field yang tidak ada di Excel
+      // (misal foto, yang memang tidak ikut ter-backup) TIDAK ikut tertimpa jadi kosong.
       const totalBatches = Math.ceil(rowsToWrite.length / 400);
       for (let i = 0; i < rowsToWrite.length; i += 400) {
         setProgress(`Mengirim batch ${Math.floor(i / 400) + 1} dari ${totalBatches}…`);
