@@ -594,7 +594,12 @@ const COL = {
   KEJADIAN: "laporan_kejadian",
   SCHEDULES: "schedules",
   LOGIN_LOGS: "loginLogs",
-  CHECKPOINT_PASSES: "checkpointPasses"
+  CHECKPOINT_PASSES: "checkpointPasses",
+  // Rekap ringkasan (Hadir/Terlambat/Alpa dst per user per bulan) yang dibekukan SEBELUM
+  // record mentah bulan itu dihapus lewat fitur Backup & Arsip — supaya skor/rasio/rekap
+  // kehadiran bulan lama tetap akurat walau data harian aslinya sudah tidak ada lagi di
+  // Firestore. Lihat computeAttendanceScore/Ratio & getAttendanceBreakdown.
+  RECAP_ARCHIVE: "recapArchive"
 };
 const store = {
   users: [],
@@ -607,6 +612,7 @@ const store = {
   schedules: [],
   loginLogs: [],
   checkpointPasses: [],
+  recapArchive: [],
   ready: false,
   tracker: {
     position: null,
@@ -693,6 +699,11 @@ async function initFirestore() {
       const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
       return todayDateStrWITA(cutoff);
     })())
+  }, {
+    key: "recapArchive",
+    // Dokumennya kecil (cuma angka rekap per user per bulan, bukan data mentah harian) dan
+    // jumlahnya jauh lebih sedikit dari records/patrols — aman dibiarkan tanpa batas tanggal.
+    ref: db.collection(COL.RECAP_ARCHIVE)
   }];
   function applySnapshot(key, snap) {
     const docs = snap.docs.map(d => d.data());
@@ -1746,10 +1757,26 @@ function isEarlyCheckout(record) {
 }
 
 // Skor kehadiran harian: mempertimbangkan (1) status dasar, (2) gradasi menit terlambat, (3) potongan pulang lebih awal
-function computeAttendanceScore(userId, monthKey) {
+/* ======================= ARSIP REKAP (dibekukan sebelum data mentah dihapus) ======================= */
+function getArchivedRecap(userId, monthKey) {
+  return store.recapArchive.find(r => r.userId === userId && r.monthKey === monthKey) || null;
+}
+function computeAttendanceScore(userId, monthKey, overrideRealRecords) {
   const user = getUserById(userId);
   if (!user) return null;
-  const records = getEffectiveRecordsForUserMonth(userId, user.name, monthKey).filter(r => r.status !== STATUS.IZIN);
+  // Kalau record mentah bulan ini sudah tidak ada sama sekali (sudah diarsipkan & dihapus
+  // lewat fitur Backup & Arsip) TAPI dulu sempat dibekukan rekapnya sebelum dihapus, pakai
+  // skor yang sudah dibekukan itu — supaya tidak salah dihitung ulang seolah-olah semua
+  // hari di bulan itu Alpa (lihat getEffectiveRecordsForUserMonth: hari tanpa record akan
+  // otomatis dianggap Alpa kalau tidak ada penanda lain).
+  if (!overrideRealRecords) {
+    const hasRealRecords = getRecordsByUser(userId).some(r => r.date.startsWith(monthKey));
+    if (!hasRealRecords) {
+      const archived = getArchivedRecap(userId, monthKey);
+      if (archived) return archived.score;
+    }
+  }
+  const records = getEffectiveRecordsForUserMonth(userId, user.name, monthKey, overrideRealRecords).filter(r => r.status !== STATUS.IZIN);
   if (records.length === 0) return null;
   const total = records.reduce((sum, r) => {
     let point = r.status === STATUS.TERLAMBAT ? latePointFromMinutes(getLateMinutes(r)) : ATTENDANCE_POINTS[r.status] ?? 0;
@@ -1760,20 +1787,54 @@ function computeAttendanceScore(userId, monthKey) {
 }
 
 // Rasio kehadiran bulanan: hari benar-benar hadir (Hadir/Terlambat/Piket Malam) dibanding hari kerja terjadwal (Izin dikecualikan dari penyebut)
-function computeAttendanceRatio(userId, monthKey) {
+function computeAttendanceRatio(userId, monthKey, overrideRealRecords) {
   const user = getUserById(userId);
   if (!user) return null;
-  const scheduled = getEffectiveRecordsForUserMonth(userId, user.name, monthKey).filter(r => r.status !== STATUS.IZIN);
+  if (!overrideRealRecords) {
+    const hasRealRecords = getRecordsByUser(userId).some(r => r.date.startsWith(monthKey));
+    if (!hasRealRecords) {
+      const archived = getArchivedRecap(userId, monthKey);
+      if (archived) return archived.ratio;
+    }
+  }
+  const scheduled = getEffectiveRecordsForUserMonth(userId, user.name, monthKey, overrideRealRecords).filter(r => r.status !== STATUS.IZIN);
   if (scheduled.length === 0) return null;
   const present = scheduled.filter(r => r.status === STATUS.HADIR || r.status === STATUS.TERLAMBAT || r.status === STATUS.PIKET_MALAM).length;
   return Math.round(present / scheduled.length * 100);
 }
 
 // Rincian kehadiran per bulan untuk ditampilkan sebagai chart (jumlah per status + rata-rata menit terlambat + jumlah pulang cepat)
-function getAttendanceBreakdown(userId, monthKey) {
+// overrideRealRecords (opsional): lihat catatan di getEffectiveRecordsForUserMonth — dipakai
+// saat membekukan rekap sebelum data dihapus, supaya tidak bergantung pada store.records yang
+// sudah dibatasi 90 hari.
+function getAttendanceBreakdown(userId, monthKey, overrideRealRecords) {
   const user = getUserById(userId);
   if (!user) return null;
-  const records = getEffectiveRecordsForUserMonth(userId, user.name, monthKey);
+  if (!overrideRealRecords) {
+    const hasRealRecords = getRecordsByUser(userId).some(r => r.date.startsWith(monthKey));
+    if (!hasRealRecords) {
+      const archived = getArchivedRecap(userId, monthKey);
+      if (archived) {
+        // Rekap yang dibekukan tidak menyimpan riwayat harian (memang tujuannya biar ringkas),
+        // jadi grafik/tabel per-hari untuk bulan ini tetap tidak bisa ditampilkan — tapi
+        // total per status & skor/rasio tetap akurat sesuai kondisi SEBELUM data dihapus.
+        return {
+          hadir: archived.hadir,
+          terlambat: archived.terlambat,
+          pikMalam: archived.pikMalam,
+          alpha: archived.alpha,
+          izin: archived.izin,
+          avgLateMinutes: archived.avgLateMinutes,
+          maxLateMinutes: archived.maxLateMinutes,
+          outlierLateCount: archived.outlierLateCount,
+          earlyCheckoutCount: archived.earlyCheckoutCount,
+          ratio: archived.ratio,
+          archived: true
+        };
+      }
+    }
+  }
+  const records = getEffectiveRecordsForUserMonth(userId, user.name, monthKey, overrideRealRecords);
   const lateRecords = records.filter(r => r.status === STATUS.TERLAMBAT);
   const lateMinutesList = lateRecords.map(getLateMinutes).sort((a, b) => a - b);
   // Pakai MEDIAN, bukan rata-rata biasa: satu record dengan jam check-in yang tidak wajar
@@ -1792,7 +1853,7 @@ function getAttendanceBreakdown(userId, monthKey) {
     maxLateMinutes,
     outlierLateCount,
     earlyCheckoutCount: records.filter(isEarlyCheckout).length,
-    ratio: computeAttendanceRatio(userId, monthKey)
+    ratio: computeAttendanceRatio(userId, monthKey, overrideRealRecords)
   };
 }
 
@@ -2211,8 +2272,14 @@ function workDurationLabel(checkIn, checkOut) {
 }
 
 /* ======================= DETEKSI STATUS ALPHA OTOMATIS ======================= */
-function getEffectiveRecordsForUserMonth(userId, userName, monthKey) {
-  const real = getRecordsByUser(userId).filter(r => r.date.startsWith(monthKey));
+// overrideRealRecords (opsional): array record mentah untuk dipakai LANGSUNG, ganti ambil dari
+// getRecordsByUser(userId)/store.records. Dipakai saat membekukan rekap SEBELUM data dihapus
+// lewat fitur Backup & Arsip — di momen itu, `store.records` di HP admin sudah dibatasi cuma
+// simpan 90 hari terakhir (lihat listener records), jadi tidak bisa dipakai untuk menghitung
+// rekap bulan yang lebih lama dari itu. overrideRealRecords diisi dari hasil query LANGSUNG ke
+// Firestore untuk rentang tanggal yang mau diarsipkan, supaya perhitungannya tetap akurat.
+function getEffectiveRecordsForUserMonth(userId, userName, monthKey, overrideRealRecords) {
+  const real = overrideRealRecords || getRecordsByUser(userId).filter(r => r.date.startsWith(monthKey));
   const realDates = new Set(real.map(r => r.date));
   const [y, m] = monthKey.split("-").map(Number);
   const daysInMonth = new Date(y, m, 0).getDate();
@@ -14379,6 +14446,62 @@ function BackupArchiveCard() {
     setBusy(true);
     setError("");
     try {
+      // TAHAP 0 — WAJIB dijalankan SEBELUM data presensi dihapus: bekukan rekap Hadir/
+      // Terlambat/Piket Malam/Alpa per user per bulan ke koleksi terpisah (recapArchive).
+      // Tanpa ini, begitu record presensi bulan itu dihapus, computeAttendanceScore/Ratio/
+      // getAttendanceBreakdown akan mengira SEMUA hari kerja di bulan itu Alpa (karena
+      // logikanya: "hari kerja tanpa record presensi = Alpa") — padahal karyawan aslinya
+      // sudah absen normal, cuma record-nya sudah dipindah ke Excel. Ini persis bug yang
+      // pernah kejadian sebelumnya. userRecords dipakai sebagai overrideRealRecords supaya
+      // perhitungan tidak bergantung pada store.records (yang cuma nyimpan 90 hari terakhir).
+      const recordsByUserMonth = {};
+      summary.refs.recordsSnap.docs.forEach(d => {
+        const r = d.data();
+        const monthKey = r.date.slice(0, 7);
+        const key = `${r.userId}|${monthKey}`;
+        (recordsByUserMonth[key] = recordsByUserMonth[key] || []).push(r);
+      });
+      const recapDocs = Object.keys(recordsByUserMonth).map(key => {
+        const [userId, monthKey] = key.split("|");
+        const userRecords = recordsByUserMonth[key];
+        const userName = userRecords[0]?.userName || getUserById(userId)?.name || "";
+        const breakdown = getAttendanceBreakdown(userId, monthKey, userRecords) || {};
+        const score = computeAttendanceScore(userId, monthKey, userRecords);
+        return {
+          id: `${userId}_${monthKey}`,
+          userId,
+          userName,
+          monthKey,
+          hadir: breakdown.hadir || 0,
+          terlambat: breakdown.terlambat || 0,
+          pikMalam: breakdown.pikMalam || 0,
+          alpha: breakdown.alpha || 0,
+          izin: breakdown.izin || 0,
+          avgLateMinutes: breakdown.avgLateMinutes || 0,
+          maxLateMinutes: breakdown.maxLateMinutes || 0,
+          outlierLateCount: breakdown.outlierLateCount || 0,
+          earlyCheckoutCount: breakdown.earlyCheckoutCount || 0,
+          ratio: breakdown.ratio ?? null,
+          score: score ?? null,
+          archivedAt: new Date().toISOString()
+        };
+      });
+      if (recapDocs.length > 0) {
+        for (let i = 0; i < recapDocs.length; i += 400) {
+          const batch = db.batch();
+          recapDocs.slice(i, i + 400).forEach(rec => {
+            batch.set(db.collection(COL.RECAP_ARCHIVE).doc(rec.id), rec, {
+              merge: true
+            });
+          });
+          await withTimeout(batch.commit(), 20000, "Gagal membekukan rekap sebelum menghapus data");
+        }
+        // Masukkan ke store lokal juga supaya langsung tersedia tanpa nunggu listener live.
+        recapDocs.forEach(rec => {
+          const idx = store.recapArchive.findIndex(r => r.id === rec.id);
+          if (idx >= 0) store.recapArchive[idx] = rec;else store.recapArchive.push(rec);
+        });
+      }
       const allDocs = [...summary.refs.recordsSnap.docs, ...summary.refs.patrolsSnap.docs, ...summary.refs.cpSnap.docs, ...summary.refs.kejadianSnap.docs];
       // Mulai dengan potongan yang lebih kecil (50) daripada batas 500 operasi Firestore —
       // seperti dijelaskan di commitDeleteBatch(), yang sering jadi masalah itu UKURAN data
@@ -14428,7 +14551,7 @@ function BackupArchiveCard() {
       marginTop: 2,
       marginBottom: 16
     }
-  }, "Unduh data presensi, patroli, checkpoint, dan laporan kejadian sebagai file Excel — lalu, kalau mau, hapus dari server supaya tidak ikut membebani kuota baca Firestore setiap kali ada yang membuka aplikasi. Data di luar rentang tanggal ini tidak akan disentuh. Foto selfie presensi dan foto laporan kejadian tidak disertakan di file Excel (terlalu besar untuk 1 sel) — data lain seperti tanggal, nama, jam, dan lokasi tetap lengkap."), step === "idle" && /*#__PURE__*/React.createElement("div", {
+  }, "Unduh data presensi, patroli, checkpoint, dan laporan kejadian sebagai file Excel — lalu, kalau mau, hapus dari server supaya tidak ikut membebani kuota baca Firestore setiap kali ada yang membuka aplikasi. Data di luar rentang tanggal ini tidak akan disentuh. Foto selfie presensi dan foto laporan kejadian tidak disertakan di file Excel (terlalu besar untuk 1 sel) — data lain seperti tanggal, nama, jam, dan lokasi tetap lengkap. Sebelum data presensi dihapus, rekap Hadir/Terlambat/Alpa per karyawan per bulan otomatis dibekukan dulu, supaya skor & rasio kehadiran bulan itu tetap akurat selamanya."), step === "idle" && /*#__PURE__*/React.createElement("div", {
     className: "flex",
     style: {
       gap: 12,
@@ -14518,7 +14641,7 @@ function BackupArchiveCard() {
       fontWeight: 600,
       marginBottom: 10
     }
-  }, `Yakin hapus ${summary.total} data ini dari Firestore? Pastikan file Excel yang barusan terunduh sudah tersimpan aman — tindakan ini TIDAK BISA dibatalkan.`), /*#__PURE__*/React.createElement("div", {
+  }, `Yakin hapus ${summary.total} data ini dari Firestore? Rekap Hadir/Terlambat/Alpa bulan-bulan yang kena hapus akan dibekukan otomatis dulu sebelum penghapusan (supaya skor kehadiran tidak berubah), dan file Excel yang barusan terunduh sudah bisa dipakai sebagai cadangan penuh — tindakan hapus ini sendiri TIDAK BISA dibatalkan.`), /*#__PURE__*/React.createElement("div", {
     className: "flex",
     style: {
       gap: 10
