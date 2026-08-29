@@ -3721,7 +3721,10 @@ function getFullPatrolLatLngs(patrol, chunkCacheRef, onArchiveLoaded) {
     })();
   }
   const combined = [...cache.points, ...(patrol.path || [])];
-  return combined.map(pt => [pt.lat, pt.lng]);
+  // Buang titik yang koordinatnya kosong/tidak valid (mis. GPS sempat gagal fix, atau
+  // penyimpanan titik itu sempat gagal separuh) — kalau ikut dimasukkan, Leaflet bisa crash
+  // total saat menggambar garis rute (Invalid LatLng object).
+  return combined.filter(pt => pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng)).map(pt => [pt.lat, pt.lng]);
 }
 function colorForUserId(userId) {
   let hash = 0;
@@ -3798,6 +3801,7 @@ function AdminLivePatrolMap({
     checkpoints.forEach(cp => {
       if (cp.lat == null || cp.lng == null) return;
       seen.add(cp.id);
+      if (!Number.isFinite(cp.lat) || !Number.isFinite(cp.lng)) return; // koordinat checkpoint belum lengkap, lewati
       const radius = cp.radius || DEFAULT_CHECKPOINT_RADIUS;
       const visited = visitedNames.has(matchCheckpointNameLoose(cp.name));
       const color = visited ? "#16A34A" : "#DC2626";
@@ -3854,9 +3858,20 @@ function AdminLivePatrolMap({
       const seen = new Set();
       patrols.forEach(p => {
       if (!p.path?.length) return;
+      // Cari titik TERAKHIR di rute petugas ini yang koordinatnya valid — kalau titik paling
+      // akhir kebetulan rusak/kosong (mis. lat/lng undefined karena GPS sempat gagal fix atau
+      // penyimpanan sempat gagal separuh), Leaflet akan crash total (Invalid LatLng object) dan
+      // menjatuhkan SELURUH peta live, bukan cuma satu titik itu. Jadi titik yang tidak valid
+      // dilewati, mundur ke titik valid sebelumnya.
+      const isValidPoint = pt => pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng);
+      let lastIdx = p.path.length - 1;
+      while (lastIdx >= 0 && !isValidPoint(p.path[lastIdx])) lastIdx--;
+      if (lastIdx < 0) return; // tidak ada satupun titik valid di rute petugas ini, lewati dulu
+      let prevIdx = lastIdx - 1;
+      while (prevIdx >= 0 && !isValidPoint(p.path[prevIdx])) prevIdx--;
       seen.add(p.userId);
-      const last = p.path[p.path.length - 1];
-      const prev = p.path.length > 1 ? p.path[p.path.length - 2] : null;
+      const last = p.path[lastIdx];
+      const prev = prevIdx >= 0 ? p.path[prevIdx] : null;
       const color = colorMap[p.userId] || colorForUserId(p.userId);
       const heading = prev ? bearingDeg(prev.lat, prev.lng, last.lat, last.lng) : 0;
       const speed = prev ? Math.round(speedKmh(prev, last)) : 0;
