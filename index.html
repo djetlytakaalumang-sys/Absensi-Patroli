@@ -3831,8 +3831,14 @@ function AdminLivePatrolMap({
       const seen = new Set();
       patrols.forEach(p => {
       if (!p.path?.length) return;
-      seen.add(p.userId);
       const last = p.path[p.path.length - 1];
+      // Pengaman: kalau field `path` sempat tertimpa data rusak (mis. string placeholder
+      // dari proses restore Excel yang salah — lihat catatan di IMPORT_FIELDS_TO_STRIP),
+      // titik terakhirnya bisa jadi bukan angka lat/lng yang valid. Leaflet akan crash total
+      // ("Invalid LatLng object") kalau dipaksa bikin marker dari koordinat kosong — lewati
+      // saja petugas ini di peta daripada bikin seluruh peta ikut error.
+      if (typeof last?.lat !== "number" || typeof last?.lng !== "number") return;
+      seen.add(p.userId);
       const prev = p.path.length > 1 ? p.path[p.path.length - 2] : null;
       const color = colorMap[p.userId] || colorForUserId(p.userId);
       const heading = prev ? bearingDeg(prev.lat, prev.lng, last.lat, last.lng) : 0;
@@ -14548,6 +14554,20 @@ const IMPORT_SHEET_TO_COL = {
   CheckpointPasses: () => COL.CHECKPOINT_PASSES,
   Kejadian: () => COL.KEJADIAN
 };
+// PENTING — BUG YANG PERNAH TERJADI: field besar (foto, jejak GPS) di file Excel backup
+// BUKAN kosong/hilang, tapi diisi TEKS PLACEHOLDER seperti "(tidak disertakan di backup)"
+// atau "(1234 titik — tidak disertakan di backup)" (lihat stripLargeFields()). Karena teks
+// itu tetap ada nilainya (bukan null/kosong), merge:true TETAP menimpanya ke Firestore —
+// menghancurkan foto asli & jejak GPS asli yang sebenarnya masih ada di server, dan
+// membuat peta live crash ("Invalid LatLng object") karena field `path` yang tadinya array
+// titik GPS berubah jadi sekadar string. Field-field ini HARUS dibuang total dari data yang
+// ditulis balik (bukan cuma dilewati kalau kosong), supaya merge:true membiarkan field asli
+// di server apa adanya, tidak disentuh sama sekali.
+const IMPORT_FIELDS_TO_STRIP = {
+  Presensi: ["checkInPhoto", "checkOutPhoto"],
+  Patroli: ["path"],
+  Kejadian: ["photo"]
+};
 function ImportArchiveCard() {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
@@ -14581,9 +14601,15 @@ function ImportArchiveCard() {
             skippedNoId++;
             return; // baris tanpa id tidak bisa ditulis balik dengan aman, lewati
           }
+          const cleanRow = {
+            ...row
+          };
+          (IMPORT_FIELDS_TO_STRIP[sheetName] || []).forEach(f => {
+            delete cleanRow[f];
+          });
           rowsToWrite.push({
             col: getCol(),
-            data: row
+            data: cleanRow
           });
           count++;
         });
@@ -14594,8 +14620,10 @@ function ImportArchiveCard() {
         return;
       }
       // Batch Firestore maksimal 500 operasi — pecah jadi beberapa batch kalau datanya banyak.
-      // merge:true supaya kalau dokumennya masih ada di server, field yang tidak ada di Excel
-      // (misal foto, yang memang tidak ikut ter-backup) TIDAK ikut tertimpa jadi kosong.
+      // merge:true supaya field lain milik dokumen yang TIDAK ikut ditulis di sini (di luar isi
+      // Excel) tidak ikut terhapus. Field foto & path GPS sudah dibuang total di atas
+      // (IMPORT_FIELDS_TO_STRIP), BUKAN cuma dibiarkan kosong — supaya merge:true tidak
+      // menimpanya dengan teks placeholder "(tidak disertakan di backup)" dari Excel.
       const totalBatches = Math.ceil(rowsToWrite.length / 400);
       for (let i = 0; i < rowsToWrite.length; i += 400) {
         setProgress(`Mengirim batch ${Math.floor(i / 400) + 1} dari ${totalBatches}…`);
