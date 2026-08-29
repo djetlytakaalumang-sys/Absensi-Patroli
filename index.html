@@ -13785,7 +13785,7 @@ function SettingsPage({
       padding: "10px 14px",
       borderRadius: 10
     }
-  }, error), section === "akses" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(RoleAccessCard, null), /*#__PURE__*/React.createElement(LoginHistoryCard, null)), section === "backup" && /*#__PURE__*/React.createElement(BackupArchiveCard, null), /*#__PURE__*/React.createElement("fieldset", {
+  }, error), section === "akses" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(RoleAccessCard, null), /*#__PURE__*/React.createElement(LoginHistoryCard, null)), section === "backup" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(BackupArchiveCard, null), /*#__PURE__*/React.createElement(ImportArchiveCard, null)), /*#__PURE__*/React.createElement("fieldset", {
     disabled: !canEdit,
     style: {
       border: 0,
@@ -14261,25 +14261,30 @@ function stripLargeFields(obj, fields) {
   return copy;
 }
 function BackupArchiveCard() {
-  const [days, setDays] = useState(180);
-  const [customDate, setCustomDate] = useState("");
+  const todayStr = todayDateStrWITA();
+  const sixMonthsAgoStr = todayDateStrWITA(new Date(Date.now() - 180 * 24 * 60 * 60 * 1000));
+  const [fromDate, setFromDate] = useState(sixMonthsAgoStr);
+  const [toDate, setToDate] = useState(todayStr);
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState("idle"); // idle -> exported -> done
   const [summary, setSummary] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState("");
   async function runBackup() {
-    if (days === "custom" && !customDate) {
-      setError("Pilih tanggal batas arsip terlebih dahulu.");
+    if (!fromDate || !toDate) {
+      setError("Pilih tanggal \"dari\" dan \"sampai\" terlebih dahulu.");
+      return;
+    }
+    if (fromDate > toDate) {
+      setError("Tanggal \"dari\" tidak boleh setelah tanggal \"sampai\".");
       return;
     }
     setBusy(true);
     setError("");
     try {
-      const cutoffDateObj = days === "custom" ? new Date(`${customDate}T00:00:00+08:00`) : new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-      const cutoffStr = days === "custom" ? customDate : todayDateStrWITA(cutoffDateObj);
-      const cutoffISO = cutoffDateObj.toISOString();
-      const [recordsSnap, patrolsSnap, cpSnap, kejadianSnap] = await Promise.all([db.collection(COL.RECORDS).where("date", "<", cutoffStr).get(), db.collection(COL.PATROLS).where("date", "<", cutoffStr).get(), db.collection(COL.CHECKPOINT_PASSES).where("date", "<", cutoffStr).get(), db.collection(COL.KEJADIAN).where("createdAt", "<", cutoffISO).get()]);
+      const fromISO = new Date(`${fromDate}T00:00:00+08:00`).toISOString();
+      const toISO = new Date(`${toDate}T23:59:59+08:00`).toISOString();
+      const [recordsSnap, patrolsSnap, cpSnap, kejadianSnap] = await Promise.all([db.collection(COL.RECORDS).where("date", ">=", fromDate).where("date", "<=", toDate).get(), db.collection(COL.PATROLS).where("date", ">=", fromDate).where("date", "<=", toDate).get(), db.collection(COL.CHECKPOINT_PASSES).where("date", ">=", fromDate).where("date", "<=", toDate).get(), db.collection(COL.KEJADIAN).where("createdAt", ">=", fromISO).where("createdAt", "<=", toISO).get()]);
       const recordsData = recordsSnap.docs.map(d => stripLargeFields(d.data(), ["checkInPhoto", "checkOutPhoto"]));
       const patrolsData = patrolsSnap.docs.map(d => stripLargeFields(d.data(), ["path"]));
       const cpData = cpSnap.docs.map(d => d.data());
@@ -14291,7 +14296,7 @@ function BackupArchiveCard() {
         if (patrolsData.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(patrolsData), "Patroli");
         if (cpData.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cpData), "CheckpointPasses");
         if (kejadianData.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(kejadianData), "Kejadian");
-        XLSX.writeFile(wb, `backup-arsip-sebelum-${cutoffStr}.xlsx`);
+        XLSX.writeFile(wb, `backup-arsip-${fromDate}_sampai_${toDate}.xlsx`);
       }
       setSummary({
         total,
@@ -14299,8 +14304,10 @@ function BackupArchiveCard() {
         patrols: patrolsData.length,
         checkpointPasses: cpData.length,
         kejadian: kejadianData.length,
-        cutoffStr,
-        cutoffISO,
+        fromDate,
+        toDate,
+        fromISO,
+        toISO,
         refs: {
           recordsSnap,
           patrolsSnap,
@@ -14329,10 +14336,10 @@ function BackupArchiveCard() {
       }
       // Bersihkan juga dari data yang lagi tampil di layar (in-memory) supaya UI langsung update
       // tanpa perlu tunggu listener live menyusul.
-      store.records = store.records.filter(r => r.date >= summary.cutoffStr);
-      store.patrols = store.patrols.filter(p => p.date >= summary.cutoffStr);
-      store.checkpointPasses = store.checkpointPasses.filter(c => c.date >= summary.cutoffStr);
-      store.kejadian = store.kejadian.filter(k => k.createdAt >= summary.cutoffISO);
+      store.records = store.records.filter(r => r.date < summary.fromDate || r.date > summary.toDate);
+      store.patrols = store.patrols.filter(p => p.date < summary.fromDate || p.date > summary.toDate);
+      store.checkpointPasses = store.checkpointPasses.filter(c => c.date < summary.fromDate || c.date > summary.toDate);
+      store.kejadian = store.kejadian.filter(k => k.createdAt < summary.fromISO || k.createdAt > summary.toISO);
       _notifyStore();
       setStep("done");
     } catch (err) {
@@ -14367,7 +14374,7 @@ function BackupArchiveCard() {
       marginTop: 2,
       marginBottom: 16
     }
-  }, "Unduh data presensi, patroli, checkpoint, dan laporan kejadian yang sudah lama sebagai file Excel — lalu, kalau mau, hapus dari server supaya tidak ikut membebani kuota baca Firestore setiap kali ada yang membuka aplikasi. Data yang lebih baru dari batas ini tidak akan disentuh. Foto selfie presensi dan foto laporan kejadian tidak disertakan di file Excel (terlalu besar untuk 1 sel) — data lain seperti tanggal, nama, jam, dan lokasi tetap lengkap."), step === "idle" && /*#__PURE__*/React.createElement("div", {
+  }, "Unduh data presensi, patroli, checkpoint, dan laporan kejadian sebagai file Excel — lalu, kalau mau, hapus dari server supaya tidak ikut membebani kuota baca Firestore setiap kali ada yang membuka aplikasi. Data di luar rentang tanggal ini tidak akan disentuh. Foto selfie presensi dan foto laporan kejadian tidak disertakan di file Excel (terlalu besar untuk 1 sel) — data lain seperti tanggal, nama, jam, dan lokasi tetap lengkap."), step === "idle" && /*#__PURE__*/React.createElement("div", {
     className: "flex",
     style: {
       gap: 12,
@@ -14381,41 +14388,29 @@ function BackupArchiveCard() {
       fontWeight: 600,
       color: "var(--navy-900)"
     }
-  }, "Arsipkan data lebih lama dari:"), /*#__PURE__*/React.createElement("select", {
-    value: days,
-    onChange: e => setDays(e.target.value === "custom" ? "custom" : Number(e.target.value)),
+  }, "Dari tanggal:"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: fromDate,
+    onChange: e => setFromDate(e.target.value),
     disabled: busy,
+    max: toDate || todayStr,
     className: "input",
     style: {
       width: "auto"
     }
-  }, [{
-    v: 30,
-    l: "1 bulan"
-  }, {
-    v: 60,
-    l: "2 bulan"
-  }, {
-    v: 90,
-    l: "3 bulan"
-  }, {
-    v: 180,
-    l: "6 bulan"
-  }, {
-    v: 365,
-    l: "1 tahun"
-  }, {
-    v: "custom",
-    l: "Pilih tanggal sendiri…"
-  }].map(o => /*#__PURE__*/React.createElement("option", {
-    key: o.v,
-    value: o.v
-  }, o.l))), days === "custom" && /*#__PURE__*/React.createElement("input", {
+  }), /*#__PURE__*/React.createElement("label", {
+    style: {
+      fontSize: 13,
+      fontWeight: 600,
+      color: "var(--navy-900)"
+    }
+  }, "Sampai tanggal:"), /*#__PURE__*/React.createElement("input", {
     type: "date",
-    value: customDate,
-    onChange: e => setCustomDate(e.target.value),
+    value: toDate,
+    onChange: e => setToDate(e.target.value),
     disabled: busy,
-    max: todayDateStrWITA(),
+    min: fromDate,
+    max: todayStr,
     className: "input",
     style: {
       width: "auto"
@@ -14433,7 +14428,7 @@ function BackupArchiveCard() {
     variant: "primary",
     size: "sm",
     onClick: runBackup,
-    disabled: busy || days === "custom" && !customDate
+    disabled: busy || !fromDate || !toDate
   }, busy ? "Mengambil data…" : "1. Backup ke Excel"), step === "exported" && summary && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
@@ -14441,7 +14436,7 @@ function BackupArchiveCard() {
       fontWeight: 600,
       marginBottom: 12
     }
-  }, summary.total === 0 ? `Tidak ada data yang lebih lama dari batas ini (${summary.cutoffStr}).` : `File Excel berhasil diunduh — ${summary.total} baris total (${summary.records} presensi, ${summary.patrols} patroli, ${summary.checkpointPasses} checkpoint, ${summary.kejadian} kejadian) sebelum ${summary.cutoffStr}.`), summary.total > 0 && !confirmDelete && /*#__PURE__*/React.createElement("div", {
+  }, summary.total === 0 ? `Tidak ada data pada rentang ${summary.fromDate} sampai ${summary.toDate}.` : `File Excel berhasil diunduh — ${summary.total} baris total (${summary.records} presensi, ${summary.patrols} patroli, ${summary.checkpointPasses} checkpoint, ${summary.kejadian} kejadian) dari ${summary.fromDate} sampai ${summary.toDate}.`), summary.total > 0 && !confirmDelete && /*#__PURE__*/React.createElement("div", {
     className: "flex",
     style: {
       gap: 10,
@@ -14495,6 +14490,146 @@ function BackupArchiveCard() {
       fontWeight: 600
     }
   }, "Data lama berhasil dihapus dari server. File backup Excel tetap tersimpan di perangkat kamu."));
+}
+
+// Nama sheet Excel yang dikenali oleh Import, dipetakan ke koleksi Firestore tujuannya.
+// Nama-nama ini harus sama persis dengan yang dipakai saat "Backup ke Excel" di atas.
+const IMPORT_SHEET_TO_COL = {
+  Presensi: () => COL.RECORDS,
+  Patroli: () => COL.PATROLS,
+  CheckpointPasses: () => COL.CHECKPOINT_PASSES,
+  Kejadian: () => COL.KEJADIAN
+};
+function ImportArchiveCard() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [summary, setSummary] = useState(null);
+  const fileInputRef = useRef(null);
+  async function handleFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    setSummary(null);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, {
+        type: "array"
+      });
+      const rowsToWrite = []; // { col, data }
+      const counts = {};
+      let skippedNoId = 0;
+      wb.SheetNames.forEach(sheetName => {
+        const getCol = IMPORT_SHEET_TO_COL[sheetName];
+        if (!getCol) return; // lewati sheet yang tidak dikenali (bukan hasil backup menu ini)
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {
+          defval: null
+        });
+        let count = 0;
+        rows.forEach(row => {
+          if (!row.id) {
+            skippedNoId++;
+            return; // baris tanpa id tidak bisa ditulis balik dengan aman, lewati
+          }
+          rowsToWrite.push({
+            col: getCol(),
+            data: row
+          });
+          count++;
+        });
+        if (count > 0) counts[sheetName] = count;
+      });
+      if (rowsToWrite.length === 0) {
+        setError("Tidak ada baris yang bisa diimpor dari file ini. Pastikan file ini hasil \"Backup ke Excel\" dari menu di atas (nama sheet harus Presensi/Patroli/CheckpointPasses/Kejadian, dan tiap baris punya kolom \"id\").");
+        return;
+      }
+      // Batch Firestore maksimal 500 operasi — pecah jadi beberapa batch kalau datanya banyak.
+      // merge:true supaya kalau dokumennya masih ada di server, field yang tidak ada di Excel
+      // (misal foto, yang memang tidak ikut ter-backup) TIDAK ikut tertimpa jadi kosong.
+      for (let i = 0; i < rowsToWrite.length; i += 400) {
+        const batch = db.batch();
+        rowsToWrite.slice(i, i + 400).forEach(({
+          col,
+          data
+        }) => {
+          batch.set(db.collection(col).doc(String(data.id)), data, {
+            merge: true
+          });
+        });
+        await batch.commit();
+      }
+      setSummary({
+        total: rowsToWrite.length,
+        counts,
+        skippedNoId
+      });
+    } catch (err) {
+      setError(err.message || "Gagal membaca atau mengimpor file Excel. Pastikan formatnya sesuai hasil backup dari menu di atas.");
+    } finally {
+      setBusy(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card",
+    style: {
+      padding: 20,
+      marginTop: 20
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontSize: 14,
+      fontWeight: 700,
+      color: "var(--navy-900)"
+    }
+  }, "Import Data dari Excel"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 13,
+      color: "var(--navy-700)",
+      marginTop: 2,
+      marginBottom: 16
+    }
+  }, "Kembalikan data dari file hasil \"Backup ke Excel\" di atas ke server — misalnya kalau data itu sudah kamu hapus dari server tapi ternyata masih dibutuhkan lagi. Baris dengan tanggal/id yang sama akan menimpa data yang sudah ada (tidak akan dobel). Foto selfie presensi dan foto laporan kejadian tidak bisa dikembalikan lewat cara ini, karena memang tidak ikut ter-backup ke Excel."), /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: ".xlsx,.xls",
+    ref: fileInputRef,
+    onChange: handleFile,
+    disabled: busy,
+    style: {
+      fontSize: 13
+    }
+  }), busy && /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 13,
+      color: "var(--navy-700)",
+      marginTop: 12
+    }
+  }, "Mengimpor data ke server…"), error && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 12,
+      background: "var(--red-soft)",
+      color: "var(--red)",
+      fontSize: 13,
+      padding: "10px 14px",
+      borderRadius: 10
+    }
+  }, error), summary && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 12,
+      background: "var(--green-soft, #e6f7ee)",
+      color: "var(--green)",
+      fontSize: 13,
+      padding: "10px 14px",
+      borderRadius: 10,
+      fontWeight: 600
+    }
+  }, `Berhasil impor ${summary.total} baris ke server (${Object.entries(summary.counts).map(([k, v]) => `${v} ${k}`).join(", ")}).`, summary.skippedNoId > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 400,
+      marginTop: 4,
+      color: "var(--navy-700)"
+    }
+  }, `${summary.skippedNoId} baris dilewati karena tidak punya kolom "id".`)));
 }
 function RoleAccessCard() {
   useStoreSync();
