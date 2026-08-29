@@ -8310,7 +8310,7 @@ function AdminDashboard({
   }, /*#__PURE__*/React.createElement(Recharts.ResponsiveContainer, {
     width: "100%",
     height: "100%"
-  }, /*#__PURE__*/React.createElement(Recharts.AreaChart, {
+  }, /*#__PURE__*/React.createElement(Recharts.ComposedChart, {
     data: dailyTrend,
     margin: {
       top: 4,
@@ -8395,14 +8395,18 @@ function AdminDashboard({
     activeDot: {
       r: 4
     }
-  }), /*#__PURE__*/React.createElement(Recharts.Area, {
+  }), /*#__PURE__*/React.createElement(Recharts.Line, {
     type: "monotone",
     dataKey: "Terlambat",
     stroke: "#D97706",
     strokeWidth: 2.5,
-    fill: "url(#gradTerlambat)",
+    dot: {
+      r: 3,
+      fill: "#D97706",
+      strokeWidth: 0
+    },
     activeDot: {
-      r: 4
+      r: 5
     }
   }))))), /*#__PURE__*/React.createElement("div", {
     className: "card",
