@@ -2211,8 +2211,31 @@ function workDurationLabel(checkIn, checkOut) {
 }
 
 /* ======================= DETEKSI STATUS ALPHA OTOMATIS ======================= */
+/* ======================= STATUS PRESENSI YANG SELALU IKUT JADWAL TERBARU =======================
+   Status Hadir/Terlambat/Piket Malam yang TERSIMPAN di suatu record dihitung SEKALI saat orang
+   itu check-in, berdasarkan Jadwal yang berlaku SAAT ITU. Kalau Jadwalnya baru diperbaiki
+   BELAKANGAN (mis. tadinya "Masuk" lalu dikoreksi jadi "Piket Malam" setelah orang itu check-in),
+   nilai yang sudah tersimpan di server tidak otomatis ikut berubah — apalagi kalau server sedang
+   menolak tulisan baru (mis. kuota Firestore harian habis). Supaya SELURUH tampilan aplikasi
+   (dashboard, tabel presensi, grafik, rekap PDF, penilaian tim) selalu konsisten dengan Jadwal
+   yang berlaku SEKARANG — tanpa perlu menulis apapun ke server — status dihitung ULANG di sini
+   setiap kali dibaca untuk ditampilkan.
+   Status lain (Izin/Off/Alpa) tidak disentuh karena bukan hasil perhitungan jam check-in. */
+function effectiveRecordStatus(r) {
+  if (!r || !r.checkInTime) return r ? r.status : r;
+  if (r.status !== STATUS.HADIR && r.status !== STATUS.TERLAMBAT && r.status !== STATUS.PIKET_MALAM) return r.status;
+  const sch = getScheduleFor(r.userId, r.date);
+  return computeStatus(r.checkInTime, sch ? sch.type : undefined);
+}
+function withEffectiveStatus(r) {
+  const status = effectiveRecordStatus(r);
+  return status === r.status ? r : {
+    ...r,
+    status
+  };
+}
 function getEffectiveRecordsForUserMonth(userId, userName, monthKey) {
-  const real = getRecordsByUser(userId).filter(r => r.date.startsWith(monthKey));
+  const real = getRecordsByUser(userId).filter(r => r.date.startsWith(monthKey)).map(withEffectiveStatus);
   const realDates = new Set(real.map(r => r.date));
   const [y, m] = monthKey.split("-").map(Number);
   const daysInMonth = new Date(y, m, 0).getDate();
@@ -2904,7 +2927,7 @@ function exportRekapPDF(user, monthKey, records) {
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     const rec = recordMap[dateStr];
-    let status = rec ? rec.status : STATUS.ALPHA;
+    let status = rec ? effectiveRecordStatus(rec) : STATUS.ALPHA;
     if (!rec && isOffDay(user.id, dateStr)) status = "Standby";
     allRows.push({
       date: dateStr,
@@ -7270,7 +7293,7 @@ function RekapPDFModal({
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${yr}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
       const rec = recMap[dateStr];
-      let status = rec ? rec.status : STATUS.ALPHA;
+      let status = rec ? effectiveRecordStatus(rec) : STATUS.ALPHA;
       if (!rec && isOffDay(selectedUser.id, dateStr)) status = SCHEDULE_TYPE.OFF;
       rows.push({
         date: dateStr,
@@ -7575,11 +7598,11 @@ function AdminRecordDetail({
   const [status, setStatus] = useState(record.status);
   const [fixBusy, setFixBusy] = useState(false);
   const [fixMsg, setFixMsg] = useState("");
-  // Status Hadir/Terlambat/Piket Malam dihitung SEKALI saat check-in, berdasarkan jadwal yang
-  // berlaku SAAT ITU. Kalau jadwalnya baru diperbaiki setelah orang itu check-in (mis. tadinya
-  // "Masuk" lalu dikoreksi jadi "Piket Malam"), status yang sudah tersimpan tidak otomatis
-  // ikut berubah. Tombol ini menghitung ulang status memakai jadwal yang berlaku SEKARANG, lalu
-  // menyimpannya kalau memang berbeda dari yang tersimpan.
+  // Sejak perbaikan terbaru, status yang DITAMPILKAN di sini SUDAH otomatis mengikuti Jadwal
+  // yang berlaku sekarang (lihat effectiveRecordStatus), walau data di SERVER belum tentu ikut
+  // ter-update (terutama kalau server sempat menolak tulisan, mis. kuota Firestore habis).
+  // Tombol ini menyimpan nilai yang sudah benar itu ke server, supaya rekap/ekspor/laporan lain
+  // yang membaca data mentah dari server (bukan lewat tampilan ini) juga ikut benar.
   async function handleFixStatus() {
     if (!record.checkInTime) return;
     setFixBusy(true);
@@ -7587,22 +7610,18 @@ function AdminRecordDetail({
     try {
       const sch = getScheduleFor(record.userId, record.date);
       const newStatus = computeStatus(record.checkInTime, sch ? sch.type : undefined);
-      if (newStatus === status) {
-        setFixMsg("Status sudah sesuai dengan jadwal saat ini — tidak ada yang perlu diperbaiki.");
-      } else {
-        await withTimeout(db.collection(COL.RECORDS).doc(record.id).update({
-          status: newStatus
-        }), 20000, "Gagal memperbarui status");
-        store.records = store.records.map(r => r.id === record.id ? {
-          ...r,
-          status: newStatus
-        } : r);
-        _notifyStore();
-        setStatus(newStatus);
-        setFixMsg(`Status berhasil diperbarui jadi "${newStatus}", sesuai jadwal kerja yang berlaku sekarang.`);
-      }
+      await withTimeout(db.collection(COL.RECORDS).doc(record.id).update({
+        status: newStatus
+      }), 20000, "Gagal menyimpan status ke server");
+      store.records = store.records.map(r => r.id === record.id ? {
+        ...r,
+        status: newStatus
+      } : r);
+      _notifyStore();
+      setStatus(newStatus);
+      setFixMsg(`Status "${newStatus}" berhasil disimpan ke server, sesuai jadwal kerja yang berlaku sekarang.`);
     } catch (err) {
-      setFixMsg(err.message || "Gagal memperbarui status. Cek koneksi lalu coba lagi.");
+      setFixMsg(err.message || "Gagal menyimpan status ke server. Cek koneksi lalu coba lagi.");
     } finally {
       setFixBusy(false);
     }
@@ -7666,7 +7685,7 @@ function AdminRecordDetail({
       color: "var(--accent-700)",
       textDecoration: "underline"
     }
-  }, fixBusy ? "Memeriksa jadwal…" : "Perbaiki Status (sesuaikan dengan jadwal saat ini)"), fixMsg && /*#__PURE__*/React.createElement("p", {
+  }, fixBusy ? "Menyimpan…" : "Simpan Status ke Server (sesuai jadwal saat ini)"), fixMsg && /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 12,
       marginTop: 6,
@@ -7959,7 +7978,7 @@ function AdminDashboard({
   const users = useMemo(() => getUsers().filter(u => u.role === ROLES.EMPLOYEE), []);
   const mk = currentMonthKey();
   const allRecords = useMemo(() => {
-    const real = getRecords();
+    const real = getRecords().map(withEffectiveStatus);
     const realKeys = new Set(real.map(r => `${r.userId}__${r.date}`));
     const synthetic = [];
     users.forEach(u => {
@@ -7968,7 +7987,7 @@ function AdminDashboard({
       });
     });
     return [...real, ...synthetic].sort((a, b) => a.date < b.date ? 1 : -1);
-  }, [users, mk]);
+  }, [users, mk, store.schedules]);
   const filtered = useMemo(() => allRecords.filter(r => {
     if (dateFilter && r.date !== dateFilter) return false;
     if (nameFilter && !r.userName.toLowerCase().includes(nameFilter.toLowerCase())) return false;
@@ -8008,7 +8027,7 @@ function AdminDashboard({
   const pikMalamYesterday = yesterdayRecords.filter(r => r.status === STATUS.PIKET_MALAM).length;
   const activePatrols = useMemo(() => getPatrols().filter(p => p.status === PATROL_STATUS.ACTIVE && p.date === today), [store.patrols, today]);
   const checkpoints = useMemo(() => getCheckpoints(), [store.checkpoints]);
-  const dailyTrend = useMemo(() => buildDailyAttendanceTrend(getRecords(), mk), [mk, store.records]);
+  const dailyTrend = useMemo(() => buildDailyAttendanceTrend(allRecords, mk), [allRecords, mk]);
   const PAGE_SIZE = 10;
   const [page, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
