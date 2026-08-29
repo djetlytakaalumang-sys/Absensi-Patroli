@@ -14276,6 +14276,36 @@ function withTimeout(promise, ms, label) {
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
+// PENTING: batas Firestore untuk satu batch bukan cuma "maksimal 500 operasi" — ada juga
+// batas UKURAN total (~10 MiB). Dokumen patroli menyimpan field `path` (riwayat titik GPS
+// sepanjang sesi patroli, bisa ribuan titik untuk sesi 7-8 jam), dan field besar seperti ini
+// tetap dihitung ke ukuran batch walau cuma di-DELETE (Firestore tetap perlu membersihkan
+// entri index otomatis untuk tiap elemen array itu). Makanya batch bisa "Transaction too big"
+// walau jumlah dokumennya jauh di bawah 500. Fungsi ini otomatis memecah jadi bagian lebih
+// kecil (dibagi dua terus-menerus) begitu Firestore menolak karena kebesaran, sampai ukurannya
+// muat — jadi tidak perlu tahu persis batas amannya di depan.
+async function commitDeleteBatch(docs) {
+  if (docs.length === 0) return;
+  const batch = db.batch();
+  docs.forEach(d => batch.delete(d.ref));
+  try {
+    await withTimeout(batch.commit(), 20000, "Gagal menghapus sebagian data");
+  } catch (err) {
+    const msg = (err && err.message || "").toLowerCase();
+    const tooBig = msg.includes("too big") || msg.includes("transaction too big") || msg.includes("resource_exhausted") || msg.includes("payload size exceeds");
+    if (tooBig && docs.length > 1) {
+      const mid = Math.ceil(docs.length / 2);
+      await commitDeleteBatch(docs.slice(0, mid));
+      await commitDeleteBatch(docs.slice(mid));
+    } else if (tooBig && docs.length === 1) {
+      // Satu dokumen pun masih "kebesaran" untuk batch — coba hapus langsung (di luar batch)
+      // sebagai upaya terakhir.
+      await withTimeout(docs[0].ref.delete(), 20000, "Gagal menghapus satu dokumen");
+    } else {
+      throw err;
+    }
+  }
+}
 function BackupArchiveCard() {
   const todayStr = todayDateStrWITA();
   const sixMonthsAgoStr = todayDateStrWITA(new Date(Date.now() - 180 * 24 * 60 * 60 * 1000));
@@ -14344,11 +14374,13 @@ function BackupArchiveCard() {
     setError("");
     try {
       const allDocs = [...summary.refs.recordsSnap.docs, ...summary.refs.patrolsSnap.docs, ...summary.refs.cpSnap.docs, ...summary.refs.kejadianSnap.docs];
-      // Batch Firestore maksimal 500 operasi — pecah jadi beberapa batch kalau datanya banyak.
-      for (let i = 0; i < allDocs.length; i += 400) {
-        const batch = db.batch();
-        allDocs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
-        await withTimeout(batch.commit(), 20000, "Gagal menghapus sebagian data");
+      // Mulai dengan potongan yang lebih kecil (50) daripada batas 500 operasi Firestore —
+      // seperti dijelaskan di commitDeleteBatch(), yang sering jadi masalah itu UKURAN data
+      // (field `path` GPS di dokumen patroli), bukan jumlah dokumen. commitDeleteBatch()
+      // otomatis memecah lebih kecil lagi sendiri kalau ternyata masih kebesaran.
+      const CHUNK = 50;
+      for (let i = 0; i < allDocs.length; i += CHUNK) {
+        await commitDeleteBatch(allDocs.slice(i, i + CHUNK));
       }
       // Bersihkan juga dari data yang lagi tampil di layar (in-memory) supaya UI langsung update
       // tanpa perlu tunggu listener live menyusul.
