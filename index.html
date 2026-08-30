@@ -1143,21 +1143,45 @@ function cleanupOrphanPatrols() {
   orphans.forEach(p => db.collection(COL.PATROLS).doc(p.id).delete().catch(console.error));
   return orphans.length;
 }
-function saveCheckIn(record) {
+// PENTING: sebelumnya fungsi ini update tampilan lokal LALU kirim ke server TANPA ditunggu
+// ("fire-and-forget", `.catch(console.error)`) — begitu dipanggil, layar HP langsung bilang
+// "berhasil presensi" walau pengiriman ke server di belakang layar bisa saja gagal (mis. kuota
+// Firestore habis) tanpa sepengetahuan orangnya sama sekali. Ini bisa membuat karyawan merasa
+// sudah absen padahal di server TIDAK ADA datanya — baru ketahuan belakangan lewat rekap/laporan.
+// Sekarang fungsi ini ASYNC dan benar-benar MENUNGGU hasil penyimpanan ke server (dengan batas
+// waktu 20 detik lewat withTimeout): kalau gagal, perubahan lokal DIBATALKAN (rollback) dan error
+// dilempar ke pemanggilnya, supaya orangnya diberi tahu jelas untuk coba lagi — bukan dibiarkan
+// mengira sudah berhasil.
+async function saveCheckIn(record) {
   store.records = [...store.records, record];
-  db.collection(COL.RECORDS).doc(record.id).set(record).catch(console.error);
-  return record;
+  _notifyStore();
+  try {
+    await withTimeout(db.collection(COL.RECORDS).doc(record.id).set(record), 20000, "Gagal menyimpan presensi ke server");
+    return record;
+  } catch (err) {
+    store.records = store.records.filter(r => r.id !== record.id);
+    _notifyStore();
+    throw err;
+  }
 }
-function saveCheckOut(recordId, data) {
+async function saveCheckOut(recordId, data) {
   const idx = store.records.findIndex(r => r.id === recordId);
   if (idx === -1) return null;
+  const previous = store.records[idx];
   const updated = {
-    ...store.records[idx],
+    ...previous,
     ...data
   };
   store.records = store.records.map(r => r.id === recordId ? updated : r);
-  db.collection(COL.RECORDS).doc(recordId).update(data).catch(console.error);
-  return updated;
+  _notifyStore();
+  try {
+    await withTimeout(db.collection(COL.RECORDS).doc(recordId).update(data), 20000, "Gagal menyimpan data ke server");
+    return updated;
+  } catch (err) {
+    store.records = store.records.map(r => r.id === recordId ? previous : r);
+    _notifyStore();
+    throw err;
+  }
 }
 // Presensi (Absen Masuk) yang tanggalnya BUKAN hari ini tapi belum ada checkOutTime berarti
 // petugas lupa Absen Pulang di hari itu. Begitu tanggal sudah berganti lewat jam 00.00, sistem
@@ -1177,7 +1201,7 @@ function autoCloseStaleAttendance() {
     checkOutTime: "23:59:59",
     checkOutNote: "Absen pulang otomatis oleh sistem (lupa Absen Pulang).",
     autoCheckOut: true
-  }));
+  }).catch(err => console.warn("Gagal auto-close presensi", r.id, err)));
   recordAutoCloseLog("Presensi", stale.map(r => r.userName || r.userId));
   return stale.length;
 }
@@ -1532,7 +1556,7 @@ async function importSchedules(entries) {
       const newStatus = computeStatus(rec.checkInTime, entry.type);
       if (newStatus !== rec.status) saveCheckOut(rec.id, {
         status: newStatus
-      });
+      }).catch(err => console.warn("Gagal recompute status setelah import jadwal", rec.id, err));
     }
   });
   return written;
@@ -1604,7 +1628,15 @@ function getActivePatrolForUser(userId) {
 function generatePatrolId() {
   return "ptr-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
-function startPatrolSession(user, pos, opts = {}) {
+// Sama seperti saveCheckIn/saveCheckOut — sebelumnya "fire-and-forget" (langsung dianggap
+// berhasil di layar walau pengiriman ke server gagal diam-diam). Sekarang ditunggu (dengan batas
+// waktu) dan MELEMPAR error kalau gagal, supaya pemanggilnya (mis. saat Absen Masuk otomatis
+// memulai patroli) tahu dan bisa memberi tahu penggunanya. Selain itu, kalau gagal, tulisannya
+// dimasukkan ke antrian offline (`_enqueuePendingWrite`, sistem yang sama dipakai untuk titik GPS
+// patroli) supaya tetap otomatis dicoba kirim ulang di latar belakang tiap ~20 detik — jadi kalau
+// nanti koneksi/kuota pulih, sesi patroli ini tetap bisa "menyusul" tersimpan tanpa petugas harus
+// mengulang dari awal.
+async function startPatrolSession(user, pos, opts = {}) {
   // ANTI-CURANG: pakai jam SERVER terpercaya (sama seperti recordCheckpointPass & presensi
   // masuk/pulang), supaya `date` & `startTime` sesi patroli (dasar rekap harian & durasi)
   // tidak bisa dipalsukan dengan mengubah jam HP.
@@ -1629,8 +1661,18 @@ function startPatrolSession(user, pos, opts = {}) {
     autoStarted: !!opts.auto // true jika dimulai otomatis saat Absen Masuk
   };
   store.patrols = [...store.patrols, patrol];
-  db.collection(COL.PATROLS).doc(patrol.id).set(patrol).catch(console.error);
-  return patrol;
+  _notifyStore();
+  try {
+    await withTimeout(db.collection(COL.PATROLS).doc(patrol.id).set(patrol), 20000, "Gagal menyimpan sesi patroli ke server");
+    return patrol;
+  } catch (err) {
+    _enqueuePendingWrite(COL.PATROLS, patrol.id, patrol);
+    // Tetap dibiarkan tampil lokal (tidak di-rollback seperti presensi) — path GPS-nya sudah
+    // mulai terekam otomatis dan akan menyusul tersimpan lewat antrian offline di atas begitu
+    // koneksi pulih, jadi lebih baik petugas tetap kelihatan "sedang patroli" secara lokal
+    // daripada kehilangan rekaman rute yang sudah mulai berjalan.
+    throw err;
+  }
 }
 function updatePatrolSession(id, data) {
   const idx = store.patrols.findIndex(p => p.id === id);
@@ -4854,6 +4896,7 @@ function AttendanceCard({
   const [mode, setMode] = useState(null);
   const [locationData, setLocationData] = useState(null);
   const [error, setError] = useState("");
+  const [patrolWarning, setPatrolWarning] = useState("");
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
@@ -4927,6 +4970,8 @@ function AttendanceCard({
   }
   async function handlePhotoConfirmed(photoDataUrl) {
     setStep(STEP.SAVING);
+    setPatrolWarning("");
+    setError("");
     // Sinkronkan ulang ke jam server tepat sebelum menyimpan. Jam masuk/pulang & status
     // (Hadir/Terlambat) dihitung dari jam SERVER ini, bukan jam HP — supaya tidak bisa
     // diakali dengan mengubah pengaturan tanggal & waktu di perangkat.
@@ -4949,7 +4994,7 @@ function AttendanceCard({
       if (mode === "in") {
         const scheduledType = getScheduleFor(user.id, dateStr)?.type;
         const status = computeStatus(timeStr, scheduledType);
-        saveCheckIn({
+        await saveCheckIn({
           id: `att-${user.id}-${dateStr}`,
           userId: user.id,
           userName: user.name,
@@ -4975,17 +5020,25 @@ function AttendanceCard({
         // Patroli otomatis mulai berjalan begitu Absen Masuk berhasil, untuk semua status kehadiran
         // (Hadir/Terlambat/Piket Malam). Khusus Piket Malam, sesi patroli tidak menggunakan checkpoint
         // (langsung tracking lokasi real-time tanpa checklist checkpoint).
+        // Dibungkus try/catch TERPISAH dari presensi: kalau cuma sesi patrolinya yang gagal
+        // tersimpan (presensinya sendiri sudah aman), jangan sampai presensinya ikut dianggap
+        // gagal juga — cukup beri tahu terpisah, karena tulisannya tetap otomatis dicoba lagi di
+        // latar belakang lewat antrian offline.
         if ((status === STATUS.HADIR || status === STATUS.TERLAMBAT || status === STATUS.PIKET_MALAM) && !getActivePatrolForUser(user.id)) {
-          startPatrolSession(user, {
-            lat: locationData.lat,
-            lng: locationData.lng
-          }, {
-            usesCheckpoints: status !== STATUS.PIKET_MALAM,
-            auto: true
-          });
+          try {
+            await startPatrolSession(user, {
+              lat: locationData.lat,
+              lng: locationData.lng
+            }, {
+              usesCheckpoints: status !== STATUS.PIKET_MALAM,
+              auto: true
+            });
+          } catch (patrolErr) {
+            setPatrolWarning("Presensi berhasil, tapi sesi patroli otomatis sempat gagal tersimpan — sistem akan mencoba mengirim ulang sendiri di latar belakang. Kalau sesi patroli tidak juga muncul, hubungi admin.");
+          }
         }
       } else {
-        saveCheckOut(record.id, {
+        await saveCheckOut(record.id, {
           checkOutTime: timeStr,
           checkOutPhoto: photoDataUrl,
           checkOutLat: locationData.lat,
@@ -5016,7 +5069,7 @@ function AttendanceCard({
       setMode(null);
       setLocationData(null);
     } catch (err) {
-      setError("Gagal menyimpan data presensi. Coba lagi.");
+      setError(err.message && err.message.includes("koneksi internet") ? `Presensi BELUM tersimpan ke server — ${err.message} Silakan coba tekan tombol presensi lagi.` : "Gagal menyimpan data presensi ke server. Silakan coba lagi.");
       setStep(STEP.IDLE);
     }
   }
@@ -5107,7 +5160,27 @@ function AttendanceCard({
       flexShrink: 0,
       marginTop: 2
     }
-  }), /*#__PURE__*/React.createElement("span", null, error)), step === STEP.LOCATING && /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("span", null, error)), patrolWarning && /*#__PURE__*/React.createElement("div", {
+    className: "relative",
+    style: {
+      zIndex: 1,
+      marginBottom: 16,
+      display: "flex",
+      gap: 8,
+      background: "rgba(217,119,6,.25)",
+      color: "#fff",
+      borderRadius: 12,
+      padding: "10px 14px",
+      fontSize: 14
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "alert-triangle",
+    size: 16,
+    style: {
+      flexShrink: 0,
+      marginTop: 2
+    }
+  }), /*#__PURE__*/React.createElement("span", null, patrolWarning)), step === STEP.LOCATING && /*#__PURE__*/React.createElement("div", {
     className: "relative",
     style: {
       zIndex: 1,
