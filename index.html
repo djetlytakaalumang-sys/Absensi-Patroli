@@ -785,24 +785,51 @@ async function initFirestore() {
       ref
     }) => {
       let isFirst = true;
-      ref.onSnapshot(snap => {
-        applySnapshot(key, snap);
-        if (isFirst) {
-          isFirst = false;
+      let retryDelay = 3000;
+      // PENTING: onSnapshot() Firestore, begitu callback error-nya kepanggil SEKALI (mis. karena
+      // kuota harian sempat habis, koneksi putus sesaat, dsb), listener itu MATI PERMANEN — tidak
+      // pernah otomatis coba nyambung lagi sendiri. Kalau dibiarkan seperti versi lama, begitu 1
+      // error saja terjadi hari itu, dashboard/app berhenti menerima data baru SELAMANYA sampai
+      // halamannya di-refresh manual. subscribe() di sini dipanggil ulang sendiri (dengan jeda
+      // yang makin lama tiap gagal, maksimal 1 menit) tiap kali listener mati, supaya begitu
+      // server/koneksi/kuotanya pulih, data live otomatis nyambung lagi tanpa perlu refresh.
+      function subscribe() {
+        ref.onSnapshot(snap => {
+          applySnapshot(key, snap);
+          retryDelay = 3000; // berhasil terima data lagi → reset jeda percobaan berikutnya
+          if (isFirst) {
+            isFirst = false;
+            markDone();
+          }
+          _notifyStore();
+        }, err => {
+          markError(err);
+          console.warn(`Listener "${key}" terputus (${err.message}) — mencoba sambung ulang dalam ${Math.round(retryDelay / 1000)} detik…`);
+          setTimeout(subscribe, retryDelay);
+          retryDelay = Math.min(retryDelay * 2, 60000);
+        });
+      }
+      subscribe();
+    });
+    let settingsFirst = true;
+    let settingsRetryDelay = 3000;
+    function subscribeSettings() {
+      db.collection(COL.SETTINGS).doc("config").onSnapshot(snap => {
+        store.settings = snap.exists ? snap.data() : {};
+        settingsRetryDelay = 3000;
+        if (settingsFirst) {
+          settingsFirst = false;
           markDone();
         }
         _notifyStore();
-      }, markError);
-    });
-    let settingsFirst = true;
-    db.collection(COL.SETTINGS).doc("config").onSnapshot(snap => {
-      store.settings = snap.exists ? snap.data() : {};
-      if (settingsFirst) {
-        settingsFirst = false;
-        markDone();
-      }
-      _notifyStore();
-    }, markError);
+      }, err => {
+        markError(err);
+        console.warn(`Listener "settings" terputus (${err.message}) — mencoba sambung ulang dalam ${Math.round(settingsRetryDelay / 1000)} detik…`);
+        setTimeout(subscribeSettings, settingsRetryDelay);
+        settingsRetryDelay = Math.min(settingsRetryDelay * 2, 60000);
+      });
+    }
+    subscribeSettings();
   });
 
   if (cacheHit) {
