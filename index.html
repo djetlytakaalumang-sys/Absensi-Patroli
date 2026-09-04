@@ -1597,7 +1597,7 @@ function parseScheduleExcelRows(rows, monthKey) {
 
 // Status jadwal + kehadiran hari ini untuk semua karyawan (dipakai di halaman Jadwal Admin)
 function getTodayScheduleStatus() {
-  const todayStr = todayDateStr();
+  const todayStr = todayDateStrWITA(getTrustedNow());
   const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE);
   return employees.map(u => {
     const sch = getScheduleFor(u.id, todayStr);
@@ -6418,7 +6418,7 @@ function HistoryPage({
     const eff = getEffectiveRecordsForUserMonth(user.id, user.name, chartMonthKey);
     const [y, m] = chartMonthKey.split("-").map(Number);
     const daysInMonth = new Date(y, m, 0).getDate();
-    const todayStr = todayDateStr();
+    const todayStr = todayDateStrWITA(getTrustedNow());
     const days = [];
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${chartMonthKey}-${String(d).padStart(2, "0")}`;
@@ -6647,7 +6647,7 @@ function LeaveRequestModal({
   onClose,
   onSaved
 }) {
-  const todayStr = todayDateStr();
+  const todayStr = todayDateStrWITA(getTrustedNow());
   const [form, setForm] = useState({
     startDate: todayStr,
     endDate: todayStr,
@@ -8023,7 +8023,10 @@ function DashStatBox({
 function buildAttendanceHeatmap(monthKey, allRecords, totalUsers) {
   const [y, m] = monthKey.split("-").map(Number);
   const daysInMonth = new Date(y, m, 0).getDate();
-  const todayStr = todayDateStr();
+  // WITA-forced — device browser yg menjalankan fungsi ini (browser admin) bisa zona
+  // waktunya beda2, tapi tanggal presensi SELALU dicatat pakai WITA. Kalau masih pakai
+  // todayDateStr() device-local, sel "hari ini" bisa salah kepotong (null) padahal datanya ada.
+  const todayStr = todayDateStrWITA(getTrustedNow());
   const dow0 = (new Date(y, m - 1, 1).getDay() + 6) % 7; // Senin = 0
   const grid = Array.from({
     length: 7
@@ -8063,7 +8066,9 @@ function heatCellColor(pct) {
 function buildDailyAttendanceTrend(allRecords, monthKey) {
   const [y, m] = monthKey.split("-").map(Number);
   const daysInMonth = new Date(y, m, 0).getDate();
-  const todayStr = todayDateStr();
+  // WITA-forced, sama alasannya spt buildAttendanceHeatmap di atas — supaya titik "hari ini"
+  // di grafik tidak hilang/kepotong gara2 zona waktu device browser yg beda dari WITA.
+  const todayStr = todayDateStrWITA(getTrustedNow());
   const days = [];
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = `${monthKey}-${String(d).padStart(2, "0")}`;
@@ -8109,7 +8114,14 @@ function AdminDashboard({
     if (statusFilter !== "all" && r.status !== statusFilter) return false;
     return true;
   }), [allRecords, dateFilter, nameFilter, statusFilter]);
-  const today = todayDateStr();
+  // PENTING: pakai todayDateStrWITA(getTrustedNow()) — BUKAN todayDateStr() biasa — supaya
+  // "hari ini" versi dashboard admin ini SELALU cocok dengan tanggal WITA yang sebenarnya
+  // tersimpan di data presensi/patroli (yang juga selalu dicatat pakai WITA, lihat
+  // startPatrolSession/saveCheckIn). Kalau device admin zona waktunya bukan WITA (atau salah
+  // setelan), todayDateStr() biasa bisa menghasilkan tanggal yang BEDA dari data yang sebenarnya
+  // aktif hari ini — akibatnya statistik "hari ini" di dashboard ini (termasuk Peta Live
+  // Patroli) bisa kosong/salah padahal datanya sebenarnya ada.
+  const today = todayDateStrWITA(getTrustedNow());
   const todayRecords = allRecords.filter(r => r.date === today);
   const hadirToday = todayRecords.filter(r => r.status === "Hadir" || r.status === "Terlambat" || r.status === "Piket Malam").length;
   const terlambatToday = todayRecords.filter(r => r.status === "Terlambat").length;
@@ -9837,7 +9849,9 @@ function TeamRouteCardSingle({
   team,
   user
 }) {
-  const today = todayDateStr();
+  // WITA-forced (bukan device-local) — lihat penjelasan lengkap di AdminDashboard soal
+  // pentingnya ini utk konsistensi dgn tanggal yang tersimpan di data.
+  const today = todayDateStrWITA(getTrustedNow());
   const doneMap = useMemo(() => getTeamCheckpointOriginalNamesForDate(team, today), [today, store.checkpointPasses, store.users]);
   const bonusToday = useMemo(() => hasRouteBonusOnDate(today), [today, store.checkpointPasses, store.users]);
   const routeLowerSet = new Set(team.route.map(matchCheckpointNameLoose));
@@ -10573,7 +10587,7 @@ function EmployeesPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const employees = useMemo(() => getUsers().filter(u => u.role === ROLES.EMPLOYEE), [refreshKey]);
   const mk = currentMonthKey();
-  const todayStr = todayDateStr();
+  const todayStr = todayDateStrWITA(getTrustedNow());
   function refresh() {
     setRefreshKey(k => k + 1);
   }
@@ -11367,7 +11381,11 @@ function AdminPatrolMapPage() {
     // checkpointId, jadi angka "X checkpoint hari ini" yang tampil di kartu Si A ikut kehitung
     // rit Si B juga untuk checkpoint yang sama, bikin kelihatan seolah Si A sudah lewat padahal
     // itu rit orang lain.
-    const today = todayDateStr();
+    // PENTING: pakai todayDateStrWITA(getTrustedNow()), BUKAN todayDateStr() device-local —
+    // supaya cocok dgn tanggal WITA yg sebenarnya tersimpan di data (lihat penjelasan lengkap
+    // di AdminDashboard). Device admin yg zona waktunya bukan WITA bisa bikin rit hari ini
+    // tidak kehitung sama sekali kalau masih pakai todayDateStr() biasa.
+    const today = todayDateStrWITA(getTrustedNow());
     const counts = {};
     store.checkpointPasses.forEach(p => {
       if (p.date !== today) return;
@@ -11377,7 +11395,7 @@ function AdminPatrolMapPage() {
     return counts;
   }, [store.checkpointPasses]);
   const allPatrols = useMemo(() => getPatrols(), [store.patrols]);
-  const todayStr = todayDateStr();
+  const todayStr = todayDateStrWITA(getTrustedNow());
   // Jaga-jaga: sesi ACTIVE dari tanggal selain hari ini seharusnya sudah ditutup otomatis oleh
   // autoCloseStalePatrols(), tapi difilter juga di sini supaya sesi "nyangkut" tidak pernah tampil
   // sebagai sedang berlangsung walau proses auto-close itu belum sempat jalan.
@@ -12936,7 +12954,7 @@ function JadwalSayaPage({
 }) {
   useStoreSync();
   const [monthKey, setMonthKey] = useState(currentMonthKey());
-  const todayStr = todayDateStr();
+  const todayStr = todayDateStrWITA(getTrustedNow());
   const todaySchedule = getScheduleFor(user.id, todayStr);
   const scheds = useMemo(() => getSchedulesForUserMonth(user.id, monthKey), [monthKey, store.schedules, user.id]);
   const [y, m] = monthKey.split("-").map(Number);
@@ -13384,8 +13402,10 @@ function loginDeviceLabel(ua) {
 function RekapRitPage() {
   useStoreSync();
   const [mode, setMode] = useState("harian"); // "harian" | "bulanan"
-  const [dateFilter, setDateFilter] = useState(todayDateStr());
-  const [monthFilter, setMonthFilter] = useState(todayDateStr().slice(0, 7));
+  // WITA-forced (bukan todayDateStr() device-local) — supaya default "hari ini" di halaman
+  // rekap ini benar-benar cocok dengan tanggal WITA yang tersimpan di data rit checkpoint.
+  const [dateFilter, setDateFilter] = useState(todayDateStrWITA(getTrustedNow()));
+  const [monthFilter, setMonthFilter] = useState(todayDateStrWITA(getTrustedNow()).slice(0, 7));
   const [checkpointFilter, setCheckpointFilter] = useState("");
   const [nameFilter, setNameFilter] = useState("");
   const [expandedUserId, setExpandedUserId] = useState(null);
@@ -13405,12 +13425,12 @@ function RekapRitPage() {
   const monthCheckpoints = checkpointFilter ? checkpoints.filter(cp => cp.id === checkpointFilter) : checkpoints;
 
   function clearFilters() {
-    setDateFilter(todayDateStr());
-    setMonthFilter(todayDateStr().slice(0, 7));
+    setDateFilter(todayDateStrWITA(getTrustedNow()));
+    setMonthFilter(todayDateStrWITA(getTrustedNow()).slice(0, 7));
     setCheckpointFilter("");
     setNameFilter("");
   }
-  const isFiltered = mode === "harian" ? (dateFilter !== todayDateStr() || checkpointFilter || nameFilter) : (monthFilter !== todayDateStr().slice(0, 7) || checkpointFilter || nameFilter);
+  const isFiltered = mode === "harian" ? (dateFilter !== todayDateStrWITA(getTrustedNow()) || checkpointFilter || nameFilter) : (monthFilter !== todayDateStrWITA(getTrustedNow()).slice(0, 7) || checkpointFilter || nameFilter);
 
   const headerEl = React.createElement("div", { style: { marginBottom: 20 } },
     React.createElement("h1", { style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Rekap Checkpoint (CP)"),
@@ -13512,13 +13532,13 @@ function RekapRitPage() {
       mode === "harian" ? React.createElement("input", {
         type: "date",
         value: dateFilter,
-        onChange: e => setDateFilter(e.target.value || todayDateStr()),
+        onChange: e => setDateFilter(e.target.value || todayDateStrWITA(getTrustedNow())),
         className: "input",
         style: { width: "auto", color: "var(--navy-700)" }
       }) : React.createElement("input", {
         type: "month",
         value: monthFilter,
-        onChange: e => setMonthFilter(e.target.value || todayDateStr().slice(0, 7)),
+        onChange: e => setMonthFilter(e.target.value || todayDateStrWITA(getTrustedNow()).slice(0, 7)),
         className: "input",
         style: { width: "auto", color: "var(--navy-700)" }
       }),
@@ -15312,7 +15332,8 @@ function PatrolCheckpointSettings() {
   const [toast, setToast] = useState("");
   const checkpoints = getCheckpoints();
   const todayRitCounts = useMemo(() => {
-    const today = todayDateStr();
+    // WITA-forced (bukan device-local) — lihat penjelasan lengkap di AdminDashboard.
+    const today = todayDateStrWITA(getTrustedNow());
     const counts = {};
     store.checkpointPasses.forEach(p => {
       if (p.date !== today) return;
