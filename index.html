@@ -1622,8 +1622,15 @@ function getPatrols() {
 function getPatrolsByUser(userId) {
   return store.patrols.filter(p => p.userId === userId).sort((a, b) => a.startTime < b.startTime ? 1 : -1);
 }
+// PENTING: sengaja HANYA menganggap "aktif" kalau tanggalnya PERSIS hari ini (WITA). Sebelumnya
+// fungsi ini cuma cek status==='active' tanpa peduli tanggal — kalau ada sesi dari hari lain yang
+// entah kenapa belum ketutup dgn benar (mis. endPatrolSession sempat gagal sebelum ada perbaikan
+// retry/rollback), petugas itu dianggap "masih patroli" SELAMANYA dan tidak akan pernah dibuatkan
+// sesi baru lagi di hari-hari berikutnya — presensi tetap berhasil tapi dia hilang dari peta live
+// tanpa ada peringatan apapun (karena kodenya bahkan tidak sempat mencoba memulai sesi baru).
 function getActivePatrolForUser(userId) {
-  return store.patrols.find(p => p.userId === userId && p.status === PATROL_STATUS.ACTIVE) || null;
+  const todayStr = todayDateStrWITA(getTrustedNow());
+  return store.patrols.find(p => p.userId === userId && p.status === PATROL_STATUS.ACTIVE && p.date === todayStr) || null;
 }
 function generatePatrolId() {
   return "ptr-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -5024,6 +5031,11 @@ function AttendanceCard({
         // tersimpan (presensinya sendiri sudah aman), jangan sampai presensinya ikut dianggap
         // gagal juga — cukup beri tahu terpisah, karena tulisannya tetap otomatis dicoba lagi di
         // latar belakang lewat antrian offline.
+        // Jaga-jaga tambahan: pastikan sesi patroli basi (dari hari lain, lupa ditutup) benar2
+        // sudah dibersihkan SEBELUM diputuskan perlu mulai sesi baru atau tidak — supaya tidak
+        // ada celah waktu (mis. auto-close berjalan di background tapi belum sempat selesai
+        // saat user buru-buru menekan tombol Absen Masuk begitu app baru saja terbuka).
+        autoCloseStalePatrols();
         if ((status === STATUS.HADIR || status === STATUS.TERLAMBAT || status === STATUS.PIKET_MALAM) && !getActivePatrolForUser(user.id)) {
           try {
             await startPatrolSession(user, {
