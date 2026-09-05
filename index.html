@@ -1022,7 +1022,7 @@ async function recordLoginEvent(user) {
   updateUser(user.id, {
     lastLoginAt: iso,
     lastLoginAgent: userAgent
-  });
+  }).catch(err => console.warn("Gagal update lastLoginAt", err));
 }
 
 /* ── Fungsi baca (sinkron, dari memori) ─────────────────────────── */
@@ -1091,7 +1091,9 @@ function clearSession() {
 function findUserByCredentials(username, password) {
   return store.users.find(u => u.username.toLowerCase() === username.trim().toLowerCase() && u.password === password) || null;
 }
-function addUser(data) {
+// Sama polanya spt fungsi2 sebelumnya — kalau gagal tersimpan, admin bisa mengira akun sudah
+// dibuat/diubah/dihapus padahal tidak, membingungkan saat karyawan itu coba login.
+async function addUser(data) {
   const newUser = {
     id: generateUserId(),
     username: data.username.trim(),
@@ -1103,45 +1105,81 @@ function addUser(data) {
     phone: (data.phone || "").trim(),
     address: (data.address || "").trim(),
     avatarColor: data.avatarColor || randomAvatarColor(),
-    joinDate: todayDateStr()
+    joinDate: todayDateStrWITA(getTrustedNow())
   };
   store.users = [...store.users, newUser];
-  db.collection(COL.USERS).doc(newUser.id).set(newUser).catch(console.error);
-  return newUser;
+  _notifyStore();
+  try {
+    await withTimeout(db.collection(COL.USERS).doc(newUser.id).set(newUser), 20000, "Gagal menyimpan akun baru ke server");
+    return newUser;
+  } catch (err) {
+    store.users = store.users.filter(u => u.id !== newUser.id);
+    _notifyStore();
+    throw err;
+  }
 }
-function updateUser(id, data) {
+async function updateUser(id, data) {
   const idx = store.users.findIndex(u => u.id === id);
   if (idx === -1) return null;
+  const previous = store.users[idx];
   const updated = {
-    ...store.users[idx],
+    ...previous,
     ...data
   };
-  if (!data.password) updated.password = store.users[idx].password;
+  if (!data.password) updated.password = previous.password;
   store.users = store.users.map(u => u.id === id ? updated : u);
-  db.collection(COL.USERS).doc(id).update(data).catch(console.error);
-  return updated;
+  _notifyStore();
+  try {
+    await withTimeout(db.collection(COL.USERS).doc(id).update(data), 20000, "Gagal menyimpan perubahan akun ke server");
+    return updated;
+  } catch (err) {
+    store.users = store.users.map(u => u.id === id ? previous : u);
+    _notifyStore();
+    throw err;
+  }
 }
-function deleteUser(id) {
+async function deleteUser(id) {
+  const previousUsers = store.users;
+  const previousRecords = store.records;
+  const previousPatrols = store.patrols;
+  const previousCheckpointPasses = store.checkpointPasses;
   store.users = store.users.filter(u => u.id !== id);
   store.records = store.records.filter(r => r.userId !== id);
   store.patrols = store.patrols.filter(p => p.userId !== id);
   store.checkpointPasses = store.checkpointPasses.filter(p => p.userId !== id);
-  db.collection(COL.USERS).doc(id).delete().catch(console.error);
-  db.collection(COL.RECORDS).where("userId", "==", id).get().then(snap => snap.docs.forEach(d => d.ref.delete())).catch(console.error);
-  db.collection(COL.PATROLS).where("userId", "==", id).get().then(snap => snap.docs.forEach(d => d.ref.delete())).catch(console.error);
-  db.collection(COL.CHECKPOINT_PASSES).where("userId", "==", id).get().then(snap => snap.docs.forEach(d => d.ref.delete())).catch(console.error);
-  return true;
+  _notifyStore();
+  try {
+    await withTimeout(Promise.all([db.collection(COL.USERS).doc(id).delete(), db.collection(COL.RECORDS).where("userId", "==", id).get().then(snap => Promise.all(snap.docs.map(d => d.ref.delete()))), db.collection(COL.PATROLS).where("userId", "==", id).get().then(snap => Promise.all(snap.docs.map(d => d.ref.delete()))), db.collection(COL.CHECKPOINT_PASSES).where("userId", "==", id).get().then(snap => Promise.all(snap.docs.map(d => d.ref.delete())))]), 20000, "Gagal menghapus akun dari server");
+    return true;
+  } catch (err) {
+    // Rollback total — kembalikan semua data lokal spt semula, supaya admin tidak mengira
+    // akun & datanya sudah terhapus padahal masih ada di server.
+    store.users = previousUsers;
+    store.records = previousRecords;
+    store.patrols = previousPatrols;
+    store.checkpointPasses = previousCheckpointPasses;
+    _notifyStore();
+    throw err;
+  }
 }
 // Hapus permanen sesi patroli yang userId-nya sudah tidak ada di daftar user (data lama
 // dari sebelum deleteUser() ikut membersihkan koleksi PATROLS). Dipakai oleh tombol
 // "Bersihkan Data Orphan" di halaman Peta Live Patroli.
-function cleanupOrphanPatrols() {
+async function cleanupOrphanPatrols() {
   const orphans = store.patrols.filter(p => !getUserById(p.userId));
   if (orphans.length === 0) return 0;
   const orphanIds = new Set(orphans.map(p => p.id));
+  const previousPatrols = store.patrols;
   store.patrols = store.patrols.filter(p => !orphanIds.has(p.id));
-  orphans.forEach(p => db.collection(COL.PATROLS).doc(p.id).delete().catch(console.error));
-  return orphans.length;
+  _notifyStore();
+  try {
+    await withTimeout(Promise.all(orphans.map(p => db.collection(COL.PATROLS).doc(p.id).delete())), 20000, "Gagal menghapus data orphan dari server");
+    return orphans.length;
+  } catch (err) {
+    store.patrols = previousPatrols;
+    _notifyStore();
+    throw err;
+  }
 }
 // PENTING: sebelumnya fungsi ini update tampilan lokal LALU kirim ke server TANPA ditunggu
 // ("fire-and-forget", `.catch(console.error)`) — begitu dipanggil, layar HP langsung bilang
@@ -1205,14 +1243,25 @@ function autoCloseStaleAttendance() {
   recordAutoCloseLog("Presensi", stale.map(r => r.userName || r.userId));
   return stale.length;
 }
-function updateSettings(partial) {
+// Sama polanya spt fungsi2 sebelumnya — kalau gagal tersimpan, SEMUA orang tetap pakai
+// pengaturan lama tanpa admin sadar (mis. jam batas telat / radius GPS) jika tidak dijamin
+// benar2 tersimpan ke server.
+async function updateSettings(partial) {
+  const previous = getSettings();
   const next = {
-    ...getSettings(),
+    ...previous,
     ...partial
   };
   store.settings = next;
-  db.collection(COL.SETTINGS).doc("config").set(next).catch(console.error);
-  return next;
+  _notifyStore();
+  try {
+    await withTimeout(db.collection(COL.SETTINGS).doc("config").set(next), 20000, "Gagal menyimpan pengaturan ke server");
+    return next;
+  } catch (err) {
+    store.settings = previous;
+    _notifyStore();
+    throw err;
+  }
 }
 const LEAVE_STATUS = {
   PENDING: "pending",
@@ -1222,7 +1271,10 @@ const LEAVE_STATUS = {
 function generateLeaveId() {
   return "lv-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
-function addLeaveRequest(data) {
+// Sama polanya spt saveCheckIn/startPatrolSession — ditunggu penuh (dgn batas waktu) dan
+// dibatalkan (rollback) di layar kalau gagal tersimpan ke server, supaya karyawan tidak
+// mengira pengajuan izinnya sudah terkirim padahal sebenarnya gagal.
+async function addLeaveRequest(data) {
   const newLeave = {
     id: generateLeaveId(),
     userId: data.userId,
@@ -1235,8 +1287,15 @@ function addLeaveRequest(data) {
     decidedAt: null
   };
   store.leaves = [newLeave, ...store.leaves];
-  db.collection(COL.LEAVES).doc(newLeave.id).set(newLeave).catch(console.error);
-  return newLeave;
+  _notifyStore();
+  try {
+    await withTimeout(db.collection(COL.LEAVES).doc(newLeave.id).set(newLeave), 20000, "Gagal mengirim pengajuan izin ke server");
+    return newLeave;
+  } catch (err) {
+    store.leaves = store.leaves.filter(l => l.id !== newLeave.id);
+    _notifyStore();
+    throw err;
+  }
 }
 function eachWeekdayInRange(startDate, endDate) {
   const dates = [];
@@ -1249,52 +1308,77 @@ function eachWeekdayInRange(startDate, endDate) {
   }
   return dates;
 }
-function decideLeaveRequest(id, decision) {
+// Sama polanya spt fungsi2 sebelumnya — ditunggu penuh & dibatalkan (rollback) di layar kalau
+// gagal, supaya admin tidak mengira sudah approve/tolak izin padahal gagal tersimpan, dan supaya
+// record presensi "Izin" utk tiap hari kerja dalam rentang izin itu (kalau di-approve) benar2
+// tersimpan di server, bukan cuma tampil lokal saja.
+async function decideLeaveRequest(id, decision) {
   const idx = store.leaves.findIndex(l => l.id === id);
   if (idx === -1) return null;
+  const previous = store.leaves[idx];
   const updated = {
-    ...store.leaves[idx],
+    ...previous,
     status: decision,
     decidedAt: new Date().toISOString()
   };
   store.leaves = store.leaves.map(l => l.id === id ? updated : l);
-  db.collection(COL.LEAVES).doc(id).update({
-    status: decision,
-    decidedAt: updated.decidedAt
-  }).catch(console.error);
-  if (decision === LEAVE_STATUS.APPROVED) {
-    const leave = updated;
-    const existingDates = new Set(store.records.filter(r => r.userId === leave.userId).map(r => r.date));
-    const batch = db.batch();
-    eachWeekdayInRange(leave.startDate, leave.endDate).forEach(dateStr => {
-      if (existingDates.has(dateStr)) return;
-      const rec = {
-        id: `izin-${leave.userId}-${dateStr}`,
-        userId: leave.userId,
-        userName: leave.userName,
-        date: dateStr,
-        status: STATUS.IZIN,
-        leaveId: leave.id,
-        leaveReason: leave.reason,
-        checkInTime: null,
-        checkOutTime: null,
-        checkInPhoto: null,
-        checkOutPhoto: null,
-        checkInLat: null,
-        checkInLng: null,
-        checkInAddress: null,
-        checkInAccuracy: null,
-        checkOutLat: null,
-        checkOutLng: null,
-        checkOutAddress: null
-      };
-      store.records = [...store.records, rec];
-      existingDates.add(dateStr);
-      batch.set(db.collection(COL.RECORDS).doc(rec.id), rec);
-    });
-    batch.commit().catch(console.error);
+  _notifyStore();
+  const newRecordIds = [];
+  try {
+    await withTimeout(db.collection(COL.LEAVES).doc(id).update({
+      status: decision,
+      decidedAt: updated.decidedAt
+    }), 20000, "Gagal menyimpan keputusan izin ke server");
+
+    if (decision === LEAVE_STATUS.APPROVED) {
+      const leave = updated;
+      const existingDates = new Set(store.records.filter(r => r.userId === leave.userId).map(r => r.date));
+      const batch = db.batch();
+      const newRecordsLocal = [];
+      eachWeekdayInRange(leave.startDate, leave.endDate).forEach(dateStr => {
+        if (existingDates.has(dateStr)) return;
+        const rec = {
+          id: `izin-${leave.userId}-${dateStr}`,
+          userId: leave.userId,
+          userName: leave.userName,
+          date: dateStr,
+          status: STATUS.IZIN,
+          leaveId: leave.id,
+          leaveReason: leave.reason,
+          checkInTime: null,
+          checkOutTime: null,
+          checkInPhoto: null,
+          checkOutPhoto: null,
+          checkInLat: null,
+          checkInLng: null,
+          checkInAddress: null,
+          checkInAccuracy: null,
+          checkOutLat: null,
+          checkOutLng: null,
+          checkOutAddress: null
+        };
+        newRecordsLocal.push(rec);
+        newRecordIds.push(rec.id);
+        existingDates.add(dateStr);
+        batch.set(db.collection(COL.RECORDS).doc(rec.id), rec);
+      });
+      if (newRecordsLocal.length) {
+        store.records = [...store.records, ...newRecordsLocal];
+        _notifyStore();
+        await withTimeout(batch.commit(), 20000, "Gagal menyimpan record izin ke server");
+      }
+    }
+    return updated;
+  } catch (err) {
+    // Rollback total: kembalikan status izin ke semula, dan buang record2 "Izin" yg sudah
+    // sempat ditambahkan lokal tapi gagal tersimpan di server.
+    store.leaves = store.leaves.map(l => l.id === id ? previous : l);
+    if (newRecordIds.length) {
+      store.records = store.records.filter(r => !newRecordIds.includes(r.id));
+    }
+    _notifyStore();
+    throw err;
   }
-  return updated;
 }
 
 /* ======================= PATROLI: CHECKPOINT & SESI ======================= */
@@ -1313,7 +1397,9 @@ function getCheckpointById(id) {
 function generateCheckpointId() {
   return "cp-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
-function addCheckpoint(data) {
+// Sama polanya spt fungsi2 sebelumnya — kalau gagal tersimpan, checkpoint baru/perubahannya
+// tidak akan muncul di HP petugas lapangan padahal admin kira sudah tersimpan.
+async function addCheckpoint(data) {
   const cp = {
     id: generateCheckpointId(),
     name: (data.name || `Checkpoint ${store.checkpoints.length + 1}`).trim(),
@@ -1324,24 +1410,47 @@ function addCheckpoint(data) {
     address: data.address || null
   };
   store.checkpoints = [...store.checkpoints, cp];
-  db.collection(COL.CHECKPOINTS).doc(cp.id).set(cp).catch(console.error);
-  return cp;
+  _notifyStore();
+  try {
+    await withTimeout(db.collection(COL.CHECKPOINTS).doc(cp.id).set(cp), 20000, "Gagal menyimpan checkpoint baru ke server");
+    return cp;
+  } catch (err) {
+    store.checkpoints = store.checkpoints.filter(c => c.id !== cp.id);
+    _notifyStore();
+    throw err;
+  }
 }
-function updateCheckpoint(id, data) {
+async function updateCheckpoint(id, data) {
   const idx = store.checkpoints.findIndex(c => c.id === id);
   if (idx === -1) return null;
+  const previous = store.checkpoints[idx];
   const updated = {
-    ...store.checkpoints[idx],
+    ...previous,
     ...data
   };
   store.checkpoints = store.checkpoints.map(c => c.id === id ? updated : c);
-  db.collection(COL.CHECKPOINTS).doc(id).set(updated).catch(console.error);
-  return updated;
+  _notifyStore();
+  try {
+    await withTimeout(db.collection(COL.CHECKPOINTS).doc(id).set(updated), 20000, "Gagal menyimpan perubahan checkpoint ke server");
+    return updated;
+  } catch (err) {
+    store.checkpoints = store.checkpoints.map(c => c.id === id ? previous : c);
+    _notifyStore();
+    throw err;
+  }
 }
-function deleteCheckpoint(id) {
+async function deleteCheckpoint(id) {
+  const previous = store.checkpoints;
   store.checkpoints = store.checkpoints.filter(c => c.id !== id);
-  db.collection(COL.CHECKPOINTS).doc(id).delete().catch(console.error);
-  return true;
+  _notifyStore();
+  try {
+    await withTimeout(db.collection(COL.CHECKPOINTS).doc(id).delete(), 20000, "Gagal menghapus checkpoint dari server");
+    return true;
+  } catch (err) {
+    store.checkpoints = previous;
+    _notifyStore();
+    throw err;
+  }
 }
 // Total berapa kali tiap checkpoint sudah dilewati petugas, dihitung dari seluruh sesi patroli
 // (aktif maupun selesai) sepanjang waktu. Satu sesi patroli hanya menghitung satu checkpoint
@@ -1745,7 +1854,9 @@ function getKejadianReports() {
 function getKejadianReportsByUser(userId) {
   return getKejadianReports().filter(k => k.userId === userId);
 }
-function addKejadianReport(user, data) {
+// Sama polanya spt fungsi2 sebelumnya — laporan kejadian bisa berisi info keamanan/insiden
+// penting, jadi WAJIB dipastikan benar2 tersimpan di server sebelum dianggap berhasil.
+async function addKejadianReport(user, data) {
   const report = {
     id: generateKejadianId(),
     userId: user.id,
@@ -1763,21 +1874,36 @@ function addKejadianReport(user, data) {
     updatedAt: new Date().toISOString()
   };
   store.kejadian = [...store.kejadian, report];
-  db.collection(COL.KEJADIAN).doc(report.id).set(report).catch(console.error);
-  return report;
+  _notifyStore();
+  try {
+    await withTimeout(db.collection(COL.KEJADIAN).doc(report.id).set(report), 20000, "Gagal mengirim laporan kejadian ke server");
+    return report;
+  } catch (err) {
+    store.kejadian = store.kejadian.filter(k => k.id !== report.id);
+    _notifyStore();
+    throw err;
+  }
 }
-function updateKejadianStatus(id, status, extra = {}) {
+async function updateKejadianStatus(id, status, extra = {}) {
   const idx = store.kejadian.findIndex(k => k.id === id);
   if (idx === -1) return null;
+  const previous = store.kejadian[idx];
   const updated = {
-    ...store.kejadian[idx],
+    ...previous,
     ...extra,
     status,
     updatedAt: new Date().toISOString()
   };
   store.kejadian = store.kejadian.map(k => k.id === id ? updated : k);
-  db.collection(COL.KEJADIAN).doc(id).set(updated).catch(console.error);
-  return updated;
+  _notifyStore();
+  try {
+    await withTimeout(db.collection(COL.KEJADIAN).doc(id).set(updated), 20000, "Gagal menyimpan status kejadian ke server");
+    return updated;
+  } catch (err) {
+    store.kejadian = store.kejadian.map(k => k.id === id ? previous : k);
+    _notifyStore();
+    throw err;
+  }
 }
 
 /* ======================= PENILAIAN TIM (SKOR OTOMATIS & LEADERBOARD) ======================= */
@@ -4656,7 +4782,7 @@ function IncidentReportModal({
     try {
       const pos = await getCurrentPosition();
       const address = await reverseGeocode(pos.lat, pos.lng);
-      addKejadianReport(user, {
+      await addKejadianReport(user, {
         lat: pos.lat,
         lng: pos.lng,
         address,
@@ -6678,13 +6804,14 @@ function LeaveRequestModal({
     });
     setError("");
   }
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     if (!form.reason.trim()) return setError("Alasan izin/cuti wajib diisi.");
     if (form.endDate < form.startDate) return setError("Tanggal selesai tidak boleh sebelum tanggal mulai.");
     setSaving(true);
+    setError("");
     try {
-      addLeaveRequest({
+      await addLeaveRequest({
         userId: user.id,
         userName: user.name,
         startDate: form.startDate,
@@ -6692,8 +6819,8 @@ function LeaveRequestModal({
         reason: form.reason
       });
       onSaved();
-    } catch {
-      setError("Terjadi kesalahan saat mengirim pengajuan.");
+    } catch (err) {
+      setError(err.message || "Terjadi kesalahan saat mengirim pengajuan. Coba lagi.");
     } finally {
       setSaving(false);
     }
@@ -6967,19 +7094,20 @@ function EditProfileModal({
     }));
     setError("");
   }
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     if (!form.name.trim()) return setError("Nama wajib diisi.");
     setSaving(true);
+    setError("");
     try {
-      updateUser(user.id, {
+      await updateUser(user.id, {
         name: form.name.trim(),
         phone: form.phone.trim(),
         address: form.address.trim()
       });
       onSaved();
-    } catch {
-      setError("Terjadi kesalahan saat menyimpan data.");
+    } catch (err) {
+      setError(err.message || "Terjadi kesalahan saat menyimpan data. Coba lagi.");
     } finally {
       setSaving(false);
     }
@@ -7114,20 +7242,21 @@ function ChangePasswordModal({
     }));
     setError("");
   }
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     if (!form.current) return setError("Masukkan kata sandi Anda saat ini.");
     if (form.current !== user.password) return setError("Kata sandi saat ini salah.");
     if (form.next.length < 4) return setError("Kata sandi baru minimal 4 karakter.");
     if (form.next !== form.confirm) return setError("Konfirmasi kata sandi tidak cocok.");
     setSaving(true);
+    setError("");
     try {
-      updateUser(user.id, {
+      await updateUser(user.id, {
         password: form.next
       });
       onSaved();
-    } catch {
-      setError("Terjadi kesalahan saat menyimpan data.");
+    } catch (err) {
+      setError(err.message || "Terjadi kesalahan saat menyimpan kata sandi baru. Coba lagi.");
     } finally {
       setSaving(false);
     }
@@ -9112,7 +9241,7 @@ function EmployeeFormModal({
     }));
     setError("");
   }
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     setError("");
     if (!form.name.trim()) return setError("Nama karyawan wajib diisi.");
@@ -9133,9 +9262,9 @@ function EmployeeFormModal({
           address: form.address
         };
         if (form.password.trim()) payload.password = form.password;
-        updateUser(employee.id, payload);
+        await updateUser(employee.id, payload);
       } else {
-        addUser({
+        await addUser({
           name: form.name,
           username: form.username,
           password: form.password,
@@ -9148,7 +9277,7 @@ function EmployeeFormModal({
       }
       onSaved();
     } catch (err) {
-      setError("Terjadi kesalahan saat menyimpan data.");
+      setError(err.message || "Terjadi kesalahan saat menyimpan data. Coba lagi.");
     } finally {
       setSaving(false);
     }
@@ -9322,10 +9451,17 @@ function DeleteEmployeeModal({
   onConfirmed
 }) {
   const [deleting, setDeleting] = useState(false);
-  function handleDelete() {
+  const [error, setError] = useState("");
+  async function handleDelete() {
     setDeleting(true);
-    deleteUser(employee.id);
-    onConfirmed();
+    setError("");
+    try {
+      await deleteUser(employee.id);
+      onConfirmed();
+    } catch (err) {
+      setError(err.message || "Gagal menghapus akun dari server. Coba lagi.");
+      setDeleting(false);
+    }
   }
   return /*#__PURE__*/React.createElement("div", {
     className: "modal-backdrop",
@@ -9368,7 +9504,16 @@ function DeleteEmployeeModal({
     style: {
       color: "var(--navy-900)"
     }
-  }, employee.name), " beserta seluruh riwayat presensinya akan dihapus permanen. Tindakan ini tidak dapat dibatalkan.")), /*#__PURE__*/React.createElement("div", {
+  }, employee.name), " beserta seluruh riwayat presensinya akan dihapus permanen. Tindakan ini tidak dapat dibatalkan."), error && /*#__PURE__*/React.createElement("p", {
+    style: {
+      marginTop: 10,
+      background: "var(--red-soft)",
+      color: "var(--red)",
+      fontSize: 13,
+      padding: "10px 14px",
+      borderRadius: 10
+    }
+  }, error)), /*#__PURE__*/React.createElement("div", {
     className: "flex",
     style: {
       gap: 10,
@@ -10920,18 +11065,22 @@ function LeaveRequestsPage({
   const [tab, setTab] = useState("pending");
   const [refreshKey, setRefreshKey] = useState(0);
   const [busyId, setBusyId] = useState(null);
+  const [error, setError] = useState("");
   useStoreSync();
   const allRequests = useMemo(() => getLeaveRequests(), [refreshKey, store.leaves]);
   const filtered = tab === "all" ? allRequests : allRequests.filter(l => l.status === tab);
   const pendingCount = allRequests.filter(l => l.status === LEAVE_STATUS.PENDING).length;
-  function decide(id, decision) {
+  async function decide(id, decision) {
     setBusyId(id);
+    setError("");
     try {
-      decideLeaveRequest(id, decision);
-    } finally {
-      setBusyId(null);
+      await decideLeaveRequest(id, decision);
       setRefreshKey(k => k + 1);
       if (onChanged) onChanged();
+    } catch (err) {
+      setError(err.message || "Gagal menyimpan keputusan izin ke server. Coba lagi.");
+    } finally {
+      setBusyId(null);
     }
   }
   const TABS = [{
@@ -10965,7 +11114,16 @@ function LeaveRequestsPage({
       fontSize: 14,
       marginTop: 2
     }
-  }, "Tinjau dan tentukan persetujuan pengajuan izin karyawan.")), /*#__PURE__*/React.createElement("div", {
+  }, "Tinjau dan tentukan persetujuan pengajuan izin karyawan.")), error && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 16,
+      background: "var(--red-soft)",
+      color: "var(--red)",
+      fontSize: 13,
+      padding: "10px 14px",
+      borderRadius: 10
+    }
+  }, error), /*#__PURE__*/React.createElement("div", {
     className: "flex scrollbar-none",
     style: {
       gap: 8,
@@ -11071,6 +11229,8 @@ function KejadianPage() {
   const [handlingId, setHandlingId] = useState(null);
   const [handleNote, setHandleNote] = useState("");
   const [expandedId, setExpandedId] = useState(null);
+  const [actionError, setActionError] = useState("");
+  const [busyId, setBusyId] = useState(null);
   const all = useMemo(() => getKejadianReports(), [store.kejadian]);
   const baruCount = all.filter(k => k.status === KEJADIAN_STATUS.BARU).length;
   const aktif = all.filter(k => k.status === KEJADIAN_STATUS.BARU || k.status === KEJADIAN_STATUS.DITANGANI).sort((a, b) => {
@@ -11094,16 +11254,32 @@ function KejadianPage() {
     setHandlingId(k.id);
     setHandleNote("");
   }
-  function confirmHandling(k) {
-    updateKejadianStatus(k.id, KEJADIAN_STATUS.DITANGANI, {
-      handledNote: handleNote.trim() || null,
-      handledBy: "Admin"
-    });
-    setHandlingId(null);
-    setHandleNote("");
+  async function confirmHandling(k) {
+    setBusyId(k.id);
+    setActionError("");
+    try {
+      await updateKejadianStatus(k.id, KEJADIAN_STATUS.DITANGANI, {
+        handledNote: handleNote.trim() || null,
+        handledBy: "Admin"
+      });
+      setHandlingId(null);
+      setHandleNote("");
+    } catch (err) {
+      setActionError(err.message || "Gagal menyimpan status kejadian ke server. Coba lagi.");
+    } finally {
+      setBusyId(null);
+    }
   }
-  function markSelesai(k) {
-    updateKejadianStatus(k.id, KEJADIAN_STATUS.SELESAI, {});
+  async function markSelesai(k) {
+    setBusyId(k.id);
+    setActionError("");
+    try {
+      await updateKejadianStatus(k.id, KEJADIAN_STATUS.SELESAI, {});
+    } catch (err) {
+      setActionError(err.message || "Gagal menyimpan status kejadian ke server. Coba lagi.");
+    } finally {
+      setBusyId(null);
+    }
   }
   return /*#__PURE__*/React.createElement("div", {
     className: "container-lg"
@@ -11148,7 +11324,16 @@ function KejadianPage() {
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "file-text",
     size: 15
-  }), " PDF (Semua)"))), /*#__PURE__*/React.createElement("div", {
+  }), " PDF (Semua)"))), actionError && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 16,
+      background: "var(--red-soft)",
+      color: "var(--red)",
+      fontSize: 13,
+      padding: "10px 14px",
+      borderRadius: 10
+    }
+  }, actionError), /*#__PURE__*/React.createElement("div", {
     className: "flex scrollbar-none",
     style: {
       gap: 8,
@@ -11417,14 +11602,20 @@ function AdminPatrolMapPage() {
   useEffect(() => {
     if (followUserId && !activePatrols.some(p => p.userId === followUserId)) setFollowUserId("");
   }, [activePatrols, followUserId]);
-  function handleCleanup() {
+  async function handleCleanup() {
     const ok = window.confirm(`Hapus permanen ${orphanCount} data sesi patroli milik akun yang sudah dihapus? Tindakan ini tidak bisa dibatalkan.`);
     if (!ok) return;
     setCleaning(true);
-    const n = cleanupOrphanPatrols();
-    setCleaning(false);
-    setToast(`${n} data orphan berhasil dihapus dari database.`);
-    setTimeout(() => setToast(""), 3000);
+    try {
+      const n = await cleanupOrphanPatrols();
+      setToast(`${n} data orphan berhasil dihapus dari database.`);
+      setTimeout(() => setToast(""), 3000);
+    } catch (err) {
+      setToast(err.message || "Gagal menghapus data orphan dari server. Coba lagi.");
+      setTimeout(() => setToast(""), 4000);
+    } finally {
+      setCleaning(false);
+    }
   }
   return /*#__PURE__*/React.createElement("div", {
     className: "container-app"
@@ -13258,7 +13449,9 @@ function PanduanPage() {
       desc: "Hari libur sesuai Jadwal Kerja resmi (type = \"Standby\"), atau otomatis Sabtu/Minggu kalau belum ada Jadwal sama sekali untuk tanggal itu. Tidak pernah dihitung Alpa."
     }),
     React.createElement("p", { style: { fontSize: 12.5, fontStyle: "italic", marginTop: 4 } },
-      "Prioritas: kalau ada Jadwal Kerja resmi untuk suatu tanggal, Jadwal itu yang menentukan (Masuk / Piket Malam / Standby) \u2014 bukan deteksi otomatis dari jam absen.")
+      "Prioritas: kalau ada Jadwal Kerja resmi untuk suatu tanggal, Jadwal itu yang menentukan (Masuk / Piket Malam / Standby) \u2014 bukan deteksi otomatis dari jam absen."),
+    React.createElement("p", { style: { fontSize: 12.5, fontStyle: "italic" } },
+      "Status yang ditampilkan (Hadir/Terlambat/Piket Malam) selalu otomatis mengikuti Jadwal Kerja yang berlaku SEKARANG \u2014 kalau Jadwal untuk suatu tanggal diperbaiki belakangan (misalnya setelah orang itu sudah presensi), tampilan status ikut menyesuaikan sendiri tanpa perlu diedit manual.")
   );
 
   const attendanceScoreSection = React.createElement(GuideSection, { icon: "gauge", title: "Perhitungan Skor Kehadiran" },
@@ -13364,12 +13557,13 @@ function PanduanPage() {
   );
 
   const settingsSection = React.createElement(GuideSection, { icon: "settings", title: "Arti Setiap Pengaturan (Settings)" },
-    React.createElement("p", null, "Halaman Pengaturan sekarang terbagi 3 tab:"),
+    React.createElement("p", null, "Halaman Pengaturan sekarang terbagi 4 tab:"),
     React.createElement(GuideList, {
       items: [
         "Jam & Presensi \u2014 Jam Potong Masuk (checkInDeadline): batas jam check-in supaya masih dihitung \"Hadir\", lewat dari jam ini otomatis \"Terlambat\". Jam Pulang Normal (shiftEndTime): jam pulang yang diharapkan untuk shift Hadir/Terlambat, dipakai mendeteksi \"pulang lebih awal\". Mulai/Selesai Piket Malam (nightShiftStart/nightShiftEnd): jendela jam untuk mendeteksi otomatis status Piket Malam kalau tidak ada Jadwal resmi.",
         `Checkpoint & Lokasi \u2014 kartu Tim & Rute Checkpoint (atur anggota tim & urutan rute, lihat bagian "Tim & Rute Patroli" di atas); daftar Checkpoint Patroli (nama, koordinat, radius), maksimal ${MAX_CHECKPOINTS} titik \u2014 checkpoint otomatis tercentang saat petugas berada dalam radiusnya; Lokasi Kantor (officeLocations), maksimal ${MAX_OFFICE_LOCATIONS} lokasi, tiap lokasi bisa punya radius toleransi sendiri (kalau kosong, dipakai Radius Presensi/radiusMeters sebagai nilai default); dan sakelar Wajib Dalam Radius (enforceRadius) \u2014 kalau aktif, karyawan di luar radius semua Lokasi Kantor tidak bisa presensi sama sekali.`,
-        "Hak Akses \u2014 kartu Hak Akses Pengguna (atur siapa saja yang punya akses Admin, View Only, atau Karyawan, dan tempat menambah karyawan/pengguna baru lewat tombol \"Tambah Pengguna\"), serta kartu Riwayat Login (catatan waktu setiap pengguna login, memakai jam server \u2014 bukan jam perangkat \u2014 supaya tidak bisa direkayasa, bisa difilter per nama/tanggal). Di daftar yang sama juga otomatis muncul dua jenis kejadian sistem: (1) Tutup Otomatis (ikon \u26a0\ufe0f kuning) \u2014 saat ada presensi/sesi patroli yang lupa diakhiri dari hari sebelumnya, lalu ditutup paksa oleh sistem; dan (2) Logout Otomatis (ikon \ud83d\udeaa biru) \u2014 setiap pengguna yang sedang login otomatis dikeluarkan begitu tanggal berganti (00:00 WITA, jam server), sehingga wajib login ulang tiap hari."
+        "Hak Akses \u2014 kartu Hak Akses Pengguna (atur siapa saja yang punya akses Admin, View Only, atau Karyawan, dan tempat menambah karyawan/pengguna baru lewat tombol \"Tambah Pengguna\"), serta kartu Riwayat Login (catatan waktu setiap pengguna login, memakai jam server \u2014 bukan jam perangkat \u2014 supaya tidak bisa direkayasa, bisa difilter per nama/tanggal). Di daftar yang sama juga otomatis muncul dua jenis kejadian sistem: (1) Tutup Otomatis (ikon \u26a0\ufe0f kuning) \u2014 saat ada presensi/sesi patroli yang lupa diakhiri dari hari sebelumnya, lalu ditutup paksa oleh sistem; dan (2) Logout Otomatis (ikon \ud83d\udeaa biru) \u2014 setiap pengguna yang sedang login otomatis dikeluarkan begitu tanggal berganti (00:00 WITA, jam server), sehingga wajib login ulang tiap hari.",
+        "Backup & Arsip Data \u2014 kartu Backup & Arsipkan Data Lama: pilih rentang tanggal (dari\u2013sampai), lalu unduh presensi/patroli/checkpoint/laporan kejadian pada rentang itu sebagai file Excel (foto selfie & foto kejadian TIDAK disertakan, karena ukurannya terlalu besar untuk 1 sel Excel). Setelah file terunduh, admin bisa pilih menghapus data itu dari server (opsional, membantu menjaga kuota database tetap aman) \u2014 tindakan hapus ini tidak bisa dibatalkan setelah dijalankan. Di bawahnya ada kartu Import Data dari Excel, untuk mengembalikan data dari file backup itu ke server kapan saja (mis. kalau ternyata data yang sudah dihapus masih dibutuhkan) \u2014 aman diulang berkali-kali, data dengan id yang sama tidak akan dobel."
       ]
     })
   );
@@ -13387,12 +13581,24 @@ function PanduanPage() {
     React.createElement("p", null, "Logika ini dipakai konsisten di Riwayat, Rekap PDF, dan perhitungan Skor Kehadiran \u2014 supaya angkanya selalu sama di semua halaman.")
   );
 
+  const autoPatrolSection = React.createElement(GuideSection, { icon: "map-pin", title: "Peta Live Patroli & Sesi Patroli Otomatis" },
+    React.createElement("p", null, "Sesi patroli TIDAK perlu dimulai manual \u2014 begitu Absen Masuk berhasil dengan status Hadir/Terlambat/Piket Malam, sesi patroli otomatis mulai berjalan (langsung merekam lokasi). Sesi itu otomatis berakhir sendiri begitu Absen Pulang berhasil."),
+    React.createElement(GuideList, {
+      items: [
+        "Kalau lupa Absen Pulang (atau HP mati/app ditutup paksa), sesi yang \"nyangkut\" dari hari sebelumnya otomatis ditutup paksa oleh sistem begitu ada yang membuka aplikasi lagi keesokan harinya \u2014 dicatat sbg \"Tutup Otomatis\" di Riwayat Login (lihat bagian Pengaturan di atas).",
+        "Peta Live Patroli (Dashboard & halaman khusus) hanya menampilkan sesi yang statusnya aktif DAN tanggalnya persis hari ini \u2014 sesi dari hari lain tidak akan pernah ikut muncul, walau entah kenapa belum sempat ditutup dengan benar.",
+        "Kalau sudah Absen Masuk (status Hadir/Terlambat/Piket Malam) tapi tidak kunjung muncul di Peta Live Patroli, cek dulu menu \"Patroli\" di HP orang itu sendiri \u2014 kalau di situ juga tidak menunjukkan sesi aktif, coba Absen Pulang lalu Absen Masuk lagi supaya sesi baru dibuatkan ulang."
+      ]
+    })
+  );
+
   return React.createElement("div", { className: "container-app" },
     headerEl,
     ringkasanSection,
     statusSection,
     attendanceScoreSection,
     ritSection,
+    autoPatrolSection,
     routeTeamSection,
     patrolScoreSection,
     teamScoreSection,
@@ -13892,32 +14098,37 @@ function SettingsPage({
     setToast(msg);
     setTimeout(() => setToast(""), 2500);
   }
-  function saveWorkHours(e) {
+  async function saveWorkHours(e) {
     e.preventDefault();
-    const next = updateSettings({
-      checkInDeadline: settings.checkInDeadline,
-      shiftEndTime: settings.shiftEndTime,
-      nightShiftStart: settings.nightShiftStart,
-      nightShiftEnd: settings.nightShiftEnd
-    });
-    setSettingsState(next);
-    showToast("Jam kerja berhasil disimpan.");
+    setError("");
+    try {
+      const next = await updateSettings({
+        checkInDeadline: settings.checkInDeadline,
+        shiftEndTime: settings.shiftEndTime,
+        nightShiftStart: settings.nightShiftStart,
+        nightShiftEnd: settings.nightShiftEnd
+      });
+      setSettingsState(next);
+      showToast("Jam kerja berhasil disimpan.");
+    } catch (err) {
+      setError(err.message || "Gagal menyimpan jam kerja ke server. Coba lagi.");
+    }
   }
   function getLocations() {
     return settings.officeLocations || [];
   }
-  function upsertLocation(idx, patch) {
+  async function upsertLocation(idx, patch) {
     const locs = [...getLocations()];
     locs[idx] = {
       ...locs[idx],
       ...patch
     };
-    const next = updateSettings({
+    const next = await updateSettings({
       officeLocations: locs
     });
     setSettingsState(next);
   }
-  function addLocation() {
+  async function addLocation() {
     if (getLocations().length >= MAX_OFFICE_LOCATIONS) return;
     const locs = [...getLocations(), {
       name: `Lokasi ${getLocations().length + 1}`,
@@ -13925,18 +14136,28 @@ function SettingsPage({
       lng: null,
       radius: Number(settings.radiusMeters) || DEFAULT_SETTINGS.radiusMeters
     }];
-    const next = updateSettings({
-      officeLocations: locs
-    });
-    setSettingsState(next);
+    setError("");
+    try {
+      const next = await updateSettings({
+        officeLocations: locs
+      });
+      setSettingsState(next);
+    } catch (err) {
+      setError(err.message || "Gagal menambah lokasi ke server. Coba lagi.");
+    }
   }
-  function removeLocation(idx) {
+  async function removeLocation(idx) {
     const locs = getLocations().filter((_, i) => i !== idx);
-    const next = updateSettings({
-      officeLocations: locs
-    });
-    setSettingsState(next);
-    showToast("Lokasi dihapus.");
+    setError("");
+    try {
+      const next = await updateSettings({
+        officeLocations: locs
+      });
+      setSettingsState(next);
+      showToast("Lokasi dihapus.");
+    } catch (err) {
+      setError(err.message || "Gagal menghapus lokasi di server. Coba lagi.");
+    }
   }
   async function useCurrentLocation(idx) {
     setLocatingIdx(idx);
@@ -13944,32 +14165,42 @@ function SettingsPage({
     try {
       const pos = await getCurrentPosition();
       const address = await reverseGeocode(pos.lat, pos.lng);
-      upsertLocation(idx, {
+      await upsertLocation(idx, {
         lat: pos.lat,
         lng: pos.lng,
         address
       });
       showToast(`Koordinat lokasi "${getLocations()[idx]?.name || idx + 1}" berhasil diperbarui.`);
     } catch (err) {
-      setError(err.message);
+      setError(err.message || "Gagal menyimpan koordinat lokasi ke server. Coba lagi.");
     } finally {
       setLocatingIdx(null);
     }
   }
-  function saveRadius(e) {
+  async function saveRadius(e) {
     e.preventDefault();
-    const next = updateSettings({
-      radiusMeters: Number(settings.radiusMeters) || DEFAULT_SETTINGS.radiusMeters
-    });
-    setSettingsState(next);
-    showToast("Radius berhasil disimpan — berlaku untuk semua lokasi kantor.");
+    setError("");
+    try {
+      const next = await updateSettings({
+        radiusMeters: Number(settings.radiusMeters) || DEFAULT_SETTINGS.radiusMeters
+      });
+      setSettingsState(next);
+      showToast("Radius berhasil disimpan — berlaku untuk semua lokasi kantor.");
+    } catch (err) {
+      setError(err.message || "Gagal menyimpan radius ke server. Coba lagi.");
+    }
   }
-  function toggleEnforce() {
-    const next = updateSettings({
-      enforceRadius: !settings.enforceRadius
-    });
-    setSettingsState(next);
-    showToast(next.enforceRadius ? "Absen kini wajib dalam radius kantor." : "Absen di luar radius kini hanya diberi peringatan.");
+  async function toggleEnforce() {
+    setError("");
+    try {
+      const next = await updateSettings({
+        enforceRadius: !settings.enforceRadius
+      });
+      setSettingsState(next);
+      showToast(next.enforceRadius ? "Absen kini wajib dalam radius kantor." : "Absen di luar radius kini hanya diberi peringatan.");
+    } catch (err) {
+      setError(err.message || "Gagal menyimpan pengaturan ke server. Coba lagi.");
+    }
   }
   const locs = getLocations();
   return /*#__PURE__*/React.createElement("div", {
@@ -14918,7 +15149,7 @@ function RoleAccessCard() {
     setDeleteTarget(null);
     showToast(`Pengguna "${name}" berhasil dihapus.`);
   }
-  function handleRoleChange(target, nextRole) {
+  async function handleRoleChange(target, nextRole) {
     setError("");
     if (!canEdit) {
       setError("Kamu tidak punya izin untuk mengubah role pengguna.");
@@ -14932,10 +15163,14 @@ function RoleAccessCard() {
       setError("Tidak bisa mengubah — minimal harus ada 1 akun Admin yang aktif.");
       return;
     }
-    updateUser(target.id, {
-      role: nextRole
-    });
-    showToast(`Role "${target.name}" diubah menjadi ${roleLabel(nextRole)}.`);
+    try {
+      await updateUser(target.id, {
+        role: nextRole
+      });
+      showToast(`Role "${target.name}" diubah menjadi ${roleLabel(nextRole)}.`);
+    } catch (err) {
+      setError(err.message || "Gagal menyimpan perubahan role ke server. Coba lagi.");
+    }
   }
   return /*#__PURE__*/React.createElement("div", {
     className: "card",
@@ -15089,13 +15324,14 @@ const MAX_CHECKPOINTS = 30;
 function RouteTeamsSettingsCard() {
   useStoreSync();
   const [toast, setToast] = useState("");
+  const [error, setError] = useState("");
   function showToast(msg) {
     setToast(msg);
     setTimeout(() => setToast(""), 2500);
   }
   const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE);
   const checkpoints = getCheckpoints();
-  function saveTeam(teamId, patch) {
+  async function saveTeam(teamId, patch) {
     const current = getEditableRouteTeamState(teamId);
     const updated = {
       id: teamId,
@@ -15106,10 +15342,15 @@ function RouteTeamsSettingsCard() {
       id,
       ...getEditableRouteTeamState(id)
     }));
-    updateSettings({
-      routeTeams: [...others, updated]
-    });
-    showToast("Pengaturan tim berhasil disimpan.");
+    setError("");
+    try {
+      await updateSettings({
+        routeTeams: [...others, updated]
+      });
+      showToast("Pengaturan tim berhasil disimpan.");
+    } catch (err) {
+      setError(err.message || "Gagal menyimpan pengaturan tim ke server. Coba lagi.");
+    }
   }
   function toggleMember(teamId, userId) {
     const current = getEditableRouteTeamState(teamId);
@@ -15336,7 +15577,16 @@ function RouteTeamsSettingsCard() {
       padding: "10px 14px",
       borderRadius: 10
     }
-  }, toast), ROUTE_TEAMS_DEFAULT.map(renderTeamEditor));
+  }, toast), error && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 16,
+      background: "var(--red-soft)",
+      color: "var(--red)",
+      fontSize: 13,
+      padding: "10px 14px",
+      borderRadius: 10
+    }
+  }, error), ROUTE_TEAMS_DEFAULT.map(renderTeamEditor));
 }
 function PatrolCheckpointSettings() {
   useStoreSync();
@@ -15364,14 +15614,14 @@ function PatrolCheckpointSettings() {
       lat: null,
       lng: null,
       radius: DEFAULT_CHECKPOINT_RADIUS
-    });
+    }).catch(err => showToast(err.message || "Gagal menambah checkpoint ke server."));
   }
   async function useCurrentLocationFor(cp) {
     setLocatingId(cp.id);
     try {
       const pos = await getCurrentPosition();
       const address = await reverseGeocode(pos.lat, pos.lng);
-      updateCheckpoint(cp.id, {
+      await updateCheckpoint(cp.id, {
         lat: pos.lat,
         lng: pos.lng,
         address
@@ -15486,7 +15736,7 @@ function PatrolCheckpointSettings() {
     value: cp.name,
     onChange: e => updateCheckpoint(cp.id, {
       name: e.target.value
-    }),
+    }).catch(err => showToast(err.message || "Gagal menyimpan nama checkpoint.")),
     placeholder: `Nama checkpoint ${idx + 1}`
   }), /*#__PURE__*/React.createElement("span", {
     title: "Jumlah rit (lintasan) checkpoint ini hari ini",
@@ -15501,7 +15751,7 @@ function PatrolCheckpointSettings() {
       whiteSpace: "nowrap"
     }
   }, todayRitCounts[cp.id] || 0, " rit hari ini"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => deleteCheckpoint(cp.id),
+    onClick: () => deleteCheckpoint(cp.id).catch(err => showToast(err.message || "Gagal menghapus checkpoint dari server.")),
     title: "Hapus checkpoint ini",
     style: {
       color: "var(--red)",
@@ -15543,7 +15793,7 @@ function PatrolCheckpointSettings() {
       const v = parseFloat(e.target.value);
       updateCheckpoint(cp.id, {
         lat: isNaN(v) ? null : v
-      });
+      }).catch(err => showToast(err.message || "Gagal menyimpan latitude checkpoint."));
     }
   })), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -15564,7 +15814,7 @@ function PatrolCheckpointSettings() {
       const v = parseFloat(e.target.value);
       updateCheckpoint(cp.id, {
         lng: isNaN(v) ? null : v
-      });
+      }).catch(err => showToast(err.message || "Gagal menyimpan longitude checkpoint."));
     }
   })), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -15583,7 +15833,7 @@ function PatrolCheckpointSettings() {
     value: cp.radius || DEFAULT_CHECKPOINT_RADIUS,
     onChange: e => updateCheckpoint(cp.id, {
       radius: Number(e.target.value) || DEFAULT_CHECKPOINT_RADIUS
-    })
+    }).catch(err => showToast(err.message || "Gagal menyimpan radius checkpoint."))
   }))), /*#__PURE__*/React.createElement("div", {
     className: "flex",
     style: {
