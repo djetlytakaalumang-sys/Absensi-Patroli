@@ -723,12 +723,19 @@ async function initFirestore() {
     await syncServerTime();
     autoCloseStaleAttendance();
     autoCloseStalePatrols();
+    reconcileRecordStatuses().catch(err => console.warn("Auto-reconcile gagal saat startup", err));
     _notifyStore();
     // Ulangi sinkronisasi tiap 5 menit supaya offset tidak meleset kalau app dibiarkan
     // terbuka lama.
     setInterval(() => {
       syncServerTime();
     }, 5 * 60 * 1000);
+    // Ulangi reconcile status presensi tiap 10 menit — jaga-jaga kalau percobaan sebelumnya
+    // sempat gagal (koneksi putus/kuota habis), supaya lama-lama tetap otomatis "menyusul"
+    // benar sendiri tanpa perlu ada yang klik "Simpan Status ke Server" manual.
+    setInterval(() => {
+      reconcileRecordStatuses().catch(err => console.warn("Auto-reconcile berkala gagal", err));
+    }, 10 * 60 * 1000);
   }
 
   // TAHAP 1 — CACHE-FIRST: coba baca semua koleksi langsung dari cache lokal (IndexedDB)
@@ -1035,8 +1042,47 @@ function getUserById(id) {
 function getRecords() {
   return store.records;
 }
+// Cache riwayat presensi bulan-bulan LAMA (di luar jendela ~90 hari yang dipantau listener live
+// di initFirestore) — diisi sekali-ambil (bukan listener) tiap kali sebuah halaman benar2 minta
+// bulan tsb lewat ensureRecordsForMonthLoaded(). Disimpan per-bulan (bukan per-user) karena satu
+// query ini otomatis mencakup SEMUA karyawan sekaligus, jadi bisa dipakai ulang oleh siapapun yang
+// butuh bulan yang sama (mis. karyawan lain, atau rekap admin) tanpa perlu ambil ulang dari server.
+const oldRecordsCache = {};
+const _oldRecordsFetchPromises = {};
+function _lastDateOfMonth(monthKey) {
+  const [y, m] = monthKey.split("-").map(Number);
+  return `${monthKey}-${String(new Date(y, m, 0).getDate()).padStart(2, "0")}`;
+}
+async function ensureRecordsForMonthLoaded(monthKey) {
+  if (oldRecordsCache[monthKey]) return oldRecordsCache[monthKey];
+  if (_oldRecordsFetchPromises[monthKey]) return _oldRecordsFetchPromises[monthKey];
+  const from = `${monthKey}-01`;
+  const to = _lastDateOfMonth(monthKey);
+  const promise = withTimeout(db.collection(COL.RECORDS).where("date", ">=", from).where("date", "<=", to).get(), 20000, "Gagal mengambil riwayat presensi bulan tersebut dari server").then(snap => {
+    const docs = snap.docs.map(d => d.data());
+    oldRecordsCache[monthKey] = docs;
+    delete _oldRecordsFetchPromises[monthKey];
+    _notifyStore(); // supaya semua komponen yg pakai useStoreSync() ikut re-render dgn data baru
+    return docs;
+  }).catch(err => {
+    delete _oldRecordsFetchPromises[monthKey];
+    throw err;
+  });
+  _oldRecordsFetchPromises[monthKey] = promise;
+  return promise;
+}
 function getRecordsByUser(userId) {
-  return store.records.filter(r => r.userId === userId);
+  const live = store.records.filter(r => r.userId === userId);
+  const cachedMonthKeys = Object.keys(oldRecordsCache);
+  if (cachedMonthKeys.length === 0) return live;
+  const byId = new Map();
+  live.forEach(r => byId.set(r.id, r));
+  cachedMonthKeys.forEach(mk => {
+    oldRecordsCache[mk].forEach(r => {
+      if (r.userId === userId && !byId.has(r.id)) byId.set(r.id, r);
+    });
+  });
+  return Array.from(byId.values());
 }
 function getTodayRecordForUser(userId, dateStr) {
   return store.records.find(r => r.userId === userId && r.date === dateStr) || null;
@@ -1052,6 +1098,9 @@ function getLeaveRequests() {
 }
 function getLeaveRequestsByUser(userId) {
   return store.leaves.filter(l => l.userId === userId);
+}
+function getLeaveRequestById(id) {
+  return store.leaves.find(l => l.id === id) || null;
 }
 function generateUserId() {
   return "u-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -1282,6 +1331,9 @@ async function addLeaveRequest(data) {
     startDate: data.startDate,
     endDate: data.endDate,
     reason: data.reason.trim(),
+    attachmentData: data.attachmentData || null,
+    attachmentName: data.attachmentName || null,
+    attachmentType: data.attachmentType || null,
     status: LEAVE_STATUS.PENDING,
     createdAt: new Date().toISOString(),
     decidedAt: null
@@ -1632,6 +1684,42 @@ function normalizeScheduleType(raw) {
 
 // Import jadwal massal dari hasil parsing Excel (lihat parseScheduleExcelRows).
 // entries: [{ userId, userName, date, type }]. Menimpa (upsert) jadwal yang sudah ada pada tanggal yang sama.
+// Pengganti otomatis untuk klik "Simpan Status ke Server" satu-satu di halaman Detail presensi.
+// Memindai semua presensi yang sedang dimuat (checkInTime terisi, status Hadir/Terlambat/Piket
+// Malam), bandingkan dengan status yang SEHARUSNYA berdasarkan jadwal SEKARANG
+// (effectiveRecordStatus), lalu perbaiki & simpan ke server SEMUA yang beda sekaligus lewat
+// batch — tidak perlu buka Detail tiap orang satu-satu lagi. Dipanggil otomatis saat app
+// selesai sinkron pertama kali, tiap kali jadwal diimpor/diubah, dan berkala tiap beberapa
+// menit (jaga-jaga kalau percobaan sebelumnya sempat gagal krn koneksi/kuota).
+async function reconcileRecordStatuses() {
+  const mismatched = store.records.filter(r => r.checkInTime && (r.status === STATUS.HADIR || r.status === STATUS.TERLAMBAT || r.status === STATUS.PIKET_MALAM) && effectiveRecordStatus(r) !== r.status);
+  if (mismatched.length === 0) return 0;
+  const previousByIdx = new Map(mismatched.map(r => [r.id, r]));
+  const fixed = mismatched.map(r => ({
+    ...r,
+    status: effectiveRecordStatus(r)
+  }));
+  store.records = store.records.map(r => previousByIdx.has(r.id) ? fixed.find(f => f.id === r.id) : r);
+  _notifyStore();
+  try {
+    for (let i = 0; i < fixed.length; i += 400) {
+      const batch = db.batch();
+      fixed.slice(i, i + 400).forEach(r => batch.update(db.collection(COL.RECORDS).doc(r.id), {
+        status: r.status
+      }));
+      await withTimeout(batch.commit(), 20000, "Gagal menyinkronkan sebagian status presensi");
+    }
+    console.info(`Auto-reconcile: ${fixed.length} status presensi diperbaiki mengikuti jadwal terbaru.`);
+    return fixed.length;
+  } catch (err) {
+    // Gagal (mis. koneksi/kuota) — kembalikan tampilan ke status lama supaya tidak salah
+    // klaim sudah tersimpan; nanti dicoba lagi otomatis di kesempatan berikutnya.
+    store.records = store.records.map(r => previousByIdx.has(r.id) ? previousByIdx.get(r.id) : r);
+    _notifyStore();
+    console.warn("Auto-reconcile status presensi gagal, akan dicoba lagi nanti:", err.message);
+    return 0;
+  }
+}
 async function importSchedules(entries) {
   const batchSize = 400; // batas aman Firestore batch write
   let written = 0;
@@ -1655,19 +1743,11 @@ async function importSchedules(entries) {
     written += chunk.length;
   }
   store.schedules = [...store.schedules];
-  // Kalau tanggal yang jadwalnya baru diimpor/diubah ternyata sudah punya presensi tersimpan (sudah absen
-  // masuk sebelum jadwalnya dikoreksi), status Hadir/Terlambat/Piket Malam pada record itu perlu dihitung
-  // ulang mengikuti jadwal yang baru — kalau tidak, catatan lama akan tetap terbaca "Terlambat" walau
-  // jadwalnya sudah diperbaiki jadi Piket Malam/Masuk.
-  entries.forEach(entry => {
-    const rec = store.records.find(r => r.userId === entry.userId && r.date === entry.date);
-    if (rec && rec.checkInTime) {
-      const newStatus = computeStatus(rec.checkInTime, entry.type);
-      if (newStatus !== rec.status) saveCheckOut(rec.id, {
-        status: newStatus
-      }).catch(err => console.warn("Gagal recompute status setelah import jadwal", rec.id, err));
-    }
-  });
+  // Kalau tanggal yang jadwalnya baru diimpor/diubah ternyata sudah punya presensi tersimpan
+  // (sudah absen masuk sebelum jadwalnya dikoreksi), status Hadir/Terlambat/Piket Malam pada
+  // record itu perlu dihitung ulang & disimpan lagi mengikuti jadwal yang baru — reconcileRecordStatuses()
+  // menangani ini secara batch & otomatis dicoba lagi kalau gagal (lihat definisinya di atas).
+  reconcileRecordStatuses().catch(err => console.warn("Auto-reconcile gagal setelah import jadwal", err));
   return written;
 }
 
@@ -4502,7 +4582,8 @@ function useStoreSync() {
 function CameraCaptureModal({
   onCapture,
   onClose,
-  title
+  title,
+  requireFace = true // false utk Foto Kejadian: cukup foto lokasi/kejadian, tidak wajib ada wajah
 }) {
   const {
     videoRef,
@@ -4525,10 +4606,15 @@ function CameraCaptureModal({
     return () => stop();
   }, []);
   async function handleCapture() {
-    if (!faceDetected || verifying) return; // wajib ada wajah sebelum boleh ambil foto
+    if (requireFace && (!faceDetected || verifying)) return; // wajib ada wajah sebelum boleh ambil foto
     const dataUrl = capture();
     if (!dataUrl) return;
     stop();
+    if (!requireFace) {
+      setFaceError(null);
+      setPhoto(dataUrl);
+      return;
+    }
     setVerifying(true);
     const ok = await verifyPhotoHasFace(dataUrl);
     setVerifying(false);
@@ -4636,7 +4722,7 @@ function CameraCaptureModal({
       color: "var(--amber)",
       fontSize: 14
     }
-  }, modelsError)), isActive && !error && !modelsError && !modelsReady && !photo && /*#__PURE__*/React.createElement("div", {
+  }, modelsError)), requireFace && isActive && !error && !modelsError && !modelsReady && !photo && /*#__PURE__*/React.createElement("div", {
     style: {
       position: "absolute",
       left: 0,
@@ -4654,7 +4740,7 @@ function CameraCaptureModal({
       padding: "5px 12px",
       borderRadius: 999
     }
-  }, "Menyiapkan modul deteksi wajah…")), isActive && !photo && /*#__PURE__*/React.createElement("div", {
+  }, "Menyiapkan modul deteksi wajah…")), requireFace && isActive && !photo && /*#__PURE__*/React.createElement("div", {
     style: {
       position: "absolute",
       inset: 0,
@@ -4709,11 +4795,11 @@ function CameraCaptureModal({
     size: 20
   })), /*#__PURE__*/React.createElement("button", {
     onClick: handleCapture,
-    disabled: !isActive || !modelsReady || !faceDetected || verifying,
+    disabled: !isActive || requireFace && (!modelsReady || !faceDetected) || verifying,
     "aria-label": "Ambil foto",
     className: "cam-shutter",
     style: {
-      opacity: !isActive || !modelsReady || !faceDetected || verifying ? 0.45 : 1
+      opacity: !isActive || requireFace && (!modelsReady || !faceDetected) || verifying ? 0.45 : 1
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "cam-shutter-inner"
@@ -4756,7 +4842,7 @@ function CameraCaptureModal({
       fontSize: 12,
       padding: "0 20px 16px"
     }
-  }, verifying ? "Memverifikasi wajah pada foto\u2026" : faceError ? faceError : "Foto diambil langsung dari kamera dan wajib berisi wajah. Unggah dari galeri tidak diizinkan untuk menjaga validitas presensi.")));
+  }, verifying ? "Memverifikasi wajah pada foto\u2026" : faceError ? faceError : requireFace ? "Foto diambil langsung dari kamera dan wajib berisi wajah. Unggah dari galeri tidak diizinkan untuk menjaga validitas presensi." : "Foto diambil langsung dari kamera. Unggah dari galeri tidak diizinkan untuk menjaga validitas laporan.")));
 }
 
 /* ======================= LAPOR KEJADIAN (MODAL) ======================= */
@@ -4800,6 +4886,7 @@ function IncidentReportModal({
   if (showCamera) {
     return /*#__PURE__*/React.createElement(CameraCaptureModal, {
       title: "Foto Kejadian",
+      requireFace: false,
       onClose: () => setShowCamera(false),
       onCapture: dataUrl => {
         setPhoto(dataUrl);
@@ -6044,6 +6131,7 @@ function ClockSkewNote({
 function IzinDetailBody({
   record
 }) {
+  const leave = record.leaveId ? getLeaveRequestById(record.leaveId) : null;
   return /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
@@ -6073,7 +6161,9 @@ function IzinDetailBody({
       fontSize: 13,
       color: "#64748b"
     }
-  }, record.leaveReason || "Tidak ada catatan alasan.")));
+  }, record.leaveReason || "Tidak ada catatan alasan."), /*#__PURE__*/React.createElement(LeaveAttachmentChip, {
+    leave: leave
+  })));
 }
 function RecordDetailModal({
   record,
@@ -6547,9 +6637,50 @@ function EmployeeDashboard({
 function HistoryPage({
   user
 }) {
+  useStoreSync();
   const [monthFilter, setMonthFilter] = useState("all");
-  const records = useMemo(() => getRecordsByUser(user.id).sort((a, b) => a.date < b.date ? 1 : -1), [user.id]);
-  const months = useMemo(() => Array.from(new Set(records.map(r => r.date.slice(0, 7)))).sort().reverse(), [records]);
+  const [loadingMonth, setLoadingMonth] = useState(null);
+  const [monthLoadError, setMonthLoadError] = useState("");
+  // Batas jendela data yang dipantau live (lihat initFirestore) — bulan yang tanggal
+  // terakhirnya di luar batas ini perlu diambil manual (sekali-ambil) lewat
+  // ensureRecordsForMonthLoaded, supaya karyawan tetap bisa lihat riwayat bulan lama.
+  const cutoffDateStr = useMemo(() => todayDateStrWITA(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)), []);
+  useEffect(() => {
+    if (monthFilter === "all") return;
+    if (_lastDateOfMonth(monthFilter) >= cutoffDateStr) return;
+    if (oldRecordsCache[monthFilter]) return;
+    let cancelled = false;
+    setLoadingMonth(monthFilter);
+    setMonthLoadError("");
+    ensureRecordsForMonthLoaded(monthFilter).catch(err => {
+      if (!cancelled) setMonthLoadError(err.message || "Gagal mengambil riwayat bulan tersebut dari server. Coba lagi.");
+    }).finally(() => {
+      if (!cancelled) setLoadingMonth(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [monthFilter, cutoffDateStr]);
+  const records = useMemo(() => getRecordsByUser(user.id).sort((a, b) => a.date < b.date ? 1 : -1), [user.id, store.records]);
+  // Daftar pilihan bulan sejak karyawan bergabung (atau 36 bulan ke belakang kalau joinDate tidak
+  // tercatat) — BUKAN cuma dari bulan yang kebetulan sudah ada di data lokal, supaya bulan lama
+  // yang belum pernah diambil dari server pun tetap bisa dipilih & otomatis diambilkan di atas.
+  const months = useMemo(() => {
+    const opts = [];
+    const now = new Date();
+    let joinYM = null;
+    if (user.joinDate) {
+      const jd = new Date(user.joinDate + "T00:00:00");
+      joinYM = `${jd.getFullYear()}-${String(jd.getMonth() + 1).padStart(2, "0")}`;
+    }
+    for (let i = 0; i < 36; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      if (joinYM && key < joinYM) break;
+      opts.push(key);
+    }
+    return opts;
+  }, [user.joinDate]);
   const filtered = useMemo(() => monthFilter === "all" ? records : records.filter(r => r.date.startsWith(monthFilter)), [records, monthFilter]);
   const chartMonthKey = monthFilter !== "all" ? monthFilter : currentMonthKey();
   const chartData = useMemo(() => {
@@ -6729,7 +6860,29 @@ function HistoryPage({
   }, new Date(m + "-01").toLocaleDateString("id-ID", {
     month: "long",
     year: "numeric"
-  })))), /*#__PURE__*/React.createElement("div", {
+  })))), loadingMonth === monthFilter && /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      alignItems: "center",
+      gap: 8,
+      fontSize: 13,
+      color: "#64748b",
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "loader-2",
+    size: 14,
+    className: "spin"
+  }), "Mengambil riwayat bulan tersebut dari server…"), monthLoadError && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 12,
+      background: "var(--red-soft)",
+      color: "var(--red)",
+      fontSize: 13,
+      padding: "10px 14px",
+      borderRadius: 10
+    }
+  }, monthLoadError), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -6780,6 +6933,214 @@ function HistoryPage({
 }
 
 /* ======================= IZIN / CUTI (KARYAWAN) ======================= */
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Gagal membaca file."));
+    reader.readAsDataURL(file);
+  });
+}
+// Kompres gambar (foto lampiran izin/cuti, mis. foto surat dokter) sebelum disimpan sbg base64 —
+// foto langsung dari kamera HP modern bisa beberapa MB, padahal tiap dokumen Firestore dibatasi ~1MB.
+function compressImageFile(file, maxDim = 1280, quality = 0.75) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      let width = img.width,
+        height = img.height;
+      if (width > maxDim || height > maxDim) {
+        if (width >= height) {
+          height = Math.round(height * (maxDim / width));
+          width = maxDim;
+        } else {
+          width = Math.round(width * (maxDim / height));
+          height = maxDim;
+        }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Gagal memproses gambar lampiran."));
+    };
+    img.src = objectUrl;
+  });
+}
+const LEAVE_ATTACHMENT_MAX_BYTES = 900000; // batas aman base64 (di bawah limit ~1MB per dokumen Firestore)
+async function processLeaveAttachment(file) {
+  const isImage = file.type.startsWith("image/");
+  const isPdf = file.type === "application/pdf";
+  if (!isImage && !isPdf) {
+    throw new Error("Format file tidak didukung. Unggah gambar (JPG/PNG) atau PDF.");
+  }
+  const dataUrl = isImage ? await compressImageFile(file) : await readFileAsDataURL(file);
+  if (dataUrl.length > LEAVE_ATTACHMENT_MAX_BYTES) {
+    throw new Error(isImage ? "Ukuran gambar masih terlalu besar setelah dikompres. Coba foto lain." : "Ukuran file PDF terlalu besar (maks sekitar 600KB).");
+  }
+  return {
+    attachmentData: dataUrl,
+    attachmentName: file.name,
+    attachmentType: file.type
+  };
+}
+// Data URL (base64) -> Blob URL, supaya lampiran bisa dibuka di tab baru tanpa kena blokir
+// browser modern thd navigasi langsung ke "data:" URL yang panjang (khususnya file PDF).
+function dataUrlToBlob(dataUrl) {
+  const commaIdx = dataUrl.indexOf(",");
+  const header = dataUrl.slice(0, commaIdx);
+  const base64 = dataUrl.slice(commaIdx + 1);
+  const mimeMatch = header.match(/data:(.*?);base64/);
+  const mime = mimeMatch ? mimeMatch[1] : "application/octet-stream";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], {
+    type: mime
+  });
+}
+function openLeaveAttachment(leave) {
+  if (!leave || !leave.attachmentData) return;
+  try {
+    const url = URL.createObjectURL(dataUrlToBlob(leave.attachmentData));
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (err) {
+    console.warn("Gagal membuka lampiran izin/cuti.", err);
+  }
+}
+function LeaveAttachmentChip({
+  leave
+}) {
+  if (!leave || !leave.attachmentData) return null;
+  const isImage = leave.attachmentType && leave.attachmentType.startsWith("image/");
+  return /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => openLeaveAttachment(leave),
+    className: "flex",
+    style: {
+      alignItems: "center",
+      gap: 6,
+      marginTop: 8,
+      color: "var(--accent-700)",
+      fontSize: 12,
+      fontWeight: 600
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: isImage ? "image" : "file-text",
+    size: 14
+  }), "Lihat file pendukung");
+}
+function LeaveAttachmentField({
+  attachment,
+  onChange,
+  disabled
+}) {
+  const [busy, setBusy] = useState(false);
+  const [localError, setLocalError] = useState("");
+  const inputRef = useRef(null);
+  async function handleFile(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setLocalError("");
+    setBusy(true);
+    try {
+      const processed = await processLeaveAttachment(file);
+      onChange(processed);
+    } catch (err) {
+      setLocalError(err.message || "Gagal memproses file lampiran.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: "label"
+  }, "File pendukung (opsional)"), /*#__PURE__*/React.createElement("input", {
+    ref: inputRef,
+    type: "file",
+    accept: "image/*,application/pdf",
+    style: {
+      display: "none"
+    },
+    onChange: handleFile,
+    disabled: disabled || busy
+  }), attachment ? /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      alignItems: "center",
+      gap: 10,
+      border: "1px solid var(--line)",
+      borderRadius: 10,
+      padding: "8px 12px"
+    }
+  }, attachment.attachmentType && attachment.attachmentType.startsWith("image/") ? /*#__PURE__*/React.createElement("img", {
+    src: attachment.attachmentData,
+    alt: "Pratinjau lampiran",
+    style: {
+      width: 36,
+      height: 36,
+      objectFit: "cover",
+      borderRadius: 6,
+      flexShrink: 0
+    }
+  }) : /*#__PURE__*/React.createElement(Icon, {
+    name: "file-text",
+    size: 20,
+    style: {
+      color: "#64748b",
+      flexShrink: 0
+    }
+  }), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 13,
+      color: "var(--navy-900)",
+      flex: 1,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, attachment.attachmentName), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => onChange(null),
+    disabled: disabled,
+    "aria-label": "Hapus lampiran",
+    style: {
+      color: "#94a3b8",
+      padding: 4,
+      flexShrink: 0
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "x",
+    size: 16
+  }))) : /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-outline btn-sm",
+    disabled: disabled || busy,
+    onClick: () => inputRef.current && inputRef.current.click()
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "paperclip",
+    size: 14
+  }), busy ? " Memproses…" : " Lampirkan foto/PDF"), localError && /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12,
+      color: "var(--red)",
+      marginTop: 6
+    }
+  }, localError), !attachment && !localError && /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12,
+      color: "#94a3b8",
+      marginTop: 6
+    }
+  }, "Contoh: foto surat keterangan dokter atau bukti pendukung lainnya."));
+}
 function LeaveRequestModal({
   user,
   onClose,
@@ -6791,6 +7152,7 @@ function LeaveRequestModal({
     endDate: todayStr,
     reason: ""
   });
+  const [attachment, setAttachment] = useState(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   function update(field, value) {
@@ -6816,7 +7178,10 @@ function LeaveRequestModal({
         userName: user.name,
         startDate: form.startDate,
         endDate: form.endDate,
-        reason: form.reason
+        reason: form.reason,
+        attachmentData: attachment ? attachment.attachmentData : null,
+        attachmentName: attachment ? attachment.attachmentName : null,
+        attachmentType: attachment ? attachment.attachmentType : null
       });
       onSaved();
     } catch (err) {
@@ -6906,7 +7271,11 @@ function LeaveRequestModal({
       resize: "vertical",
       fontFamily: "inherit"
     }
-  })), /*#__PURE__*/React.createElement("p", {
+  })), /*#__PURE__*/React.createElement(LeaveAttachmentField, {
+    attachment: attachment,
+    onChange: setAttachment,
+    disabled: saving
+  }), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 12,
       color: "#94a3b8"
@@ -7022,7 +7391,9 @@ function EmployeeLeavePage({
       fontSize: 13,
       color: "#64748b"
     }
-  }, lv.reason)))), showModal && /*#__PURE__*/React.createElement(LeaveRequestModal, {
+  }, lv.reason), /*#__PURE__*/React.createElement(LeaveAttachmentChip, {
+    leave: lv
+  })))), showModal && /*#__PURE__*/React.createElement(LeaveRequestModal, {
     user: user,
     onClose: () => setShowModal(false),
     onSaved: () => {
@@ -7854,11 +8225,12 @@ function AdminRecordDetail({
   const [status, setStatus] = useState(record.status);
   const [fixBusy, setFixBusy] = useState(false);
   const [fixMsg, setFixMsg] = useState("");
-  // Sejak perbaikan terbaru, status yang DITAMPILKAN di sini SUDAH otomatis mengikuti Jadwal
-  // yang berlaku sekarang (lihat effectiveRecordStatus), walau data di SERVER belum tentu ikut
-  // ter-update (terutama kalau server sempat menolak tulisan, mis. kuota Firestore habis).
-  // Tombol ini menyimpan nilai yang sudah benar itu ke server, supaya rekap/ekspor/laporan lain
-  // yang membaca data mentah dari server (bukan lewat tampilan ini) juga ikut benar.
+  // Status yang DITAMPILKAN di sini SUDAH otomatis mengikuti Jadwal yang berlaku sekarang
+  // (lihat effectiveRecordStatus). Data mentah di SERVER juga sekarang otomatis diperbaiki
+  // sendiri di latar belakang lewat reconcileRecordStatuses() — jalan saat app dibuka & tiap
+  // 10 menit — jadi tombol ini TIDAK WAJIB diklik lagi. Tombol ini disediakan cuma untuk
+  // memaksa penyimpanan LANGSUNG (tidak perlu menunggu siklus otomatis berikutnya), misalnya
+  // kalau butuh rekap/ekspor SEGERA setelah jadwal seseorang baru saja diperbaiki.
   async function handleFixStatus() {
     if (!record.checkInTime) return;
     setFixBusy(true);
@@ -7941,7 +8313,7 @@ function AdminRecordDetail({
       color: "var(--accent-700)",
       textDecoration: "underline"
     }
-  }, fixBusy ? "Menyimpan…" : "Simpan Status ke Server (sesuai jadwal saat ini)"), fixMsg && /*#__PURE__*/React.createElement("p", {
+  }, fixBusy ? "Menyimpan…" : "Simpan Sekarang ke Server (opsional — sistem sudah otomatis memperbaiki ini secara berkala)"), fixMsg && /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 12,
       marginTop: 6,
@@ -11194,7 +11566,9 @@ function LeaveRequestsPage({
       color: "#64748b",
       marginTop: 10
     }
-  }, lv.reason), canEdit && lv.status === LEAVE_STATUS.PENDING && /*#__PURE__*/React.createElement("div", {
+  }, lv.reason), /*#__PURE__*/React.createElement(LeaveAttachmentChip, {
+    leave: lv
+  }), canEdit && lv.status === LEAVE_STATUS.PENDING && /*#__PURE__*/React.createElement("div", {
     className: "flex",
     style: {
       gap: 8,
