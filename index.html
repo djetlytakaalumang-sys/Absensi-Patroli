@@ -7860,10 +7860,34 @@ function RekapPDFModal({
   users,
   onClose
 }) {
+  useStoreSync();
   const [selectedUserId, setSelectedUserId] = useState(users[0]?.id || "");
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
   const [previewing, setPreviewing] = useState(false);
+  const [loadingMonth, setLoadingMonth] = useState(null);
+  const [monthLoadError, setMonthLoadError] = useState("");
   const selectedUser = users.find(u => u.id === selectedUserId);
+
+  // Batas jendela data yang dipantau live (lihat initFirestore) — bulan yang tanggal terakhirnya
+  // di luar batas ini perlu diambil manual (sekali-ambil) lewat ensureRecordsForMonthLoaded,
+  // supaya rekap PDF bulan lama tetap akurat (bukan seluruhnya tampil Alpa).
+  const cutoffDateStr = useMemo(() => todayDateStrWITA(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)), []);
+  useEffect(() => {
+    if (!selectedMonth) return;
+    if (_lastDateOfMonth(selectedMonth) >= cutoffDateStr) return;
+    if (oldRecordsCache[selectedMonth]) return;
+    let cancelled = false;
+    setLoadingMonth(selectedMonth);
+    setMonthLoadError("");
+    ensureRecordsForMonthLoaded(selectedMonth).catch(err => {
+      if (!cancelled) setMonthLoadError(err.message || "Gagal mengambil riwayat bulan tersebut dari server. Coba lagi.");
+    }).finally(() => {
+      if (!cancelled) setLoadingMonth(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMonth, cutoffDateStr]);
 
   // Filter bulan hanya sejak joinDate user yang dipilih
   const monthOptions = useMemo(() => {
@@ -8053,7 +8077,27 @@ function RekapPDFModal({
   }, monthOptions.map(o => /*#__PURE__*/React.createElement("option", {
     key: o.key,
     value: o.key
-  }, o.label))))), selectedUser && /*#__PURE__*/React.createElement("div", {
+  }, o.label))))), loadingMonth === selectedMonth && /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      alignItems: "center",
+      gap: 8,
+      fontSize: 13,
+      color: "#64748b"
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "loader-2",
+    size: 14,
+    className: "spin"
+  }), "Mengambil riwayat bulan tersebut dari server…"), monthLoadError && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "var(--red-soft)",
+      color: "var(--red)",
+      fontSize: 13,
+      padding: "10px 14px",
+      borderRadius: 10
+    }
+  }, monthLoadError), selectedUser && /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: 16,
@@ -11114,9 +11158,32 @@ function EmployeesPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [formTarget, setFormTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [monthKey, setMonthKey] = useState(currentMonthKey());
+  const [loadingMonth, setLoadingMonth] = useState(null);
+  const [monthLoadError, setMonthLoadError] = useState("");
   const employees = useMemo(() => getUsers().filter(u => u.role === ROLES.EMPLOYEE), [refreshKey]);
-  const mk = currentMonthKey();
+  const mk = monthKey;
   const todayStr = todayDateStrWITA(getTrustedNow());
+  // Ringkasan tiap kartu karyawan mengikuti bulan yang dipilih. Data live cuma mencakup ~90 hari
+  // terakhir (lihat initFirestore), jadi kalau bulan yang dipilih sudah lebih lama dari itu,
+  // ambil dulu datanya sekali-ambil dari server sebelum dihitung.
+  const cutoffDateStr = useMemo(() => todayDateStrWITA(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)), []);
+  useEffect(() => {
+    if (!mk) return;
+    if (_lastDateOfMonth(mk) >= cutoffDateStr) return;
+    if (oldRecordsCache[mk]) return;
+    let cancelled = false;
+    setLoadingMonth(mk);
+    setMonthLoadError("");
+    ensureRecordsForMonthLoaded(mk).catch(err => {
+      if (!cancelled) setMonthLoadError(err.message || "Gagal mengambil riwayat bulan tersebut dari server. Coba lagi.");
+    }).finally(() => {
+      if (!cancelled) setLoadingMonth(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mk, cutoffDateStr]);
   function refresh() {
     setRefreshKey(k => k + 1);
   }
@@ -11152,7 +11219,39 @@ function EmployeesPage() {
       fontSize: 14,
       marginTop: 2
     }
-  }, "Daftar karyawan terdaftar dan ringkasan kehadiran bulan ini."))), employees.length === 0 && /*#__PURE__*/React.createElement("div", {
+  }, "Daftar karyawan terdaftar dan ringkasan kehadiran per bulan.")), /*#__PURE__*/React.createElement("input", {
+    type: "month",
+    value: monthKey,
+    onChange: e => setMonthKey(e.target.value),
+    className: "input",
+    style: {
+      width: "auto"
+    }
+  })), (loadingMonth === mk || monthLoadError) && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 16
+    }
+  }, loadingMonth === mk && /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      alignItems: "center",
+      gap: 8,
+      fontSize: 13,
+      color: "#64748b"
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "loader-2",
+    size: 14,
+    className: "spin"
+  }), "Mengambil riwayat bulan tersebut dari server…"), monthLoadError && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "var(--red-soft)",
+      color: "var(--red)",
+      fontSize: 13,
+      padding: "10px 14px",
+      borderRadius: 10
+    }
+  }, monthLoadError)), employees.length === 0 && /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: 40,
@@ -12478,6 +12577,25 @@ function PenilaianPage({
 }) {
   useStoreSync();
   const [monthKey, setMonthKey] = useState(currentMonthKey());
+  const [loadingMonth, setLoadingMonth] = useState(null);
+  const [monthLoadError, setMonthLoadError] = useState("");
+  const cutoffDateStr = useMemo(() => todayDateStrWITA(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)), []);
+  useEffect(() => {
+    if (!monthKey) return;
+    if (_lastDateOfMonth(monthKey) >= cutoffDateStr) return;
+    if (oldRecordsCache[monthKey]) return;
+    let cancelled = false;
+    setLoadingMonth(monthKey);
+    setMonthLoadError("");
+    ensureRecordsForMonthLoaded(monthKey).catch(err => {
+      if (!cancelled) setMonthLoadError(err.message || "Gagal mengambil riwayat bulan tersebut dari server. Coba lagi.");
+    }).finally(() => {
+      if (!cancelled) setLoadingMonth(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [monthKey, cutoffDateStr]);
   const rows = useMemo(() => getLeaderboard(monthKey), [monthKey, store.records, store.leaves, store.patrols, store.users, store.checkpoints]);
   const myRow = rows.find(r => r.userId === user.id);
   const myGrade = scoreGrade(myRow ? myRow.total : null);
@@ -12551,7 +12669,31 @@ function PenilaianPage({
     style: {
       width: "auto"
     }
-  })), myRow && /*#__PURE__*/React.createElement("div", {
+  })), (loadingMonth === monthKey || monthLoadError) && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 16
+    }
+  }, loadingMonth === monthKey && /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      alignItems: "center",
+      gap: 8,
+      fontSize: 13,
+      color: "#64748b"
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "loader-2",
+    size: 14,
+    className: "spin"
+  }), "Mengambil riwayat bulan tersebut dari server…"), monthLoadError && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "var(--red-soft)",
+      color: "var(--red)",
+      fontSize: 13,
+      padding: "10px 14px",
+      borderRadius: 10
+    }
+  }, monthLoadError)), myRow && /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: 20,
@@ -12738,6 +12880,28 @@ function PenilaianPage({
 function PenilaianAdminPage() {
   useStoreSync();
   const [monthKey, setMonthKey] = useState(currentMonthKey());
+  const [loadingMonth, setLoadingMonth] = useState(null);
+  const [monthLoadError, setMonthLoadError] = useState("");
+  // Bulan yang dipilih di sini bebas (input type="month", bisa tahun-tahun lalu), sedangkan data
+  // presensi yang dipantau live cuma ~90 hari terakhir (lihat initFirestore) — jadi kalau bulan
+  // yang dipilih sudah di luar jendela itu, ambil dulu datanya sekali-ambil dari server.
+  const cutoffDateStr = useMemo(() => todayDateStrWITA(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)), []);
+  useEffect(() => {
+    if (!monthKey) return;
+    if (_lastDateOfMonth(monthKey) >= cutoffDateStr) return;
+    if (oldRecordsCache[monthKey]) return;
+    let cancelled = false;
+    setLoadingMonth(monthKey);
+    setMonthLoadError("");
+    ensureRecordsForMonthLoaded(monthKey).catch(err => {
+      if (!cancelled) setMonthLoadError(err.message || "Gagal mengambil riwayat bulan tersebut dari server. Coba lagi.");
+    }).finally(() => {
+      if (!cancelled) setLoadingMonth(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [monthKey, cutoffDateStr]);
   const rows = useMemo(() => getLeaderboard(monthKey), [monthKey, store.records, store.leaves, store.patrols, store.users, store.checkpoints]);
   const scored = rows.filter(r => r.total != null);
   const avgScore = scored.length ? Math.round(scored.reduce((s, r) => s + r.total, 0) / scored.length) : null;
@@ -12840,7 +13004,31 @@ function PenilaianAdminPage() {
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "file-badge",
     size: 15
-  }), " Cetak PDF"))), /*#__PURE__*/React.createElement("div", {
+  }), " Cetak PDF"))), (loadingMonth === monthKey || monthLoadError) && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 16
+    }
+  }, loadingMonth === monthKey && /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      alignItems: "center",
+      gap: 8,
+      fontSize: 13,
+      color: "#64748b"
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "loader-2",
+    size: 14,
+    className: "spin"
+  }), "Mengambil riwayat bulan tersebut dari server…"), monthLoadError && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "var(--red-soft)",
+      color: "var(--red)",
+      fontSize: 13,
+      padding: "10px 14px",
+      borderRadius: 10
+    }
+  }, monthLoadError)), /*#__PURE__*/React.createElement("div", {
     className: "grid-2",
     style: {
       marginBottom: 20
