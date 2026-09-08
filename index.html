@@ -10603,6 +10603,15 @@ function PatrolPage({
         throw new Error(`Jam pada perangkat Anda tidak sesuai dengan jam server (selisih sekitar ${Math.round(Math.abs(getDeviceClockSkewMs()) / 60000)} menit). Aktifkan tanggal & waktu otomatis di pengaturan HP, lalu coba lagi.`);
       }
       const pos = await getCurrentPosition();
+      // Cek ULANG barengan sebelum benar2 membuat sesi baru (bukan cuma andalkan `activePatrol`
+      // dari closure/render sebelumnya) — mencegah sesi DOBEL kalau tombol ini sempat tertekan
+      // lagi (mis. karena koneksi lambat/nyangkut) sebelum layar sempat ter-update menampilkan
+      // sesi yang sebenarnya sudah berhasil dibuat. Lihat juga tombol "Akhiri Paksa" di panel
+      // admin (Peta Live Patroli) utk membereskan sesi dobel yang kadung terlanjur tercatat.
+      if (getActivePatrolForUser(user.id)) {
+        setStarting(false);
+        return;
+      }
       startPatrolSession(user, pos);
       store.tracker = {
         position: {
@@ -12112,6 +12121,29 @@ function AdminPatrolMapPage() {
       setCleaning(false);
     }
   }
+  const [endingId, setEndingId] = useState(null);
+  // Dipakai admin utk menutup PAKSA satu sesi patroli tertentu — mis. kalau ada sesi dobel utk
+  // orang yang sama (lihat catatan di handleStart PatrolPage: tombol "Mulai Patroli" belum
+  // sepenuhnya kebal dari sesi dobel kalau ditekan 2x/koneksi tidak stabil). Tanpa ini, sesi
+  // dobel akan terus tampil "aktif" sampai besok baru dibersihkan otomatis oleh
+  // autoCloseStalePatrols() (yang cuma menyasar sesi dari HARI SEBELUMNYA, bukan hari yang sama).
+  async function handleForceEnd(patrol) {
+    const ok = window.confirm(`Akhiri paksa sesi patroli ${patrol.userName} sekarang? Pakai ini kalau ada sesi dobel/nyangkut untuk orang yang sama.`);
+    if (!ok) return;
+    setEndingId(patrol.id);
+    try {
+      endPatrolSession(patrol.id, {
+        autoClosedReason: "Diakhiri paksa oleh admin (sesi dobel/nyangkut)."
+      });
+      setToast(`Sesi patroli ${patrol.userName} berhasil diakhiri.`);
+      setTimeout(() => setToast(""), 3000);
+    } catch (err) {
+      setToast(err.message || "Gagal mengakhiri sesi. Coba lagi.");
+      setTimeout(() => setToast(""), 4000);
+    } finally {
+      setEndingId(null);
+    }
+  }
   return /*#__PURE__*/React.createElement("div", {
     className: "container-app"
   }, /*#__PURE__*/React.createElement("div", {
@@ -12347,7 +12379,20 @@ function AdminPatrolMapPage() {
         color: lastAgoSec == null ? "var(--navy-700)" : lastAgoSec < 90 ? "var(--green)" : lastAgoSec < 300 ? "var(--amber)" : "var(--red)",
         background: lastAgoSec == null ? "var(--navy-50)" : lastAgoSec < 90 ? "var(--green-soft)" : lastAgoSec < 300 ? "var(--amber-soft)" : "var(--red-soft)"
       }
-    }, lastAgoSec == null ? "-" : lastAgoSec < 90 ? "● Live" : lastAgoSec < 300 ? `⚠ ${Math.floor(lastAgoSec / 60)}m lalu` : `⛔ Terputus ${Math.floor(lastAgoSec / 60)}m`)), checkpoints.length > 0 && /*#__PURE__*/React.createElement("div", {
+    }, lastAgoSec == null ? "-" : lastAgoSec < 90 ? "● Live" : lastAgoSec < 300 ? `⚠ ${Math.floor(lastAgoSec / 60)}m lalu` : `⛔ Terputus ${Math.floor(lastAgoSec / 60)}m`), canEdit && /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      title: "Akhiri paksa sesi ini — pakai kalau ada sesi dobel/nyangkut untuk orang yang sama",
+      onClick: () => handleForceEnd(p),
+      disabled: endingId === p.id,
+      style: {
+        display: "block",
+        marginTop: 6,
+        marginLeft: "auto",
+        fontSize: 11,
+        color: "var(--red)",
+        fontWeight: 600
+      }
+    }, endingId === p.id ? "Mengakhiri…" : "Akhiri Paksa")), checkpoints.length > 0 && /*#__PURE__*/React.createElement("div", {
       className: "flex",
       style: {
         gap: 6,
