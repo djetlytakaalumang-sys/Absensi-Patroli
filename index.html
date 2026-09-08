@@ -3968,40 +3968,13 @@ function assignDistinctColors(userIds) {
   return map;
 }
 // Gabungkan titik "live" (p.path, selalu kecil karena titik lama diarsipkan otomatis di
-// handleNewPosition) dengan titik ARSIP (pathChunks) yang sudah pernah diambil & di-cache —
-// supaya garis rute yang ditampilkan tetap LENGKAP dari awal sesi, TANPA perlu terus-menerus
-// men-download ulang arsip itu tiap kali ada 1 titik live baru masuk (arsip cuma diambil
-// SEKALI per potongan baru, lalu disimpan di cache selama komponen peta ini masih terbuka).
-// Gabungkan titik "live" (p.path, selalu kecil karena titik lama diarsipkan otomatis di
-// handleNewPosition/heartbeat) dengan titik ARSIP (pathChunks) yang sudah pernah diambil &
-// di-cache — supaya garis rute yang ditampilkan tetap LENGKAP dari awal sesi, TANPA perlu
-// terus-menerus men-download ulang arsip itu tiap kali ada 1 titik live baru masuk.
-// Ambil SELURUH subcollection sekaligus (bukan tebak ID nomor urut satu-satu) — supaya aman
-// walau ID arsip acak (tidak berurutan), dan tetap benar walau `pathChunkCount` sesekali
-// meleset (cuma dipakai sebagai "hint kapan perlu refresh", bukan kunci pengambilan).
-function getFullPatrolLatLngs(patrol, chunkCacheRef, onArchiveLoaded) {
+// handleNewPosition/heartbeat) dengan titik ARSIP (pathChunks) yang sudah masuk lewat listener
+// onSnapshot (lihat effect pemantau arsip di AdminLivePatrolMap) — fungsi ini murni MENGGABUNGKAN
+// data yang sudah ada di cache, TIDAK melakukan pengambilan apapun ke server sendiri.
+function getFullPatrolLatLngs(patrol, chunkCacheRef) {
   const cache = chunkCacheRef.current[patrol.id] || (chunkCacheRef.current[patrol.id] = {
-    fetchedCount: -1,
     points: []
   });
-  const hintCount = patrol.pathChunkCount || 0;
-  if (hintCount !== cache.fetchedCount && !cache.fetching) {
-    cache.fetching = true;
-    (async () => {
-      try {
-        const snap = await db.collection(`${COL.PATROLS}/${patrol.id}/pathChunks`).get();
-        const allPoints = [];
-        snap.forEach(doc => allPoints.push(...(doc.data().points || [])));
-        cache.points = allPoints.sort((a, b) => new Date(a.t) - new Date(b.t));
-        cache.fetchedCount = hintCount;
-      } catch (e) {
-        console.warn("Gagal ambil arsip jejak:", patrol.id, e);
-      } finally {
-        cache.fetching = false;
-      }
-      if (onArchiveLoaded) onArchiveLoaded();
-    })();
-  }
   const combined = [...cache.points, ...(patrol.path || [])];
   // Buang titik yang koordinatnya kosong/tidak valid (mis. GPS sempat gagal fix, atau
   // penyimpanan titik itu sempat gagal separuh) — kalau ikut dimasukkan, Leaflet bisa crash
@@ -4045,10 +4018,64 @@ function AdminLivePatrolMap({
   const cpMarkersRef = useRef({});
   const cpCirclesRef = useRef({});
   const fittedOnceRef = useRef(false);
-  const chunkCacheRef = useRef({}); // { [patrolId]: { fetchedUpTo: number, points: [] } } — arsip diambil SEKALI, di-cache, tidak diulang
+  const chunkCacheRef = useRef({}); // { [patrolId]: { points: [] } } — diisi lewat listener onSnapshot (lihat effect di bawah), bukan diambil manual di sini
+  const chunkListenersRef = useRef({}); // { [patrolId]: unsubscribeFn } — 1 listener onSnapshot per sesi patroli yang sedang tampil
   const smoothCacheRef = useRef({}); // { [userId]: { frozen, frozenCount } } — cache penghalusan per-petugas, biar biaya hitung tidak membesar seiring rute makin panjang / makin banyak petugas aktif
   const redrawThrottleRef = useRef({ lastRun: 0, timeoutId: null }); // batasi frekuensi rebuild marker+garis, biar tidak rebutan CPU dgn gesture zoom
   const colorMap = useMemo(() => assignDistinctColors(patrols.filter(p => p.path?.length).map(p => p.userId)), [patrols.filter(p => p.path?.length).map(p => p.userId).join(",")]);
+
+  // Pantau arsip jejak (pathChunks) tiap sesi patroli yang sedang tampil secara REAL-TIME lewat
+  // onSnapshot, GANTI dari cara lama yang menarik ULANG SELURUH arsip pakai .get() tiap kali ada
+  // potongan baru — cara lama itu biayanya membengkak makin lama sesi berjalan (makin banyak arsip
+  // yang sudah ada, makin mahal tiap kali ditarik ulang semuanya dari nol). Dengan onSnapshot,
+  // Firestore cuma mengirim dokumen yang BENAR-BENAR baru saja (docChanges "added"), jadi biayanya
+  // linear (kira-kira 1x baca per potongan baru), bukan berlipat — dan justru lebih cepat sampai
+  // ke peta karena tidak perlu menunggu field `pathChunkCount` berubah dulu baru mengambil.
+  useEffect(() => {
+    const activeIds = new Set(patrols.map(p => p.id));
+    const listeners = chunkListenersRef.current;
+    patrols.forEach(p => {
+      if (listeners[p.id]) return; // sudah dipantau
+      const cache = chunkCacheRef.current[p.id] || (chunkCacheRef.current[p.id] = {
+        points: []
+      });
+      listeners[p.id] = db.collection(`${COL.PATROLS}/${p.id}/pathChunks`).onSnapshot(snap => {
+        let changed = false;
+        snap.docChanges().forEach(change => {
+          if (change.type === "added") {
+            cache.points.push(...(change.doc.data().points || []));
+            changed = true;
+          }
+        });
+        if (!changed) return;
+        cache.points.sort((a, b) => new Date(a.t) - new Date(b.t));
+        // Redraw garis rute petugas ini saja begitu arsip barunya masuk, tanpa perlu nunggu
+        // titik live berikutnya atau render ulang seluruh peta.
+        if (!smoothCacheRef.current[p.userId]) smoothCacheRef.current[p.userId] = {
+          frozen: [],
+          frozenCount: 0
+        };
+        const merged = getFullPatrolLatLngs(p, chunkCacheRef);
+        if (userLinesRef.current[p.userId]) {
+          userLinesRef.current[p.userId].setLatLngs(getSmoothedRouteCached(smoothCacheRef.current[p.userId], merged));
+        }
+      }, err => console.warn("Gagal memantau arsip jejak:", p.id, err));
+    });
+    Object.keys(listeners).forEach(id => {
+      if (!activeIds.has(id)) {
+        listeners[id]();
+        delete listeners[id];
+      }
+    });
+  }, [patrols.map(p => p.id).join(",")]);
+  // Lepas SEMUA listener arsip jejak saat komponen peta ini benar-benar ditutup (pindah halaman),
+  // supaya tidak terus jalan diam-diam di belakang layar setelah admin tidak lagi melihat peta.
+  useEffect(() => {
+    return () => {
+      Object.values(chunkListenersRef.current).forEach(unsub => unsub());
+      chunkListenersRef.current = {};
+    };
+  }, []);
   useEffect(() => {
     if (!containerRef.current || mapRef.current || !window.L) return;
     const map = window.L.map(containerRef.current, {
@@ -4203,12 +4230,7 @@ function AdminLivePatrolMap({
         });
       }
       if (!smoothCacheRef.current[p.userId]) smoothCacheRef.current[p.userId] = { frozen: [], frozenCount: 0 };
-      const latlngs = getSmoothedRouteCached(smoothCacheRef.current[p.userId], getFullPatrolLatLngs(p, chunkCacheRef, () => {
-        // Callback dipanggil setelah arsip baru selesai diambil (async) — redraw garis
-        // dengan data lengkap begitu tersedia, tanpa perlu nunggu titik live berikutnya.
-        const merged = getFullPatrolLatLngs(p, chunkCacheRef, null);
-        if (userLinesRef.current[p.userId]) userLinesRef.current[p.userId].setLatLngs(getSmoothedRouteCached(smoothCacheRef.current[p.userId], merged));
-      }));
+      const latlngs = getSmoothedRouteCached(smoothCacheRef.current[p.userId], getFullPatrolLatLngs(p, chunkCacheRef));
       if (userLinesRef.current[p.userId]) userLinesRef.current[p.userId].setLatLngs(latlngs);else userLinesRef.current[p.userId] = window.L.polyline(latlngs, {
         color,
         weight: 4,
