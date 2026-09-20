@@ -9119,7 +9119,7 @@ function AdminDashboard({
   }, "Belum ada data presensi bulan ini.") : /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
-      minHeight: 300
+      minHeight: 0
     }
   }, /*#__PURE__*/React.createElement(Recharts.ResponsiveContainer, {
     width: "100%",
@@ -9130,7 +9130,7 @@ function AdminDashboard({
       top: 4,
       right: 8,
       left: -12,
-      bottom: 0
+      bottom: 4
     }
   }, /*#__PURE__*/React.createElement("defs", null, /*#__PURE__*/React.createElement("linearGradient", {
     id: "gradMasuk",
@@ -9166,6 +9166,7 @@ function AdminDashboard({
     strokeDasharray: "3 3"
   }), /*#__PURE__*/React.createElement(Recharts.XAxis, {
     dataKey: "tanggal",
+    height: 22,
     tick: {
       fontSize: 10,
       fill: "var(--navy-700)"
@@ -9198,8 +9199,11 @@ function AdminDashboard({
     },
     labelFormatter: d => `Tanggal ${d}`
   }), /*#__PURE__*/React.createElement(Recharts.Legend, {
+    verticalAlign: "top",
+    height: 20,
+    iconSize: 8,
     wrapperStyle: {
-      fontSize: 12
+      fontSize: 11
     }
   }), /*#__PURE__*/React.createElement(Recharts.Area, {
     type: "monotone",
