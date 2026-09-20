@@ -710,11 +710,46 @@ async function initFirestore() {
   async function runOneTimeInitTasks() {
     if (_oneTimeTasksStarted) return;
     _oneTimeTasksStarted = true;
-    if (store.users.length === 0) {
-      for (const u of SEED_USERS) {
-        await db.collection(COL.USERS).doc(u.id).set(u);
+    // PENTING — PERBAIKAN BUG (akun seed muncul lagi / nama admin balik sendiri):
+    // Sebelumnya baris ini menebak "aplikasi baru pertama kali dipakai" hanya dari
+    // `store.users.length === 0`. Tebakan itu TIDAK AMAN: kalau koneksi sempat putus-nyambung
+    // atau listener "users" belum sempat menerima data lengkap saat runOneTimeInitTasks jalan,
+    // store.users bisa kebaca kosong padahal sebenarnya di server SUDAH ada user asli (termasuk
+    // akun admin yang sudah diganti namanya). Akibatnya 4 akun contoh (SEED_USERS) — termasuk
+    // admin default "Rina Wijaya" — ditulis ulang ke server dan MENIMPA akun asli yang id-nya
+    // kebetulan sama (u-001..u-004), sehingga nama admin & akun lain seperti "kembali sendiri"
+    // ke data bawaan tanpa ada yang mengedit.
+    //
+    // Perbaikan: jangan lagi menebak dari jumlah user. Simpan PENANDA PERMANEN di server
+    // (settings/config.usersSeeded) begitu seeding pernah berhasil dilakukan sekali, lalu cek
+    // penanda itu langsung ke server tiap kali (bukan dari snapshot listener yang bisa telat/kosong
+    // sesaat). Dengan begitu proses seed betul-betul HANYA jalan sekali seumur hidup database ini.
+    try {
+      const seedFlagSnap = await db.collection(COL.SETTINGS).doc("config").get();
+      const alreadySeeded = seedFlagSnap.exists && seedFlagSnap.data().usersSeeded === true;
+      if (!alreadySeeded) {
+        // Double-check langsung ke koleksi users (bukan store.users) supaya tidak salah tebak
+        // dari data lokal yang mungkin belum lengkap.
+        const usersSnap = await db.collection(COL.USERS).limit(1).get();
+        if (usersSnap.empty) {
+          for (const u of SEED_USERS) {
+            await db.collection(COL.USERS).doc(u.id).set(u);
+          }
+          store.users = [...SEED_USERS];
+        }
+        // Tandai sudah pernah diproses (baik karena baru di-seed, ataupun ternyata sudah ada user
+        // dari sumber lain) — supaya blok ini TIDAK PERNAH dijalankan lagi setelah ini, walau nanti
+        // semua user dihapus habis oleh admin dengan sengaja.
+        await db.collection(COL.SETTINGS).doc("config").set({
+          usersSeeded: true
+        }, {
+          merge: true
+        });
       }
-      store.users = [...SEED_USERS];
+    } catch (err) {
+      // Kalau pengecekan/penulisan penanda ini gagal (mis. lagi offline), JANGAN jalankan seeding
+      // sama sekali — lebih aman melewatkan seed sekali ini daripada berisiko menimpa data asli.
+      console.warn("Gagal memeriksa/menyimpan penanda seeding user, seed dilewati kali ini:", err.message);
     }
     // PENTING: sinkronkan jam ke server DULU sebelum auto-close pertama kali dijalankan.
     // Kalau autoClose dipanggil sebelum sync selesai, dia masih pakai jam mentah dari HP
@@ -9141,6 +9176,7 @@ function AdminDashboard({
     tickLine: false,
     interval: dailyTrend.length > 15 ? 2 : 0
   }), /*#__PURE__*/React.createElement(Recharts.YAxis, {
+    yAxisId: "left",
     tick: {
       fontSize: 11,
       fill: "var(--navy-700)"
@@ -9149,6 +9185,24 @@ function AdminDashboard({
     tickLine: false,
     allowDecimals: false,
     width: 28
+  }), /*#__PURE__*/React.createElement(Recharts.YAxis, {
+    yAxisId: "right",
+    orientation: "right",
+    tick: {
+      fontSize: 11,
+      fill: "#D97706"
+    },
+    axisLine: false,
+    tickLine: false,
+    allowDecimals: false,
+    width: 28,
+    label: {
+      value: "Terlambat",
+      angle: -90,
+      position: "insideRight",
+      fontSize: 10,
+      fill: "#D97706"
+    }
   }), /*#__PURE__*/React.createElement(Recharts.Tooltip, {
     cursor: {
       stroke: "var(--slate-mist)",
@@ -9166,6 +9220,7 @@ function AdminDashboard({
       fontSize: 12
     }
   }), /*#__PURE__*/React.createElement(Recharts.Area, {
+    yAxisId: "left",
     type: "monotone",
     dataKey: "Masuk",
     stroke: "#16A34A",
@@ -9175,17 +9230,18 @@ function AdminDashboard({
       r: 4
     }
   }), /*#__PURE__*/React.createElement(Recharts.Line, {
+    yAxisId: "right",
     type: "monotone",
     dataKey: "Terlambat",
     stroke: "#D97706",
-    strokeWidth: 2.5,
+    strokeWidth: 2.75,
     dot: {
-      r: 3,
+      r: 3.5,
       fill: "#D97706",
       strokeWidth: 0
     },
     activeDot: {
-      r: 5
+      r: 5.5
     }
   }))))), /*#__PURE__*/React.createElement("div", {
     className: "card",
