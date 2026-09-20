@@ -9119,7 +9119,7 @@ function AdminDashboard({
   }, "Belum ada data presensi bulan ini.") : /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
-      minHeight: 260
+      minHeight: 300
     }
   }, /*#__PURE__*/React.createElement(Recharts.ResponsiveContainer, {
     width: "100%",
@@ -9176,7 +9176,6 @@ function AdminDashboard({
     tickLine: false,
     interval: dailyTrend.length > 15 ? 2 : 0
   }), /*#__PURE__*/React.createElement(Recharts.YAxis, {
-    yAxisId: "left",
     tick: {
       fontSize: 11,
       fill: "var(--navy-700)"
@@ -9184,25 +9183,8 @@ function AdminDashboard({
     axisLine: false,
     tickLine: false,
     allowDecimals: false,
-    width: 28
-  }), /*#__PURE__*/React.createElement(Recharts.YAxis, {
-    yAxisId: "right",
-    orientation: "right",
-    tick: {
-      fontSize: 11,
-      fill: "#D97706"
-    },
-    axisLine: false,
-    tickLine: false,
-    allowDecimals: false,
     width: 28,
-    label: {
-      value: "Terlambat",
-      angle: -90,
-      position: "insideRight",
-      fontSize: 10,
-      fill: "#D97706"
-    }
+    domain: [0, "dataMax"]
   }), /*#__PURE__*/React.createElement(Recharts.Tooltip, {
     cursor: {
       stroke: "var(--slate-mist)",
@@ -9220,7 +9202,6 @@ function AdminDashboard({
       fontSize: 12
     }
   }), /*#__PURE__*/React.createElement(Recharts.Area, {
-    yAxisId: "left",
     type: "monotone",
     dataKey: "Masuk",
     stroke: "#16A34A",
@@ -9230,7 +9211,6 @@ function AdminDashboard({
       r: 4
     }
   }), /*#__PURE__*/React.createElement(Recharts.Line, {
-    yAxisId: "right",
     type: "monotone",
     dataKey: "Terlambat",
     stroke: "#D97706",
