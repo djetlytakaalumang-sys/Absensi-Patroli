@@ -1785,8 +1785,12 @@ function isOffDay(userId, dateStr) {
 function normalizeScheduleType(raw) {
   const v = String(raw || "").trim().toLowerCase();
   if (!v) return null;
+  // Kode singkat sesuai keterangan grid jadwal: M = Masuk, P = Piket Malam, S = Standby On Call
+  if (v === "m") return SCHEDULE_TYPE.MASUK;
+  if (v === "p") return SCHEDULE_TYPE.PIKET_MALAM;
+  if (v === "s" || v === "oc") return SCHEDULE_TYPE.OFF;
   if (v.includes("piket") || v.includes("malam")) return SCHEDULE_TYPE.PIKET_MALAM;
-  if (v.includes("off") || v.includes("standby") || v.includes("libur")) return SCHEDULE_TYPE.OFF;
+  if (v.includes("off") || v.includes("standby") || v.includes("on call") || v.includes("on-call") || v.includes("oncall") || v.includes("libur")) return SCHEDULE_TYPE.OFF;
   if (v.includes("masuk") || v.includes("hadir")) return SCHEDULE_TYPE.MASUK;
   return null;
 }
@@ -3730,7 +3734,7 @@ const STATUS_BADGE_CLASS = {
 // nilai internal SCHEDULE_TYPE.OFF ("Off") TIDAK diubah supaya data Jadwal Kerja
 // yang sudah tersimpan di Firestore tetap terbaca dan cocok dengan semua perbandingan lama.
 function displayStatusLabel(status) {
-  return status === SCHEDULE_TYPE.OFF ? "Standby" : status;
+  return status === SCHEDULE_TYPE.OFF ? "Standby On Call" : status;
 }
 function StatusBadge({
   status
@@ -13552,7 +13556,7 @@ function downloadScheduleTemplate() {
   }, ...dayHeaders.map(() => ({
     wch: 6
   }))];
-  const petunjuk = [["Template Import Jadwal Kerja — Presensi Piket"], [""], ["Cara pakai:"], ["1. Buka sheet \"Jadwal\". Kolom Username sudah otomatis diisi dari data karyawan saat ini."], ["2. Kolom \"Username\" harus PERSIS SAMA dengan username karyawan yang terdaftar di sistem."], ["3. Kolom \"No\" dan \"Nama Karyawan\" hanya untuk memudahkan membaca; sistem tidak membacanya"], ["   saat impor (hanya Username yang dipakai untuk mencocokkan karyawan)."], ["4. Kolom 1, 2, 3, ... 31 mewakili tanggal pada bulan yang akan diimpor. Isi tiap sel dengan"], ["   salah satu dari 3 nilai berikut (harus diketik apa adanya):"], ["      - Masuk         -> karyawan wajib presensi shift normal pada tanggal tsb"], ["      - Piket Malam   -> karyawan wajib presensi shift piket malam (tanpa checkpoint patroli)"], ["      - Standby       -> karyawan libur pada tanggal tsb (tidak dianggap alpha)"], ["   Kosongkan sel jika belum ada jadwal untuk tanggal tersebut."], ["5. Untuk bulan dengan kurang dari 31 hari (mis. Februari, April), biarkan kolom tanggal yang"], ["   melebihi jumlah hari di bulan itu tetap kosong — sistem otomatis mengabaikannya."], ["6. Simpan file dalam format .xlsx, lalu di halaman ini pilih bulan yang sesuai dan unggah file ini."], ["7. Import bersifat menimpa (upsert): jika karyawan+tanggal yang sama sudah ada jadwalnya,"], ["   jadwal lama akan digantikan dengan nilai baru dari file ini."], [""], ["Catatan:"], ["- Username yang tidak dikenali sistem akan dilewati (ditampilkan sebagai \"tidak cocok\")."], ["- Nama sheet boleh apa saja; sistem mencari sheet bernama \"Jadwal\" (tidak case-sensitive),"], ["  jika tidak ditemukan sistem memakai sheet pertama pada file."]];
+  const petunjuk = [["Template Import Jadwal Kerja — Presensi Piket"], [""], ["Cara pakai:"], ["1. Buka sheet \"Jadwal\". Kolom Username sudah otomatis diisi dari data karyawan saat ini."], ["2. Kolom \"Username\" harus PERSIS SAMA dengan username karyawan yang terdaftar di sistem."], ["3. Kolom \"No\" dan \"Nama Karyawan\" hanya untuk memudahkan membaca; sistem tidak membacanya"], ["   saat impor (hanya Username yang dipakai untuk mencocokkan karyawan)."], ["4. Kolom 1, 2, 3, ... 31 mewakili tanggal pada bulan yang akan diimpor. Isi tiap sel dengan"], ["   salah satu dari 3 jenis jadwal berikut (boleh kode huruf atau nama lengkap, tidak membedakan huruf besar/kecil):"], ["      - M  atau  Masuk              -> karyawan wajib presensi shift normal pada tanggal tsb"], ["      - P  atau  Piket Malam        -> karyawan wajib presensi shift piket malam (tanpa checkpoint patroli)"], ["      - S  atau  Standby On Call    -> karyawan standby on call / libur pada tanggal tsb (tidak dianggap alpha)"], ["   Kosongkan sel jika belum ada jadwal untuk tanggal tersebut."], ["5. Untuk bulan dengan kurang dari 31 hari (mis. Februari, April), biarkan kolom tanggal yang"], ["   melebihi jumlah hari di bulan itu tetap kosong — sistem otomatis mengabaikannya."], ["6. Simpan file dalam format .xlsx, lalu di halaman ini pilih bulan yang sesuai dan unggah file ini."], ["7. Import bersifat menimpa (upsert): jika karyawan+tanggal yang sama sudah ada jadwalnya,"], ["   jadwal lama akan digantikan dengan nilai baru dari file ini."], [""], ["Catatan:"], ["- Username yang tidak dikenali sistem akan dilewati (ditampilkan sebagai \"tidak cocok\")."], ["- Nama sheet boleh apa saja; sistem mencari sheet bernama \"Jadwal\" (tidak case-sensitive),"], ["  jika tidak ditemukan sistem memakai sheet pertama pada file."]];
   const wsPetunjuk = XLSX.utils.aoa_to_sheet(petunjuk);
   wsPetunjuk["!cols"] = [{
     wch: 100
@@ -13576,6 +13580,23 @@ function JadwalAdminPage() {
   const employees = useMemo(() => getUsers().filter(u => u.role === ROLES.EMPLOYEE), [store.users]);
   const todayStatus = useMemo(() => getTodayScheduleStatus(), [store.schedules, store.records, store.users]);
   const missingToday = todayStatus.filter(s => s.isMissing);
+  // Penanda "hari ini" di grid: kolom tanggal disorot + ringkasan siapa saja yang bertugas hari ini
+  const todayStr = todayDateStrWITA();
+  const todayDay = viewMonth === todayStr.slice(0, 7) ? Number(todayStr.slice(-2)) : null;
+  const todayGroups = useMemo(() => {
+    const g = {};
+    getSchedulesForDate(todayStr).forEach(sc => {
+      const u = employees.find(e => e.id === sc.userId);
+      if (u) (g[sc.type] = g[sc.type] || []).push(u.name);
+    });
+    return g;
+  }, [store.schedules, employees, todayStr]);
+  const gridWrapRef = useRef(null);
+  useEffect(() => {
+    const wrap = gridWrapRef.current;
+    const th = wrap && wrap.querySelector("[data-today='1']");
+    if (wrap && th) wrap.scrollLeft = Math.max(0, th.offsetLeft - wrap.clientWidth / 2 + th.offsetWidth / 2);
+  }, [viewMonth, employees.length]);
   const [y, m] = viewMonth.split("-").map(Number);
   const daysInMonth = new Date(y, m, 0).getDate();
   const dayList = useMemo(() => Array.from({
@@ -13696,7 +13717,7 @@ function JadwalAdminPage() {
       color: "var(--t-faint)",
       marginTop: 10
     }
-  }, "Kolom yang dibaca: ", /*#__PURE__*/React.createElement("strong", null, "Username"), " (harus sama dengan username karyawan) dan kolom tanggal ", /*#__PURE__*/React.createElement("strong", null, "1–31"), " berisi \"Masuk\", \"Piket Malam\", atau \"Standby\"."), error && /*#__PURE__*/React.createElement("div", {
+  }, "Kolom yang dibaca: ", /*#__PURE__*/React.createElement("strong", null, "Username"), " (harus sama dengan username karyawan) dan kolom tanggal ", /*#__PURE__*/React.createElement("strong", null, "1–31"), " berisi \"M\" (Masuk), \"P\" (Piket Malam), atau \"S\" (Standby On Call) \u2014 nama lengkapnya juga boleh."), error && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 12,
       background: "var(--red-soft)",
@@ -13853,7 +13874,58 @@ function JadwalAdminPage() {
       color: "var(--t-faint)",
       fontSize: 13
     }
-  }, "Belum ada data karyawan.") : /*#__PURE__*/React.createElement("div", {
+  }, "Belum ada data karyawan.") : /*#__PURE__*/React.createElement(React.Fragment, null, todayDay && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "var(--accent-50)",
+      border: "1px solid var(--accent-100)",
+      borderRadius: 12,
+      padding: "10px 12px",
+      marginBottom: 12,
+      display: "flex",
+      flexDirection: "column",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      fontWeight: 800,
+      color: "var(--accent-600)"
+    }
+  }, "Hari ini · ", new Date(todayStr + "T00:00:00").toLocaleDateString("id-ID", {
+    weekday: "long",
+    day: "numeric",
+    month: "long"
+  })), Object.keys(todayGroups).length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--t-muted)"
+    }
+  }, "Belum ada jadwal untuk hari ini.") : [SCHEDULE_TYPE.MASUK, SCHEDULE_TYPE.PIKET_MALAM, SCHEDULE_TYPE.OFF].filter(t => todayGroups[t]).map(t => /*#__PURE__*/React.createElement("div", {
+    key: t,
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      background: SCHEDULE_BADGE[t].bg,
+      color: SCHEDULE_BADGE[t].color,
+      fontSize: 11,
+      fontWeight: 700,
+      padding: "2px 8px",
+      borderRadius: 999,
+      whiteSpace: "nowrap"
+    }
+  }, displayStatusLabel(t), " (", todayGroups[t].length, ")"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--navy-900)",
+      fontWeight: 600
+    }
+  }, todayGroups[t].join(", "))))), /*#__PURE__*/React.createElement("div", {
+    ref: gridWrapRef,
     style: {
       overflowX: "auto"
     }
@@ -13875,14 +13947,26 @@ function JadwalAdminPage() {
     }
   }, "Karyawan"), dayList.map(d => /*#__PURE__*/React.createElement("th", {
     key: d,
+    "data-today": d === todayDay ? "1" : undefined,
     style: {
       padding: "6px 4px",
       fontSize: 10,
-      color: "var(--t-muted)",
+      color: d === todayDay ? "#fff" : "var(--t-muted)",
+      background: d === todayDay ? "var(--accent-600)" : undefined,
+      fontWeight: d === todayDay ? 800 : undefined,
+      borderRadius: d === todayDay ? "8px 8px 0 0" : undefined,
       borderBottom: "1px solid var(--line)",
-      minWidth: 30
+      minWidth: d === todayDay ? 38 : 30
     }
-  }, d)))), /*#__PURE__*/React.createElement("tbody", null, employees.map(u => {
+  }, d, d === todayDay && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 7,
+      fontWeight: 800,
+      lineHeight: 1,
+      letterSpacing: ".03em",
+      marginTop: 2
+    }
+  }, "HARI INI"))))), /*#__PURE__*/React.createElement("tbody", null, employees.map(u => {
     const scheds = getSchedulesForUserMonth(u.id, viewMonth);
     const byDay = {};
     scheds.forEach(s => {
@@ -13902,7 +13986,17 @@ function JadwalAdminPage() {
         whiteSpace: "nowrap",
         borderBottom: "1px solid var(--line)"
       }
-    }, u.name), dayList.map(d => {
+    }, todayDay && byDay[todayDay] && /*#__PURE__*/React.createElement("span", {
+      title: "Hari ini: " + displayStatusLabel(byDay[todayDay]),
+      style: {
+        display: "inline-block",
+        width: 8,
+        height: 8,
+        borderRadius: "50%",
+        marginRight: 6,
+        background: (SCHEDULE_BADGE[byDay[todayDay]] || SCHEDULE_BADGE[SCHEDULE_TYPE.OFF]).color
+      }
+    }), u.name), dayList.map(d => {
       const type = byDay[d];
       const s = type ? SCHEDULE_BADGE[type] || SCHEDULE_BADGE[SCHEDULE_TYPE.OFF] : null;
       return /*#__PURE__*/React.createElement("td", {
@@ -13910,7 +14004,9 @@ function JadwalAdminPage() {
         style: {
           textAlign: "center",
           padding: 2,
-          borderBottom: "1px solid var(--line)"
+          borderBottom: "1px solid var(--line)",
+          background: d === todayDay ? "var(--accent-50)" : undefined,
+          boxShadow: d === todayDay ? "inset 2px 0 0 var(--accent-600), inset -2px 0 0 var(--accent-600)" : undefined
         }
       }, /*#__PURE__*/React.createElement("div", {
         style: {
@@ -13918,6 +14014,7 @@ function JadwalAdminPage() {
           height: 24,
           margin: "0 auto",
           borderRadius: 6,
+          boxShadow: d === todayDay && type ? "0 0 0 2px var(--accent-600)" : undefined,
           background: s ? s.bg : "transparent",
           color: s ? s.color : "#c2c8d1",
           display: "flex",
@@ -13940,7 +14037,7 @@ function JadwalAdminPage() {
     type: SCHEDULE_TYPE.PIKET_MALAM
   }), " Piket Malam (P) \xA0", /*#__PURE__*/React.createElement(ScheduleBadge, {
     type: SCHEDULE_TYPE.OFF
-  }), " Standby (S)"))));
+  }), " Standby On Call (S)")))));
 }
 const TODAY_SCHEDULE_STYLE = {
   [SCHEDULE_TYPE.MASUK]: {
@@ -14295,7 +14392,7 @@ function PanduanPage() {
     }),
     React.createElement(GuideBadgeRow, {
       label: "Alpa", color: "var(--red)", bg: "var(--red-soft)",
-      desc: "Tidak ada presensi sama sekali pada hari yang seharusnya kerja (dijadwalkan Masuk/Piket Malam, atau hari kerja biasa Senin\u2013Jumat jika belum ada Jadwal). Tidak berlaku untuk hari Standby/libur."
+      desc: "Tidak ada presensi sama sekali pada hari yang seharusnya kerja (dijadwalkan Masuk/Piket Malam, atau hari kerja biasa Senin\u2013Jumat jika belum ada Jadwal). Tidak berlaku untuk hari Standby On Call/libur."
     }),
     React.createElement(GuideBadgeRow, {
       label: "Izin", color: "var(--violet)", bg: "var(--violet-soft)",
@@ -14303,12 +14400,64 @@ function PanduanPage() {
     }),
     React.createElement(GuideBadgeRow, {
       label: "Standby", color: "var(--navy-700)", bg: "var(--slate-mist)",
-      desc: "Hari libur sesuai Jadwal Kerja resmi (type = \"Standby\"), atau otomatis Sabtu/Minggu kalau belum ada Jadwal sama sekali untuk tanggal itu. Tidak pernah dihitung Alpa."
+      desc: "Hari Standby On Call (kode S) atau libur sesuai Jadwal Kerja resmi, atau otomatis Sabtu/Minggu kalau belum ada Jadwal sama sekali untuk tanggal itu. Tidak pernah dihitung Alpa."
     }),
     React.createElement("p", { style: { fontSize: 12.5, fontStyle: "italic", marginTop: 4 } },
-      "Prioritas: kalau ada Jadwal Kerja resmi untuk suatu tanggal, Jadwal itu yang menentukan (Masuk / Piket Malam / Standby) \u2014 bukan deteksi otomatis dari jam absen."),
+      "Prioritas: kalau ada Jadwal Kerja resmi untuk suatu tanggal, Jadwal itu yang menentukan (Masuk / Piket Malam / Standby On Call) \u2014 bukan deteksi otomatis dari jam absen."),
     React.createElement("p", { style: { fontSize: 12.5, fontStyle: "italic" } },
       "Status yang ditampilkan (Hadir/Terlambat/Piket Malam) selalu otomatis mengikuti Jadwal Kerja yang berlaku SEKARANG \u2014 kalau Jadwal untuk suatu tanggal diperbaiki belakangan (misalnya setelah orang itu sudah presensi), tampilan status ikut menyesuaikan sendiri tanpa perlu diedit manual.")
+  );
+
+  const jadwalSection = React.createElement(GuideSection, { icon: "calendar-days", title: "Jadwal Kerja: Kode, Grid & Import Excel" },
+    React.createElement("p", null, "Menu Jadwal Kerja menentukan siapa yang wajib masuk, piket malam, atau standby di tiap tanggal. Ada 3 jenis jadwal, masing-masing punya kode huruf:"),
+    React.createElement(GuideBadgeRow, {
+      label: "Masuk (M)", color: "var(--green)", bg: "var(--green-soft)",
+      desc: "Karyawan wajib presensi shift normal pada tanggal itu."
+    }),
+    React.createElement(GuideBadgeRow, {
+      label: "Piket Malam (P)", color: "var(--indigo)", bg: "var(--indigo-soft)",
+      desc: "Karyawan wajib presensi shift piket malam (tanpa checkpoint patroli)."
+    }),
+    React.createElement(GuideBadgeRow, {
+      label: "Standby On Call (S)", color: "var(--navy-700)", bg: "var(--slate-mist)",
+      desc: "Karyawan standby on call / libur pada tanggal itu. Tidak dihitung Alpa."
+    }),
+    React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Grid Jadwal Bulanan"),
+    React.createElement(GuideList, {
+      items: [
+        "Kolom tanggal hari ini disorot merah berlabel \"HARI INI\", dan grid otomatis bergeser ke kolom itu waktu dibuka.",
+        "Kotak ringkasan di atas grid menampilkan nama karyawan yang bertugas hari ini, dikelompokkan per jenis jadwal (Masuk, Piket Malam, Standby On Call).",
+        "Titik berwarna di samping nama karyawan menandakan dia punya jadwal hari ini: hijau = Masuk, ungu = Piket Malam, abu-abu = Standby On Call.",
+        "Penanda hari ini hanya muncul saat bulan yang ditampilkan adalah bulan berjalan."
+      ]
+    }),
+    React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Import dari Excel"),
+    React.createElement(GuideList, {
+      items: [
+        "Unduh template dari halaman Jadwal Kerja. Kolom Username harus PERSIS sama dengan username karyawan; kolom No dan Nama Karyawan hanya untuk memudahkan membaca.",
+        "Kolom 1\u201331 mewakili tanggal. Isi tiap sel dengan M, P, atau S \u2014 atau nama lengkapnya: Masuk, Piket Malam, Standby On Call. Huruf besar/kecil tidak dibedakan.",
+        "Isian lama tetap terbaca: Standby, Off, Libur (= Standby On Call) dan Hadir (= Masuk). Sel kosong berarti belum ada jadwal.",
+        "Import bersifat menimpa: kalau karyawan + tanggal yang sama sudah punya jadwal, jadwal lama diganti dengan isi file.",
+        "Setelah jadwal diimpor, status presensi yang sudah tersimpan dihitung ulang otomatis mengikuti jadwal yang baru."
+      ]
+    })
+  );
+
+  const tampilanSection = React.createElement(GuideSection, { icon: "palette", title: "Tema Gelap/Terang & Foto Profil Karyawan" },
+    React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Tema gelap / terang"),
+    React.createElement(GuideList, {
+      items: [
+        "Tekan ikon bulan/matahari untuk berganti tema: di halaman login (pojok kanan atas), di sidebar (laptop), atau di bilah atas (HP).",
+        "Pilihan tema tersimpan di perangkat masing-masing. Saat pertama kali dibuka, tema mengikuti pengaturan gelap/terang dari HP atau laptop."
+      ]
+    }),
+    React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Foto profil karyawan"),
+    React.createElement(GuideList, {
+      items: [
+        "Admin menambahkan foto lewat menu Karyawan \u2192 Tambah/Edit \u2192 Pilih Foto (bisa dari kamera atau galeri). Foto otomatis dipotong persegi dan dikecilkan; tombol Hapus mengembalikan ke inisial.",
+        "Foto tampil di kartu karyawan, sidebar, daftar presensi, daftar petugas aktif, pin dan popup di Peta Live Patroli, serta penanda posisi di peta patroli petugas. Tanpa foto, yang tampil tetap inisial nama."
+      ]
+    })
   );
 
   const attendanceScoreSection = React.createElement(GuideSection, { icon: "gauge", title: "Perhitungan Skor Kehadiran" },
@@ -14429,7 +14578,7 @@ function PanduanPage() {
     React.createElement("p", null, "Setiap hari yang tidak ada record presensinya dicek dulu ke Jadwal Kerja sebelum ditandai Alpa:"),
     React.createElement(GuideList, {
       items: [
-        "Ada Jadwal \"Standby\" untuk tanggal itu \u2192 ditandai \"Standby\", bukan Alpa.",
+        "Ada Jadwal \"Standby On Call\" untuk tanggal itu \u2192 ditandai \"Standby\", bukan Alpa.",
         "Ada Jadwal \"Masuk\"/\"Piket Malam\" tapi tidak ada presensi \u2192 Alpa.",
         "Belum ada Jadwal sama sekali \u2192 Sabtu/Minggu otomatis dianggap libur (bukan Alpa), Senin\u2013Jumat tanpa presensi dianggap Alpa.",
         "Sebelum tanggal karyawan bergabung (joinDate), atau tanggal hari ini/masa depan \u2192 tidak dihitung sama sekali."
@@ -14453,6 +14602,7 @@ function PanduanPage() {
     headerEl,
     ringkasanSection,
     statusSection,
+    jadwalSection,
     attendanceScoreSection,
     ritSection,
     autoPatrolSection,
@@ -14460,7 +14610,8 @@ function PanduanPage() {
     patrolScoreSection,
     teamScoreSection,
     settingsSection,
-    alphaSection
+    alphaSection,
+    tampilanSection
   );
 }
 
