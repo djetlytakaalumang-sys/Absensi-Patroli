@@ -97,7 +97,6 @@
 
 <!-- face-api.js — deteksi wajah real-time di kamera presensi, supaya foto yang diterima
      WAJIB berisi wajah manusia (bukan foto benda/lantai/langit/dsb). -->
-<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 
 <!-- Export Excel & PDF — dipakai hanya di beberapa halaman admin, dimuat belakangan (defer)
      supaya tidak ikut menahan proses buka aplikasi di awal -->
@@ -339,6 +338,15 @@ html,body{overflow-x:hidden; width:100%;}
   .login-glass-card{padding:28px 20px;}
 }
 
+/* ===== Mode ringan untuk HP/layar sentuh: kurangi beban GPU & memori (cegah crash iOS) ===== */
+@media (max-width:1023px), (pointer:coarse){
+  *, *::before, *::after{backdrop-filter:none !important; -webkit-backdrop-filter:none !important;}
+  body{background-attachment:scroll !important;
+    background-image:linear-gradient(rgba(255,255,255,.4),rgba(255,255,255,.4)), url('https://images.pexels.com/photos/691041/pexels-photo-691041.jpeg?auto=compress&cs=tinysrgb&w=800') !important;}
+  .login-glass-wrap{background-image:url('https://images.pexels.com/photos/691041/pexels-photo-691041.jpeg?auto=compress&cs=tinysrgb&w=800') !important;}
+  .login-glass-card{background:linear-gradient(160deg, rgba(255,255,255,.34), rgba(255,255,255,.16)) !important;}
+  .card{background:rgba(255,255,255,.9) !important;}
+}
 </style>
 </head>
 <body>
@@ -463,9 +471,13 @@ const db = firebase.firestore();
 // Cache offline: setelah pertama kali buka & berhasil sync, data tersimpan lokal di IndexedDB.
 // Buka berikutnya (mis. sinyal lemah di lapangan) bisa langsung render dari cache ini tanpa
 // menunggu round-trip network dulu, sambil tetap sinkron ke server begitu online.
-db.enablePersistence({ synchronizeTabs: true }).catch(err => {
-  console.warn("Firestore offline persistence tidak aktif:", err.code);
-});
+// Di iOS/Safari, IndexedDB persistence Firestore sering bikin halaman crash — dilewati di sana.
+const _isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+if (!_isIOS) {
+  db.enablePersistence({ synchronizeTabs: true }).catch(err => {
+    console.warn("Firestore offline persistence tidak aktif:", err.code);
+  });
+}
 
 /* ======================= TULIS FIRESTORE LEWAT NATIVE HTTP =======================
    Android membatasi (throttle) request jaringan yang berasal dari WebView setelah
@@ -2847,7 +2859,17 @@ function getSmoothedRouteCached(cache, rawLatlngs, opts = {}) {
 let _faceModelsPromise = null;
 function loadFaceModels() {
   if (!_faceModelsPromise) {
-    _faceModelsPromise = new Promise((resolve, reject) => {
+    // face-api.js (±1 MB + TensorFlow.js) sekarang dimuat LAZY — hanya saat kamera presensi dibuka —
+    // supaya halaman awal ringan & tidak crash di iPhone/HP RAM kecil.
+    const _loadScript = url => new Promise((res, rej) => {
+      const sc = document.createElement("script");
+      sc.src = url; sc.onload = res; sc.onerror = () => rej(new Error("gagal memuat " + url));
+      document.head.appendChild(sc);
+    });
+    _faceModelsPromise = (typeof faceapi !== "undefined" ? Promise.resolve() :
+      _loadScript("https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js")
+        .catch(() => _loadScript("https://unpkg.com/face-api.js@0.22.2/dist/face-api.min.js"))
+    ).then(() => new Promise((resolve, reject) => {
       if (typeof faceapi === "undefined") {
         reject(new Error("Modul deteksi wajah tidak berhasil dimuat."));
         return;
@@ -2856,7 +2878,7 @@ function loadFaceModels() {
         .loadFromUri("https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js/weights")
         .then(resolve)
         .catch(reject);
-    }).catch(err => {
+    })).catch(err => {
       _faceModelsPromise = null; // izinkan dicoba ulang kalau gagal (mis. offline)
       throw err;
     });
