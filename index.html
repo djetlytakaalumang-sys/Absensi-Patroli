@@ -8,6 +8,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#e4142b" />
+<script>(function(){try{var t=localStorage.getItem("app_theme");if(!t)t=(window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light";document.documentElement.setAttribute("data-theme",t);if(t==="dark"){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content","#14101a")}}catch(e){document.documentElement.setAttribute("data-theme","light")}})();</script>
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -347,6 +348,25 @@ html,body{overflow-x:hidden; width:100%;}
   .login-glass-card{background:linear-gradient(160deg, rgba(255,255,255,.34), rgba(255,255,255,.16)) !important;}
   .card{background:rgba(255,255,255,.9) !important;}
 }
+/* ===== TEMA GELAP (html[data-theme="dark"]) ===== */
+html[data-theme="dark"]{color-scheme:dark;
+  --navy-950:#14101a; --navy-900:#f3eef1; --navy-800:#d9d0d5; --navy-700:#b8adb3; --navy-600:#8f848b;
+  --navy-100:rgba(38,32,44,.9); --navy-50:#ffffff0d; --slate-mist:#ffffff0f; --line:#ffffff1f;
+  --accent-100:#ef233838; --accent-50:#ef23381f;
+  --green-soft:#0f2e22; --amber-soft:#35260d; --red-soft:#3b161b; --violet-soft:#2a1b44; --indigo-soft:#1d2142;
+  --page-bg:#14101a;}
+html[data-theme="dark"] body{background-color:#14101a !important; background-image:linear-gradient(rgba(14,10,18,.84),rgba(14,10,18,.84)), url('https://images.pexels.com/photos/691041/pexels-photo-691041.jpeg?auto=compress&cs=tinysrgb&w=800') !important;}
+html[data-theme="dark"] .card{background:linear-gradient(160deg, rgba(44,37,52,.86), rgba(32,27,40,.78)) !important; border-color:rgba(255,255,255,.1) !important;}
+html[data-theme="dark"] .sidebar-rail, html[data-theme="dark"] .sidebar-panel{background:rgba(20,16,26,.88) !important;}
+html[data-theme="dark"] .topbar-mobile{background:rgba(20,16,26,.94) !important;}
+html[data-theme="dark"] .bottomnav-mobile{background:rgba(20,16,26,.96) !important;}
+html[data-theme="dark"] .modal-overlay{background:rgba(0,0,0,.72);}
+html[data-theme="dark"] .modal-box{border-color:rgba(255,255,255,.12) !important;}
+html[data-theme="dark"] thead tr{background:rgba(255,255,255,.05);}
+html[data-theme="dark"] [style*="background: rgb(255, 255, 255)"]:not([style*="border-radius: 999px"]), html[data-theme="dark"] [style*="background: rgb(248, 250, 252)"]{background:#2a232f !important;}
+html[data-theme="dark"] .leaflet-control-zoom a{background:#2a232f !important;}
+html[data-theme="dark"] .leaflet-container .leaflet-control-attribution{background:rgba(20,16,26,.75) !important; color:#b8adb3 !important;}
+html[data-theme="dark"] .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.9);}
 </style>
 </head>
 <body>
@@ -3582,6 +3602,23 @@ function lucideNodeToSvgString(node, overrideAttrs) {
   const childStr = children.map(child => lucideNodeToSvgString(child)).join("");
   return `<${tag} ${attrStr}>${childStr}</${tag}>`;
 }
+// ===== Tema gelap/terang =====
+function applyTheme(t) {
+  document.documentElement.setAttribute("data-theme", t);
+  try { localStorage.setItem("app_theme", t); } catch (e) {}
+  const m = document.querySelector('meta[name="theme-color"]');
+  if (m) m.setAttribute("content", t === "dark" ? "#14101a" : "#e4142b");
+}
+function ThemeToggle({ className = "sidebar-rail-item", style, size = 18 }) {
+  const [theme, setTheme] = useState(() => document.documentElement.getAttribute("data-theme") || "light");
+  const next = theme === "dark" ? "light" : "dark";
+  return React.createElement("button", {
+    type: "button", className, style,
+    title: next === "dark" ? "Tema gelap" : "Tema terang",
+    "aria-label": next === "dark" ? "Ganti ke tema gelap" : "Ganti ke tema terang",
+    onClick: () => { applyTheme(next); setTheme(next); }
+  }, React.createElement(Icon, { name: theme === "dark" ? "sun" : "moon", size }));
+}
 function Icon({
   name,
   size = 18,
@@ -3974,18 +4011,24 @@ function PatrolMap({
     const latlng = [position.lat, position.lng];
     const prevPt = path.length > 1 ? path[path.length - 2] : null;
     const heading = prevPt ? bearingDeg(prevPt.lat, prevPt.lng, position.lat, position.lng) : 0;
+    // Foto profil petugas yang sedang login (kalau ada): tampil di tengah panah arah, panah tetap berputar
+    const _sess = getSession();
+    const _me = _sess && getUserById(_sess.userId);
+    const _photo = _me && _me.photo && String(_me.photo).indexOf("data:image/") === 0 ? _me.photo : null;
+    const _sz = _photo ? 44 : 34;
     const icon = window.L.divIcon({
       className: "",
-      html: `<div style="position:relative;width:34px;height:34px;">
+      html: `<div style="position:relative;width:${_sz}px;height:${_sz}px;">
         <div style="position:absolute;inset:-2px;border-radius:50%;border:2px solid #ef2338;animation:nit-marker-pulse 1.8s ease-out infinite;"></div>
         <div style="position:absolute;inset:0;transform:rotate(${heading}deg);transition:transform .8s ease;filter:drop-shadow(0 2px 3px rgba(0,0,0,.35));">
-          <svg width="34" height="34" viewBox="0 0 34 34">
+          <svg width="${_sz}" height="${_sz}" viewBox="0 0 34 34">
             <path d="M17 2.5 L28.5 30 L17 23.5 L5.5 30 Z" fill="#ef2338" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"/>
           </svg>
         </div>
+        ${_photo ? `<img src="${_photo}" alt="" style="position:absolute;left:10px;top:10px;width:24px;height:24px;border-radius:50%;object-fit:cover;border:2px solid #fff;box-sizing:content-box;margin:-2px 0 0 -2px;box-shadow:0 1px 4px rgba(0,0,0,.4);">` : ""}
       </div>`,
-      iconSize: [34, 34],
-      iconAnchor: [17, 17]
+      iconSize: [_sz, _sz],
+      iconAnchor: [_sz / 2, _sz / 2]
     });
     if (!liveMarkerRef.current) {
       liveMarkerRef.current = window.L.marker(latlng, {
@@ -5730,7 +5773,10 @@ function LoginPage() {
   }
   return /*#__PURE__*/React.createElement("div", {
     className: "login-glass-wrap"
-  }, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(ThemeToggle, {
+    className: "",
+    style: { position: "absolute", top: "calc(12px + env(safe-area-inset-top))", right: 14, zIndex: 5, color: "#fff", background: "rgba(255,255,255,.2)", border: "1px solid rgba(255,255,255,.4)", borderRadius: 999, padding: 10, display: "flex" }
+  }), /*#__PURE__*/React.createElement("div", {
     className: "login-glass-card fade-up"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex",
@@ -5919,7 +5965,7 @@ function Sidebar({
     style: {
       flex: 1
     }
-  }), /*#__PURE__*/React.createElement("button", {
+  }), /*#__PURE__*/React.createElement(ThemeToggle, {}), /*#__PURE__*/React.createElement("button", {
     onClick: onLogout,
     title: "Keluar",
     className: "sidebar-rail-item"
@@ -6164,7 +6210,12 @@ function Sidebar({
     }
   }, /*#__PURE__*/React.createElement(LogoMark, {
     size: 64
-  })), /*#__PURE__*/React.createElement("button", {
+  })), /*#__PURE__*/React.createElement("div", {
+    style: { display: "flex", alignItems: "center", gap: 12 }
+  }, /*#__PURE__*/React.createElement(ThemeToggle, {
+    className: "",
+    style: { color: "var(--navy-700)", padding: 4 }
+  }), /*#__PURE__*/React.createElement("button", {
     onClick: onLogout,
     "aria-label": "Keluar",
     style: {
@@ -6174,7 +6225,7 @@ function Sidebar({
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "log-out",
     size: 18
-  }))), /*#__PURE__*/React.createElement("nav", {
+  })))), /*#__PURE__*/React.createElement("nav", {
     className: "bottomnav-mobile"
   }, flatItems.map(item => /*#__PURE__*/React.createElement("button", {
     key: item.key,
