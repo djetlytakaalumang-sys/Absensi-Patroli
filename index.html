@@ -377,6 +377,17 @@ html[data-theme="dark"] [style*="background: rgb(255, 255, 255)"]:not([style*="b
 html[data-theme="dark"] .leaflet-control-zoom a{background:#2a232f !important;}
 html[data-theme="dark"] .leaflet-container .leaflet-control-attribution{background:rgba(20,16,26,.75) !important; color:#b8adb3 !important;}
 html[data-theme="dark"] .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.9);}
+/* ===== Layout desktop penuh (100%) & form rapi ===== */
+@media (min-width:1024px){
+  .container-app, .container-lg{max-width:2200px; padding-left:clamp(20px,2.4vw,44px); padding-right:clamp(20px,2.4vw,44px);}
+  .container-md{max-width:1040px;}
+}
+@media (min-width:1700px){ .grid-cards{grid-template-columns:repeat(5,1fr);} }
+@media (min-width:760px){
+  .modal-box.form-modal{max-width:760px !important;}
+  .form-modal .form-grid{display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px 18px !important;}
+  .form-modal .form-grid > .fg-full{grid-column:1 / -1;}
+}
 </style>
 </head>
 <body>
@@ -767,6 +778,36 @@ async function initFirestore() {
       return todayDateStrWITA(cutoff);
     })())
   }];
+  // ===== HP: MUAT BERTAHAP =====
+  // Koleksi berat (presensi+selfie, izin+lampiran, kejadian+foto, patroli+jalur GPS) TIDAK lagi
+  // diunduh sebelum halaman login tampil. Di HP, yang menahan login hanya data ringan (karyawan,
+  // jadwal, checkpoint, pengaturan); data berat baru dipasang SETELAH login, satu per satu.
+  const HEAVY_KEYS = new Set(["records", "leaves", "patrols", "kejadian", "loginLogs", "checkpointPasses"]);
+  const gatedSpecs = _isPhone ? listenerSpecs.filter(x => !HEAVY_KEYS.has(x.key)) : listenerSpecs;
+  const deferredSpecs = _isPhone ? listenerSpecs.filter(x => HEAVY_KEYS.has(x.key)) : [];
+  const _deferredFirst = new Set();
+  let _resolveCore;
+  const _deferredCoreReady = new Promise(r => { _resolveCore = r; });
+  function attachDeferred({ key, ref }) {
+    let isFirst = true, retryDelay = 3000;
+    function subscribe() {
+      ref.onSnapshot(snap => {
+        applySnapshot(key, snap);
+        retryDelay = 3000;
+        if (isFirst) {
+          isFirst = false;
+          _deferredFirst.add(key);
+          if (_deferredFirst.has("records") && _deferredFirst.has("patrols")) _resolveCore();
+        }
+        _notifyStore();
+      }, err => {
+        console.warn(`Listener "${key}" terputus (${err.message}) — mencoba sambung ulang dalam ${Math.round(retryDelay / 1000)} detik…`);
+        setTimeout(subscribe, retryDelay);
+        retryDelay = Math.min(retryDelay * 2, 60000);
+      });
+    }
+    subscribe();
+  }
   function applySnapshot(key, snap) {
     const docs = snap.docs.map(d => d.data());
     if (key === "checkpoints") {
@@ -829,6 +870,9 @@ async function initFirestore() {
     // (offset 0) — kalau kebetulan jam/tanggal HP itu ngaco, sesi presensi/patroli hari
     // ini bisa keliru dianggap "sisa kemarin" lalu ditutup paksa padahal belum selesai.
     await syncServerTime();
+    // HP: presensi/patroli baru dimuat setelah login — tunggu dulu supaya auto-close & reconcile
+    // bekerja dengan data yang lengkap (bukan store kosong).
+    if (_isPhone) await _deferredCoreReady;
     autoCloseStaleAttendance();
     autoCloseStalePatrols();
     reconcileRecordStatuses().catch(err => console.warn("Auto-reconcile gagal saat startup", err));
@@ -853,7 +897,7 @@ async function initFirestore() {
   // jaringan penuh untuk 9 listener sekaligus. Kalau gagal total (mis. baru install pertama
   // kali, belum pernah ada cache sama sekali), cacheHit tetap false dan app jatuh balik ke
   // perilaku lama: menunggu listener live beneran konek ke server (lihat TAHAP 2 di bawah).
-  const cacheResults = await Promise.allSettled(listenerSpecs.map(({
+  const cacheResults = await Promise.allSettled(gatedSpecs.map(({
     ref
   }) => ref.get({
     source: "cache"
@@ -861,7 +905,7 @@ async function initFirestore() {
   let cacheHit = false;
   cacheResults.forEach((result, i) => {
     if (result.status === "fulfilled" && !result.value.empty) {
-      applySnapshot(listenerSpecs[i].key, result.value);
+      applySnapshot(gatedSpecs[i].key, result.value);
       cacheHit = true;
     }
   });
@@ -880,7 +924,7 @@ async function initFirestore() {
   // TAHAP 2 — LISTENER LIVE: SELALU dipasang (baik cache hit maupun tidak), supaya data
   // di-update ke versi terbaru begitu server benar-benar terhubung.
   const liveReady = new Promise((resolveReady, rejectReady) => {
-    let pending = listenerSpecs.length + 1; // +1 untuk dokumen settings
+    let pending = gatedSpecs.length + 1; // +1 untuk dokumen settings
     let settled = false;
     function markDone() {
       pending -= 1;
@@ -895,7 +939,7 @@ async function initFirestore() {
         rejectReady(err);
       }
     }
-    listenerSpecs.forEach(({
+    gatedSpecs.forEach(({
       key,
       ref
     }) => {
@@ -946,6 +990,18 @@ async function initFirestore() {
     }
     subscribeSettings();
   });
+  if (deferredSpecs.length) {
+    let started = false;
+    const tryStart = () => {
+      if (started || !getSession()) return;
+      started = true;
+      clearInterval(iv);
+      deferredSpecs.forEach((sp, i) => setTimeout(() => attachDeferred(sp), i * 400));
+      setTimeout(() => _resolveCore(), 45000 + deferredSpecs.length * 400); // jaga-jaga
+    };
+    const iv = setInterval(tryStart, 400);
+    tryStart();
+  }
 
   if (cacheHit) {
     // Data cache sudah cukup untuk render — jangan tunggu jaringan lagi, biarkan App()
@@ -964,7 +1020,11 @@ async function initFirestore() {
   // menunggu listener live beneran konek ke server dulu sebelum boleh render.
   await liveReady;
   store.ready = true;
-  await runOneTimeInitTasks();
+  if (_isPhone) {
+    runOneTimeInitTasks().catch(err => console.warn("Tugas awal gagal:", err));
+  } else {
+    await runOneTimeInitTasks();
+  }
 }
 
 /* ======================= WAKTU SERVER TERPERCAYA (ANTI MANIPULASI JAM) =======================
@@ -2643,11 +2703,17 @@ function getEffectiveRecordsForUserMonth(userId, userName, monthKey) {
   const user = getUserById(userId);
   const joinDate = user && user.joinDate ? user.joinDate : null;
   const synthetic = [];
+  // Data presensi live hanya dimuat sejak LIVE_RECORD_DAYS hari terakhir (HP: 7 hari). Tanggal yang
+  // lebih lama dari itu dan bulannya belum diunduh (oldRecordsCache) BELUM DIKETAHUI statusnya,
+  // jadi jangan ditebak "Alpa" — nanti salah menandai orang yang sebenarnya sudah presensi.
+  const liveFromStr = todayDateStrWITA(new Date(Date.now() - LIVE_RECORD_DAYS * 24 * 60 * 60 * 1000));
+  const monthLoaded = !!oldRecordsCache[monthKey];
   for (let day = 1; day <= daysInMonth; day++) {
     const dateStr = `${monthKey}-${String(day).padStart(2, "0")}`;
     if (dateStr >= todayStr) break;
     if (joinDate && dateStr < joinDate) continue;
     if (realDates.has(dateStr)) continue;
+    if (!monthLoaded && dateStr < liveFromStr) continue;
     const sch = getScheduleFor(userId, dateStr);
     if (sch) {
       // Ada jadwal resmi: "Off" tidak pernah dihitung Alpa; "Masuk"/"Piket Malam" tanpa presensi = Alpa.
@@ -3046,20 +3112,25 @@ function useCamera() {
     setFacingMode(next);
     await start(next);
   }, [facingMode, start]);
-  const capture = useCallback(() => {
+  // Ukuran foto sengaja kecil: foto disimpan sebagai teks base64 di dokumen Firestore, dan semua
+  // dokumen itu diunduh tiap kali aplikasi dibuka. Selfie 320px/q0.65 ≈ 4x lebih kecil dari
+  // 480px/q0.85 sebelumnya, tapi wajah tetap jelas & lolos deteksi wajah (inputSize 224).
+  const capture = useCallback(opts => {
     if (!videoRef.current) return null;
     const video = videoRef.current;
     const size = Math.min(video.videoWidth, video.videoHeight);
+    const outPx = opts && opts.size || 320;
+    const outQuality = opts && opts.quality || 0.65;
     const canvas = document.createElement("canvas");
-    canvas.width = 480;
-    canvas.height = 480;
+    canvas.width = outPx;
+    canvas.height = outPx;
     const ctx = canvas.getContext("2d");
     const sx = (video.videoWidth - size) / 2,
       sy = (video.videoHeight - size) / 2;
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, sx, sy, size, size, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/jpeg", 0.85);
+    return canvas.toDataURL("image/jpeg", outQuality);
   }, []);
 
   // Validasi ulang hasil foto yang sudah diambil — memastikan benar-benar ada wajah di dalamnya
@@ -4791,7 +4862,7 @@ function CameraCaptureModal({
   }, []);
   async function handleCapture() {
     if (requireFace && (!faceDetected || verifying)) return; // wajib ada wajah sebelum boleh ambil foto
-    const dataUrl = capture();
+    const dataUrl = capture(requireFace ? { size: 320, quality: 0.65 } : { size: 480, quality: 0.65 });
     if (!dataUrl) return;
     stop();
     if (!requireFace) {
@@ -7135,7 +7206,7 @@ function readFileAsDataURL(file) {
 }
 // Kompres gambar (foto lampiran izin/cuti, mis. foto surat dokter) sebelum disimpan sbg base64 —
 // foto langsung dari kamera HP modern bisa beberapa MB, padahal tiap dokumen Firestore dibatasi ~1MB.
-function compressImageFile(file, maxDim = 1280, quality = 0.75) {
+function compressImageFile(file, maxDim = 1024, quality = 0.65) {
   return new Promise((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
     const img = new Image();
@@ -9866,7 +9937,7 @@ function AvatarPhotoPicker({ name, color, value, onChange }) {
     catch (ex) { setErr(ex.message || "Gagal memproses foto."); }
     finally { setBusy(false); }
   }
-  return h("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 8 } },
+  return h("div", { className: "fg-full", style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 8 } },
     h(Avatar, { name: name || "?", color: color || "#1E3A5F", size: 84, src: value || undefined, noLookup: true }),
     h("div", { style: { display: "flex", gap: 8 } },
       h("button", { type: "button", className: "btn btn-outline btn-sm", disabled: busy, onClick: () => inputRef.current && inputRef.current.click() },
@@ -9950,7 +10021,7 @@ function EmployeeFormModal({
     className: "modal-backdrop",
     onClick: onClose
   }, /*#__PURE__*/React.createElement("div", {
-    className: "modal-box fade-up",
+    className: "modal-box form-modal fade-up",
     style: {
       maxWidth: 440
     },
@@ -9983,6 +10054,7 @@ function EmployeeFormModal({
     name: "x",
     size: 20
   }))), /*#__PURE__*/React.createElement("div", {
+    className: "form-grid",
     style: {
       padding: 20,
       display: "flex",
@@ -9990,6 +10062,7 @@ function EmployeeFormModal({
       gap: 14
     }
   }, error && /*#__PURE__*/React.createElement("div", {
+    className: "fg-full",
     style: {
       background: "var(--red-soft)",
       color: "var(--red)",
@@ -10072,7 +10145,9 @@ function EmployeeFormModal({
     value: form.phone,
     onChange: e => update("phone", e.target.value),
     placeholder: "cth. 0812-3456-7890"
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "fg-full"
+  }, /*#__PURE__*/React.createElement("label", {
     className: "label"
   }, "Alamat ", /*#__PURE__*/React.createElement("span", {
     style: {
