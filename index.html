@@ -383,6 +383,17 @@ html[data-theme="dark"] .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) b
   .container-md{max-width:1040px;}
 }
 @media (min-width:1700px){ .grid-cards{grid-template-columns:repeat(5,1fr);} }
+main{min-width:0; max-width:100%;}
+/* Sidebar: menu bisa di-scroll sendiri kalau layar pendek; profil tetap menempel di bawah */
+.sidebar{height:100vh; height:100dvh; max-height:100vh; max-height:100dvh;}
+.sidebar-panel{min-height:0; overflow:hidden;}
+.sidebar-panel > nav{min-height:0; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:rgba(120,110,116,.35) transparent;}
+.sidebar-panel > nav::-webkit-scrollbar{width:6px;}
+.sidebar-panel > nav::-webkit-scrollbar-thumb{background:rgba(120,110,116,.35); border-radius:6px;}
+.sidebar-panel > :first-child, .sidebar-panel > :last-child{flex-shrink:0;}
+.sidebar-rail{min-height:0; overflow-y:auto; scrollbar-width:none;}
+.sidebar-rail::-webkit-scrollbar{display:none;}
+@media (min-width:1100px){ .kejadian-list{display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start;} }
 @media (min-width:760px){
   .modal-box.form-modal{max-width:760px !important;}
   .form-modal .form-grid{display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px 18px !important;}
@@ -12168,6 +12179,7 @@ function KejadianPage() {
       fontSize: 14
     }
   }, "Tidak ada laporan pada kategori ini.")) : /*#__PURE__*/React.createElement("div", {
+    className: "kejadian-list",
     style: {
       display: "flex",
       flexDirection: "column",
@@ -12258,9 +12270,12 @@ function KejadianPage() {
         fontSize: 13,
         color: "var(--t-muted)",
         marginTop: 10,
-        whiteSpace: expanded ? "pre-wrap" : "nowrap",
+        whiteSpace: expanded ? "pre-wrap" : "normal",
         overflow: expanded ? "visible" : "hidden",
-        textOverflow: "ellipsis"
+        display: expanded ? "block" : "-webkit-box",
+        WebkitLineClamp: expanded ? undefined : 2,
+        WebkitBoxOrient: "vertical",
+        overflowWrap: "anywhere"
       }
     }, k.note), expanded && /*#__PURE__*/React.createElement("div", {
       style: {
