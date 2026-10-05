@@ -725,18 +725,7 @@ const _storeListeners = new Set();
 function _notifyStore() {
   _storeListeners.forEach(fn => fn());
 }
-let _initPromise = null;
-function initFirestore() {
-  if (store.ready) return Promise.resolve();
-  if (!_initPromise) {
-    _initPromise = _initFirestoreOnce().catch(err => {
-      _initPromise = null;
-      throw err;
-    });
-  }
-  return _initPromise;
-}
-async function _initFirestoreOnce() {
+async function initFirestore() {
   if (store.ready) return;
   // Catatan performa: sebelumnya di sini data diambil 2x saat startup —
   // sekali lewat `.get()`, lalu sekali lagi lewat `onSnapshot` (yang otomatis
@@ -4710,14 +4699,12 @@ function AuthProvider({
     // "Menghubungkan ke server..." tanpa pesan apa pun. Timeout di bawah ini memastikan
     // setelah beberapa detik, kalau belum juga selesai, pengguna diberi tahu (bukan dibiarkan
     // menunggu tanpa kepastian) supaya bisa cek koneksi / coba lagi.
-    const TIMEOUT_MS = _isPhone ? 30000 : 15000;
+    const TIMEOUT_MS = 15000;
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`Koneksi ke server timeout (${TIMEOUT_MS / 1000} detik). Periksa koneksi internet perangkat Anda, lalu coba lagi.`)), TIMEOUT_MS);
+      setTimeout(() => reject(new Error("Koneksi ke server timeout (15 detik). Periksa koneksi internet perangkat Anda, lalu coba lagi.")), TIMEOUT_MS);
     });
-    const initP = initFirestore();
-    Promise.race([initP, timeoutPromise]).then(() => {
+    Promise.race([initFirestore(), timeoutPromise]).then(() => {
       if (cancelled) return;
-      setInitError(null);
       const session = getSession();
       if (session && session.userId) {
         const u = getUserById(session.userId);
@@ -4737,11 +4724,6 @@ function AuthProvider({
       console.error("Firebase init error:", err);
       setInitError(err.message || "Gagal terhubung ke server. Periksa konfigurasi Firebase.");
       setLoading(false);
-      // Koneksi lambat: percobaan yang sama masih berjalan di latar belakang — begitu akhirnya
-      // tersambung, lanjut otomatis tanpa perlu menekan "Coba lagi" berkali-kali.
-      initP.then(() => {
-        if (!cancelled) setInitRetryCount(c => c + 1);
-      }).catch(() => {});
     });
     return () => {
       cancelled = true;
