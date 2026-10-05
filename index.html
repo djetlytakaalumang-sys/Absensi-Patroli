@@ -531,6 +531,9 @@ const _isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platfo
 // Di HP, jendela data live dipersempit; bulan lama tetap diambil sekali-ambil saat dibuka
 // (ensureRecordsForMonthLoaded). Desktop tidak berubah (90/60 hari).
 const _isPhone = _isIOS || /Android|Mobile/i.test(navigator.userAgent);
+// Di HP, daftar rit (checkpointPasses) dimuat SETELAH login. Sebelum selesai, jangan catat rit baru:
+// aturan anti-ganda bergantung pada daftar itu.
+let _cpPassesLoaded = !_isPhone;
 const LIVE_RECORD_DAYS = _isPhone ? 7 : 90;
 const LIVE_PATROL_DAYS = _isPhone ? 7 : 60;
 const LIVE_CP_DAYS = _isPhone ? 7 : 90;
@@ -807,6 +810,7 @@ async function initFirestore() {
         retryDelay = 3000;
         if (isFirst) {
           isFirst = false;
+          if (key === "checkpointPasses") _cpPassesLoaded = true;
           _deferredFirst.add(key);
           if (_deferredFirst.has("records") && _deferredFirst.has("patrols")) _resolveCore();
         }
@@ -1009,6 +1013,7 @@ async function initFirestore() {
       clearInterval(iv);
       deferredSpecs.forEach((sp, i) => setTimeout(() => attachDeferred(sp), i * 400));
       setTimeout(() => _resolveCore(), 45000 + deferredSpecs.length * 400); // jaga-jaga
+      setTimeout(() => { _cpPassesLoaded = true; }, 25000); // jaga-jaga kalau listener rit gagal tersambung
     };
     const iv = setInterval(tryStart, 400);
     tryStart();
@@ -1394,6 +1399,42 @@ async function deleteUser(id) {
 // Hapus permanen sesi patroli yang userId-nya sudah tidak ada di daftar user (data lama
 // dari sebelum deleteUser() ikut membersihkan koleksi PATROLS). Dipakai oleh tombol
 // "Bersihkan Data Orphan" di halaman Peta Live Patroli.
+// Rit "ganda berurutan": per petugas per hari, lintasan yang BERTURUT-TURUT di checkpoint yang sama
+// (tanpa checkpoint lain di antaranya). Rit PERTAMA di tiap rangkaian dipertahankan, sisanya dianggap ganda.
+function findConsecutiveDuplicatePasses(dateFrom, dateTo) {
+  const groups = {};
+  store.checkpointPasses.forEach(p => {
+    if (p.date >= dateFrom && p.date <= dateTo) (groups[p.userId + "|" + p.date] = groups[p.userId + "|" + p.date] || []).push(p);
+  });
+  const dups = [];
+  Object.values(groups).forEach(list => {
+    list.sort((a, b) => a.time < b.time ? -1 : 1);
+    let kept = null;
+    list.forEach(p => {
+      if (kept && kept.checkpointId === p.checkpointId) dups.push(p);else kept = p;
+    });
+  });
+  return dups;
+}
+async function deleteCheckpointPasses(passes) {
+  if (!passes.length) return 0;
+  const ids = new Set(passes.map(p => p.id));
+  const previous = store.checkpointPasses;
+  store.checkpointPasses = store.checkpointPasses.filter(p => !ids.has(p.id));
+  _notifyStore();
+  try {
+    for (let i = 0; i < passes.length; i += 400) {
+      const batch = db.batch();
+      passes.slice(i, i + 400).forEach(p => batch.delete(db.collection(COL.CHECKPOINT_PASSES).doc(p.id)));
+      await withTimeout(batch.commit(), 30000, "Gagal menghapus rit ganda dari server");
+    }
+    return passes.length;
+  } catch (err) {
+    store.checkpointPasses = previous;
+    _notifyStore();
+    throw err;
+  }
+}
 async function cleanupOrphanPatrols() {
   const orphans = store.patrols.filter(p => !getUserById(p.userId));
   if (orphans.length === 0) return 0;
@@ -1748,6 +1789,30 @@ function getRitRecapMonthly(monthStr) {
 function generateCheckpointPassId() {
   return "cpp-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
+// Rit terakhir per petugas per hari juga disimpan di HP (localStorage). Aturan "checkpoint yang sama
+// tidak boleh dihitung dua kali berturut-turut" jadi tetap berlaku walau aplikasi dimuat ulang /
+// di-kill sistem / daftar rit dari server belum sempat terisi (penyebab rit ganda di checkpoint yang sama).
+function _localRitKey(userId, dateStr) {
+  return "lastRit:" + userId + ":" + dateStr;
+}
+function _getLocalLastRit(userId, dateStr) {
+  try {
+    return JSON.parse(localStorage.getItem(_localRitKey(userId, dateStr)));
+  } catch (e) {
+    return null;
+  }
+}
+function _setLocalLastRit(userId, dateStr, value) {
+  try {
+    localStorage.setItem(_localRitKey(userId, dateStr), JSON.stringify(value));
+  } catch (e) {}
+}
+function lastRitCheckpointId(userId, dateStr) {
+  const a = getLastCheckpointPassForUserOnDate(userId, dateStr);
+  const b = _getLocalLastRit(userId, dateStr);
+  if (a && b) return b.time > a.time ? b.checkpointId : a.checkpointId;
+  return (a || b || {}).checkpointId || null;
+}
 function recordCheckpointPass(user, checkpoint, lat, lng) {
   // Pakai jam SERVER terpercaya (bukan new Date() polos dari device), konsisten dengan
   // pencatatan jam presensi lain — supaya tanggal & waktu rit tidak bisa dipalsukan dengan
@@ -1766,6 +1831,7 @@ function recordCheckpointPass(user, checkpoint, lat, lng) {
     lng
   };
   store.checkpointPasses = [pass, ...store.checkpointPasses];
+  _setLocalLastRit(user.id, pass.date, { checkpointId: checkpoint.id, time: pass.time });
   // Pakai jalur native (CapacitorHttp) — sama seperti perbaikan update lokasi patroli
   // sebelumnya — supaya pencatatan rit checkpoint TIDAK ikut kena batasan Android yang
   // menghentikan request jaringan dari WebView setelah ~5 menit app di background. Kalau
@@ -10715,11 +10781,13 @@ function PatrolTracker({
             return;
           }
           clockSkewWarnedRef.current = false;
+          // HP: daftar rit belum selesai dimuat -> belum aman menghitung. Jangan tandai "sudah di dalam"
+          // dulu supaya dicoba lagi di update posisi berikutnya.
+          if (!_cpPassesLoaded) return;
           insideCheckpointRef.current[cp.id] = true;
           // Ambil rit TERAKHIR hari ini langsung dari catatan asli (bukan field sekunder di sesi) —
           // supaya tetap akurat walau ada jeda panjang / HP sempat restart di tengah sesi.
-          const lastPassToday = getLastCheckpointPassForUserOnDate(user.id, todayDateStrWITA(getTrustedNow()));
-          if (lastPassToday && lastPassToday.checkpointId === cp.id) {
+          if (lastRitCheckpointId(user.id, todayDateStrWITA(getTrustedNow())) === cp.id) {
             // Checkpoint yang sama dengan rit terakhir — belum mampir ke checkpoint lain, jangan dihitung.
             return;
           }
@@ -14572,7 +14640,8 @@ function PanduanPage() {
     React.createElement(GuideList, {
       items: [
         "Per Tanggal \u2014 total CP tiap karyawan pada 1 hari tertentu, bisa difilter per checkpoint.",
-        "Per Bulan \u2014 total CP tiap karyawan sepanjang bulan, dipecah per checkpoint, dengan rincian per tanggal yang bisa dibuka (expand)."
+        "Per Bulan \u2014 total CP tiap karyawan sepanjang bulan, dipecah per checkpoint, dengan rincian per tanggal yang bisa dibuka (expand).",
+        "Tombol \"Lihat detail\" menampilkan urutan lintasan beserta jamnya. Kalau filter checkpoint sedang dipilih, daftar itu HANYA berisi lintasan checkpoint yang difilter (nomor #1, #2, \u2026 dihitung ulang untuk checkpoint itu saja). Klik \"Reset filter\" untuk melihat urutan lengkap semua checkpoint."
       ]
     }),
     React.createElement("p", { style: { fontWeight: 600, color: "var(--navy-900)", marginTop: 4 } }, "Aturan anti-curang:"),
@@ -14580,7 +14649,29 @@ function PanduanPage() {
       items: [
         "Checkpoint yang SAMA tidak dihitung sebagai CP baru dua kali berturut-turut \u2014 petugas wajib melewati (CP) checkpoint LAIN dulu di antaranya supaya checkpoint tsb bisa dihitung lagi.",
         "Dipakai buffer keluar-radius +15 meter supaya jitter GPS di pinggir radius tidak dihitung berkali-kali sebagai CP baru.",
-        "Aturan ini tersimpan di sesi patroli itu sendiri (bukan cuma di memori HP), jadi tetap berlaku walau halaman di-refresh di tengah sesi."
+        "Cukup SATU checkpoint lain di antaranya \u2014 tidak perlu melewati semua checkpoint. Pengecekan berlaku per petugas per hari (tanggal WITA); besoknya mulai dari awal.",
+        "Pengecekan memakai catatan lintasan asli di server DAN catatan lintasan terakhir yang disimpan di HP petugas, jadi tetap berlaku walau aplikasi dimuat ulang atau ditutup paksa sistem di tengah patroli.",
+        "Di HP, lintasan baru baru dicatat setelah data lintasan selesai dimuat (beberapa detik setelah login), supaya aturan di atas tidak terlewat."
+      ]
+    }),
+    React.createElement(GuideExampleBox, { title: "Contoh hitungan (urutan petugas melewati checkpoint)" },
+      React.createElement(GuideList, {
+        items: [
+          "A \u2192 A: A dihitung 1 kali (yang kedua tidak dihitung).",
+          "A \u2192 keluar radius \u2192 masuk A lagi: tetap 1 kali, karena belum ada checkpoint lain di antaranya.",
+          "A \u2192 B \u2192 A: A = 2 kali, B = 1 kali (A boleh dihitung lagi karena sudah melewati B).",
+          "A \u2192 B \u2192 B: A = 1 kali, B = 1 kali."
+        ]
+      })
+    ),
+    React.createElement("p", { style: { fontWeight: 600, color: "var(--navy-900)", marginTop: 8 } }, "Hapus rit ganda berurutan (khusus admin):"),
+    React.createElement(GuideList, {
+      items: [
+        "Tombol merah di bar filter halaman Rekap Checkpoint (CP), untuk membersihkan lintasan ganda yang terlanjur tercatat. Cakupannya mengikuti mode: Per Tanggal = tanggal yang dipilih, Per Bulan = bulan yang dipilih.",
+        "Yang dihapus: lintasan yang BERTURUT-TURUT di checkpoint yang sama (per petugas per hari). Lintasan PERTAMA di tiap rangkaian dipertahankan. Pola A, A, B, B, A menjadi A, B, A; pola selang-seling seperti A, B, A tidak disentuh.",
+        "Sebelum menghapus, muncul konfirmasi berisi jumlah dan rincian per petugas, tanggal, dan checkpoint. Penghapusan PERMANEN dan tidak bisa dikembalikan, jadi baca rinciannya dulu.",
+        "Gunakan dari laptop. Di HP, data lintasan yang dimuat hanya 7 hari terakhir, jadi tanggal yang lebih lama tidak akan ditemukan.",
+        "Yang dihapus hanya catatan lintasan. Sesi patroli tidak ikut berubah; skor yang bergantung pada jumlah lintasan mengikuti data baru begitu halaman dimuat ulang."
       ]
     }),
     React.createElement("p", { style: { fontSize: 12.5, fontStyle: "italic", marginTop: 4 } },
@@ -14725,6 +14816,40 @@ function RekapRitPage() {
   const [checkpointFilter, setCheckpointFilter] = useState("");
   const [nameFilter, setNameFilter] = useState("");
   const [expandedUserId, setExpandedUserId] = useState(null);
+  const { canEdit } = useAuth();
+  const [notice, setNotice] = useState(null); // { ok, text }
+  const [dupBusy, setDupBusy] = useState(false);
+  async function handleRemoveDuplicates() {
+    const from = mode === "harian" ? dateFilter : monthFilter + "-01";
+    const to = mode === "harian" ? dateFilter : monthFilter + "-31";
+    const scopeLabel = mode === "harian" ? dateFilter : monthFilter;
+    const dups = findConsecutiveDuplicatePasses(from, to);
+    if (dups.length === 0) {
+      setNotice({ ok: true, text: `Tidak ada rit ganda berurutan pada ${scopeLabel}.` });
+      setTimeout(() => setNotice(null), 4000);
+      return;
+    }
+    const groups = {};
+    dups.forEach(p => {
+      const k = `${p.userName} \u2014 ${p.date} \u2014 ${p.checkpointName}`;
+      groups[k] = (groups[k] || 0) + 1;
+    });
+    const keys = Object.keys(groups);
+    const lines = keys.slice(0, 12).map(k => `\u2022 ${k}: hapus ${groups[k]}`);
+    const more = keys.length > 12 ? `\n\u2026dan ${keys.length - 12} baris lain` : "";
+    const ok = window.confirm(`Hapus ${dups.length} rit ganda berurutan (${scopeLabel})?\n\nRit PERTAMA di tiap rangkaian checkpoint yang sama dipertahankan; sisanya dihapus permanen dari database dan tidak bisa dikembalikan.\n\n${lines.join("\n")}${more}`);
+    if (!ok) return;
+    setDupBusy(true);
+    try {
+      const n = await deleteCheckpointPasses(dups);
+      setNotice({ ok: true, text: `${n} rit ganda berhasil dihapus dari database.` });
+    } catch (err) {
+      setNotice({ ok: false, text: err.message || "Gagal menghapus rit ganda dari server. Coba lagi." });
+    } finally {
+      setDupBusy(false);
+      setTimeout(() => setNotice(null), 5000);
+    }
+  }
   const checkpoints = useMemo(() => getCheckpoints(), [store.checkpoints]);
 
   // ---- Mode Harian (existing) ----
@@ -14883,7 +15008,13 @@ function RekapRitPage() {
       isFiltered ? React.createElement("button", {
         onClick: clearFilters,
         style: { fontSize: 12, fontWeight: 600, color: "var(--accent-700)", textDecoration: "underline" }
-      }, "Reset filter") : null
+      }, "Reset filter") : null,
+      canEdit ? React.createElement("button", {
+        onClick: handleRemoveDuplicates,
+        disabled: dupBusy,
+        title: "Hapus lintasan berurutan di checkpoint yang sama (sisakan yang pertama)",
+        style: { marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "var(--red)", border: "1px solid var(--red)", borderRadius: 8, padding: "6px 12px", opacity: dupBusy ? 0.6 : 1 }
+      }, React.createElement(Icon, { name: "trash-2", size: 14 }), dupBusy ? "Menghapus\u2026" : "Hapus rit ganda berurutan") : null
     )
   );
 
@@ -15029,7 +15160,10 @@ function RekapRitPage() {
     mode === "harian" ? renderDailyTable() : renderMonthlyTable()
   );
 
-  return React.createElement("div", { className: "container-app" }, headerEl, modeToggleEl, summaryEl, teamRouteCompareEl, filterEl, listCardEl);
+  const noticeEl = notice ? React.createElement("div", {
+    style: { background: notice.ok ? "var(--green-soft)" : "var(--red-soft)", color: notice.ok ? "var(--green)" : "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10, marginBottom: 16 }
+  }, notice.text) : null;
+  return React.createElement("div", { className: "container-app" }, headerEl, modeToggleEl, summaryEl, teamRouteCompareEl, filterEl, noticeEl, listCardEl);
 }
 
 function LoginHistoryCard() {
