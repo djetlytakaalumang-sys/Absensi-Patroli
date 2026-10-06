@@ -14643,6 +14643,51 @@ function PanduanPage() {
     })
   );
 
+  const izinSection = React.createElement(GuideSection, { icon: "calendar-plus", title: "Pengajuan Izin/Cuti" },
+    React.createElement("p", null, "Karyawan mengajukan izin atau cuti lewat aplikasi, lalu admin yang menyetujui atau menolak."),
+    React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Cara mengajukan (karyawan):"),
+    React.createElement(GuideList, {
+      items: [
+        "Buka menu Izin, lalu tekan \"Ajukan Izin/Cuti\".",
+        "Isi Dari tanggal dan Sampai tanggal, lalu tulis Alasan (wajib). Sabtu & Minggu dalam rentang itu tidak dihitung sebagai hari izin.",
+        "File pendukung bersifat opsional: foto atau PDF, misalnya surat dokter. Foto otomatis dikecilkan; PDF maksimal sekitar 600 KB.",
+        "Tekan \"Kirim Pengajuan\". Statusnya awalnya Menunggu."
+      ]
+    }),
+    React.createElement(GuideBadgeRow, { label: "Menunggu", color: "var(--amber)", bg: "var(--amber-soft)", desc: "Pengajuan sudah terkirim, belum diputuskan admin." }),
+    React.createElement(GuideBadgeRow, { label: "Disetujui", color: "var(--green)", bg: "var(--green-soft)", desc: "Hari izin tidak dihitung Alpa dan dikecualikan dari perhitungan skor & rasio kehadiran." }),
+    React.createElement(GuideBadgeRow, { label: "Ditolak", color: "var(--red)", bg: "var(--red-soft)", desc: "Pengajuan tidak disetujui; hari tersebut tetap dihitung seperti biasa." }),
+    React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Untuk admin:"),
+    React.createElement(GuideList, {
+      items: [
+        "Menu Pengajuan \u2192 Pengajuan Izin menampilkan semua pengajuan. Pengajuan yang masih Menunggu punya tombol Setujui dan Tolak.",
+        "Angka pada menu menunjukkan jumlah pengajuan yang menunggu keputusan."
+      ]
+    })
+  );
+
+  const perangkatSection = React.createElement(GuideSection, { icon: "smartphone", title: "Di HP vs Laptop & Jika Aplikasi Berhenti Tiba-tiba" },
+    React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Data di HP sengaja diringankan"),
+    React.createElement(GuideList, {
+      items: [
+        "Di HP, aplikasi hanya memuat presensi dan patroli 7 hari terakhir, serta 30 izin dan 30 laporan kejadian terbaru. Di laptop, datanya lebih lengkap (presensi sampai 90 hari).",
+        "Setelah login, data berat dimuat bertahap dalam beberapa detik, jadi beberapa angka atau daftar bisa muncul sedikit terlambat.",
+        "Bulan yang lebih lama tetap bisa dibuka lewat filter bulan di halaman riwayat/rekap. Angka rekap bulan berjalan di HP bisa belum mencakup seluruh bulan.",
+        "Untuk rekap lengkap, ekspor, dan menghapus data (mis. Hapus rit ganda berurutan), gunakan laptop.",
+        "Foto selfie, foto kejadian, dan lampiran izin dikecilkan otomatis agar aplikasi ringan."
+      ]
+    }),
+    React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Jika aplikasi berhenti atau tertutup sendiri"),
+    React.createElement(GuideList, {
+      items: [
+        "Buka lagi aplikasinya. Jika sesi sebelumnya berakhir tiba-tiba, muncul kotak gelap \"Aplikasi sebelumnya berhenti tiba-tiba\" berisi catatan tahap terakhir.",
+        "Tekan Salin lalu kirim isinya ke developer. Catatan itu hanya berisi nama tahap dan ukuran data, tanpa data pribadi atau isi foto. Tekan Tutup untuk menyembunyikannya.",
+        "Di halaman login ada tulisan kecil \"Versi ...\" di bagian bawah. Sebutkan versi itu saat melapor. Kalau tulisannya tidak ada, HP masih memakai versi lama: hapus data situs di pengaturan browser lalu buka lagi.",
+        "Jangan membuka aplikasi dari dalam WhatsApp/Instagram; salin tautannya lalu buka langsung di Chrome atau Safari."
+      ]
+    })
+  );
+
   const tampilanSection = React.createElement(GuideSection, { icon: "palette", title: "Tema Gelap/Terang & Foto Profil Karyawan" },
     React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Tema gelap / terang"),
     React.createElement(GuideList, {
@@ -14656,6 +14701,13 @@ function PanduanPage() {
       items: [
         "Admin menambahkan foto lewat menu Karyawan \u2192 Tambah/Edit \u2192 Pilih Foto (bisa dari kamera atau galeri). Foto otomatis dipotong persegi dan dikecilkan; tombol Hapus mengembalikan ke inisial.",
         "Foto tampil di kartu karyawan, sidebar, daftar presensi, daftar petugas aktif, pin dan popup di Peta Live Patroli, serta penanda posisi di peta patroli petugas. Tanpa foto, yang tampil tetap inisial nama."
+      ]
+    }),
+    React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Tampilan di laptop"),
+    React.createElement(GuideList, {
+      items: [
+        "Halaman admin memakai lebar layar penuh. Form Tambah/Edit Karyawan tampil dua kolom.",
+        "Menu samping bisa di-scroll sendiri kalau layar pendek; profil Anda tetap menempel di bawah."
       ]
     })
   );
@@ -14835,6 +14887,8 @@ function PanduanPage() {
     settingsSection,
     alphaSection,
     kejadianSection,
+    izinSection,
+    perangkatSection,
     tampilanSection
   );
 }
