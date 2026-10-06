@@ -285,6 +285,13 @@ img{max-width:100%; display:block;}
 .modal-box{width:100%; background:var(--navy-100); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); border:1px solid rgba(255,255,255,.5); border-radius:16px; overflow:hidden; max-height:88vh; overflow-y:auto;}
 
 .table-wrap{overflow-x:auto;}
+/* Tabel Rekap Checkpoint (CP): judul kolom turun baris hanya di spasi / tanda hubung (tidak dipotong di tengah kata),
+   lebar kolom mengikuti isi sehingga judul checkpoint rapi 2 baris dan di tengah. */
+.rit-table table{min-width:760px;}
+.rit-table thead th{word-break:normal !important; overflow-wrap:normal !important; hyphens:none !important; white-space:normal; line-height:1.35; padding:12px 6px; vertical-align:middle;}
+.rit-table thead th:first-child{padding-left:16px;}
+.rit-table thead th:nth-last-child(2){white-space:nowrap;}
+.rit-table thead th:last-child{width:1%; padding:12px 8px;}
 table{width:100%; font-size:14px; border-collapse:collapse;}
 thead tr{background:rgba(0,0,0,.03); color:var(--navy-700); font-size:11px; text-transform:uppercase; letter-spacing:.04em;}
 th{text-align:left; font-weight:600; padding:12px 16px;}
@@ -378,7 +385,7 @@ html[data-theme="dark"] .leaflet-control-zoom a{background:#2a232f !important;}
 html[data-theme="dark"] .leaflet-container .leaflet-control-attribution{background:rgba(20,16,26,.75) !important; color:#b8adb3 !important;}
 html[data-theme="dark"] .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.9);}
 /* Penanda versi di halaman login (memastikan versi terbaru yang terpasang, bukan cache lama) */
-.login-glass-wrap::after{content:"Versi 2026-10-05.26"; position:absolute; left:0; right:0; bottom:calc(8px + env(safe-area-inset-bottom)); text-align:center; font-size:11px; color:rgba(255,255,255,.7); pointer-events:none;}
+.login-glass-wrap::after{content:"Versi 2026-10-06.27"; position:absolute; left:0; right:0; bottom:calc(8px + env(safe-area-inset-bottom)); text-align:center; font-size:11px; color:rgba(255,255,255,.7); pointer-events:none;}
 /* Form ringkas (mis. pengajuan izin/cuti): jarak & ukuran input dirapatkan supaya tidak terlalu panjang */
 .compact-form .label{font-size:11px; margin-bottom:4px;}
 .compact-form .input{padding:9px 12px; font-size:15px;}
@@ -16081,7 +16088,7 @@ function RekapRitPage() {
         ));
       }
     });
-    return React.createElement("div", { className: "table-wrap" },
+    return React.createElement("div", { className: "table-wrap rit-table" },
       React.createElement("table", null, theadEl, React.createElement("tbody", null, filteredDaily.length === 0 ? emptyRowEl : null, ...rows))
     );
   }
@@ -16150,7 +16157,7 @@ function RekapRitPage() {
         ));
       }
     });
-    return React.createElement("div", { className: "table-wrap" },
+    return React.createElement("div", { className: "table-wrap rit-table" },
       React.createElement("table", null, theadEl, React.createElement("tbody", null, filteredMonthly.length === 0 ? emptyRowEl : null, ...rows))
     );
   }
