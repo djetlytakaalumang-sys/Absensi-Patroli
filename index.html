@@ -3464,6 +3464,333 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian") {
   doc.save(`${filenamePrefix}-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
+// ===== Ekspor Rekap Checkpoint (CP): Excel & PDF, per tanggal / per bulan =====
+// Mengikuti mode & filter yang sedang aktif di halaman Rekap Checkpoint (CP).
+function buildRitRecapExport({ mode, dateStr, monthStr, checkpointId, nameQuery }) {
+  const allCps = getCheckpoints();
+  const cps = checkpointId ? allCps.filter(c => c.id === checkpointId) : allCps;
+  const q = (nameQuery || "").toLowerCase();
+  const keep = r => !q || r.userName.toLowerCase().includes(q);
+  const cpLabel = checkpointId ? (cps[0] ? cps[0].name : "-") : "Semua Checkpoint";
+  if (mode === "harian") {
+    const rows = getRitRecap(dateStr, checkpointId || null).filter(keep).map(r => ({
+      userId: r.userId,
+      avatarColor: r.avatarColor,
+      name: r.userName,
+      position: r.position || "-",
+      counts: cps.map(cp => r.byCheckpoint[cp.id] || 0),
+      total: r.count,
+      passes: r.passes.map((p, i) => ({
+        n: i + 1,
+        cp: p.checkpointName,
+        time: (formatDateTimeShortID(p.time).split(", ")[1] || "")
+      }))
+    }));
+    // Perbandingan rute Tim Manado vs Tim Minut (sama dengan kartu Bonus CP di halaman)
+    let teamCompare = null;
+    try {
+      const [tA, tB] = getRouteTeamsConfig();
+      const mA = getTeamCheckpointOriginalNamesForDate(tA, dateStr);
+      const mB = getTeamCheckpointOriginalNamesForDate(tB, dateStr);
+      const col = (t, map) => {
+        const routeLower = new Set(t.route.map(matchCheckpointNameLoose));
+        return {
+          label: t.label,
+          known: t.route.filter(n => map.has(matchCheckpointNameLoose(n))),
+          extra: [...map.entries()].filter(([lower]) => !routeLower.has(lower)).map(([, orig]) => orig)
+        };
+      };
+      teamCompare = {
+        teams: [col(tA, mA), col(tB, mB)],
+        bothPatrolled: mA.size > 0 && mB.size > 0,
+        bonus: routeSetsDiffer(new Set(mA.keys()), new Set(mB.keys()))
+      };
+    } catch (e) { teamCompare = null; }
+    return { mode, periodLabel: formatDateShortID(dateStr), fileKey: dateStr, cps, cpLabel, rows, teamCompare };
+  }
+  const [y, m] = monthStr.split("-").map(Number);
+  const days = new Date(y, m, 0).getDate();
+  const perDay = {};
+  store.checkpointPasses.forEach(p => {
+    if (!p.date.startsWith(monthStr) || checkpointId && p.checkpointId !== checkpointId) return;
+    const key = p.userId + "|" + Number(p.date.slice(8, 10));
+    perDay[key] = (perDay[key] || 0) + 1;
+  });
+  const rows = getRitRecapMonthly(monthStr).filter(keep).map(r => ({
+    userId: r.userId,
+    avatarColor: r.avatarColor,
+    name: r.userName,
+    position: r.position || "-",
+    counts: cps.map(cp => r.byCheckpoint[cp.id] || 0),
+    total: checkpointId ? r.byCheckpoint[checkpointId] || 0 : r.total,
+    days: Array.from({ length: days }, (_, i) => perDay[r.userId + "|" + (i + 1)] || 0)
+  })).map(r => ({
+    ...r,
+    datePills: r.days.map((c, i) => ({ date: monthStr + "-" + String(i + 1).padStart(2, "0"), count: c })).filter(x => x.count > 0)
+  }));
+  const label = new Date(monthStr + "-01T00:00:00").toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+  return { mode, periodLabel: label, fileKey: monthStr, cps, cpLabel, rows, days };
+}
+function exportRitRecapToExcel(opts) {
+  const d = buildRitRecapExport(opts);
+  const modeLabel = d.mode === "harian" ? "Per Tanggal" : "Per Bulan";
+  const sum = arr => arr.reduce((a, b) => a + b, 0);
+  const wb = XLSX.utils.book_new();
+  const title = [["Rekap Checkpoint (CP) - " + modeLabel], ["Periode: " + d.periodLabel + " | " + d.cpLabel], []];
+  // Sheet 1: karyawan x checkpoint
+  const head1 = ["No", "Karyawan", "Jabatan", ...d.cps.map(c => c.name), "Total"];
+  const body1 = d.rows.map((r, i) => [i + 1, r.name, r.position, ...r.counts, r.total]);
+  const foot1 = ["", "TOTAL", "", ...d.cps.map((_, ci) => sum(d.rows.map(r => r.counts[ci]))), sum(d.rows.map(r => r.total))];
+  const ws1 = XLSX.utils.aoa_to_sheet([...title, head1, ...body1, foot1]);
+  ws1["!cols"] = [{ wch: 5 }, { wch: 28 }, { wch: 24 }, ...d.cps.map(() => ({ wch: 14 })), { wch: 8 }];
+  XLSX.utils.book_append_sheet(wb, ws1, d.mode === "harian" ? "Rekap Harian" : "Per Checkpoint");
+  if (d.mode === "harian") {
+    // Sheet 2: detail lintasan (urutan & jam)
+    const det = [["No", "Karyawan", "Lintasan ke-", "Checkpoint", "Jam"]];
+    let n = 0;
+    d.rows.forEach(r => r.passes.forEach(p => det.push([++n, r.name, p.n, p.cp, p.time])));
+    const ws2 = XLSX.utils.aoa_to_sheet(det);
+    ws2["!cols"] = [{ wch: 5 }, { wch: 28 }, { wch: 12 }, { wch: 24 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, ws2, "Detail Lintasan");
+  } else {
+    // Sheet 2: karyawan x tanggal 1..31
+    const dayNums = Array.from({ length: d.days }, (_, i) => i + 1);
+    const head2 = ["No", "Karyawan", ...dayNums, "Total"];
+    const body2 = d.rows.map((r, i) => [i + 1, r.name, ...r.days, sum(r.days)]);
+    const foot2 = ["", "TOTAL", ...dayNums.map((_, di) => sum(d.rows.map(r => r.days[di]))), sum(d.rows.map(r => sum(r.days)))];
+    const ws2 = XLSX.utils.aoa_to_sheet([...title, head2, ...body2, foot2]);
+    ws2["!cols"] = [{ wch: 5 }, { wch: 28 }, ...dayNums.map(() => ({ wch: 4 })), { wch: 8 }];
+    XLSX.utils.book_append_sheet(wb, ws2, "Per Hari");
+  }
+  XLSX.writeFile(wb, `rekap-cp-${d.mode}-${d.fileKey}.xlsx`);
+}
+function exportRitRecapToPDF(opts) {
+  const d = buildRitRecapExport(opts);
+  const harian = d.mode === "harian";
+  const doc = new jspdf.jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const PW = 297, PH = 210, M = 14, CW = PW - 2 * M, BOTTOM = PH - 14;
+  const C = {
+    navy: [28, 20, 24], navy700: [107, 93, 99], faint: [148, 163, 184], line: [226, 228, 232],
+    mist: [243, 244, 246], head: [246, 247, 249], red: [228, 20, 43],
+    green: [14, 169, 104], greenSoft: [222, 244, 233], amber: [217, 119, 6], amberSoft: [253, 241, 221]
+  };
+  const hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const fill = c => doc.setFillColor(c[0], c[1], c[2]);
+  const stroke = c => doc.setDrawColor(c[0], c[1], c[2]);
+  const color = c => doc.setTextColor(c[0], c[1], c[2]);
+  const font = (size, bold) => { doc.setFont("helvetica", bold ? "bold" : "normal"); doc.setFontSize(size); };
+  const card = (x, y, w, h) => { fill([255, 255, 255]); stroke(C.line); doc.setLineWidth(0.25); doc.roundedRect(x, y, w, h, 3, 3, "FD"); };
+  const sum = arr => arr.reduce((a, b) => a + b, 0);
+  // Pil teks. items: [{text, bg, fg, border}]. draw=false hanya menghitung tinggi.
+  function pills(items, x, y, maxW, draw) {
+    const ph = 5.4, gap = 2;
+    font(7.5, true);
+    let cx = x, cy = y;
+    items.forEach(it => {
+      const w = doc.getTextWidth(it.text) + 5;
+      if (cx > x && cx + w > x + maxW) { cx = x; cy += ph + gap; }
+      if (draw) {
+        if (it.border) { fill(it.bg || [255, 255, 255]); stroke(C.line); doc.setLineWidth(0.25); doc.roundedRect(cx, cy, w, ph, 2.7, 2.7, "FD"); }
+        else { fill(it.bg); doc.roundedRect(cx, cy, w, ph, 2.7, 2.7, "F"); }
+        color(it.fg);
+        doc.text(it.text, cx + 2.5, cy + 3.8);
+      }
+      cx += w + gap;
+    });
+    return cy + ph - y;
+  }
+  // Avatar bulat: foto profil kalau ada, kalau tidak inisial berwarna
+  function avatar(r, cx, cy, rad) {
+    const u = (typeof store !== "undefined" && store.users || []).find(x => x.id === r.userId);
+    const m = u && u.photo && /^data:image\/(png|jpe?g)/i.exec(u.photo);
+    if (m) {
+      try {
+        doc.saveGraphicsState();
+        doc.circle(cx, cy, rad, null);
+        doc.clip();
+        doc.discardPath();
+        doc.addImage(u.photo, m[1].toLowerCase() === "png" ? "PNG" : "JPEG", cx - rad, cy - rad, rad * 2, rad * 2);
+        doc.restoreGraphicsState();
+        return;
+      } catch (e) { try { doc.restoreGraphicsState(); } catch (e2) {} }
+    }
+    fill(hex(/^#[0-9a-f]{6}$/i.test(r.avatarColor || "") ? r.avatarColor : "#1E3A5F"));
+    doc.circle(cx, cy, rad, "F");
+    font(rad * 2.1, true);
+    color([255, 255, 255]);
+    doc.text(r.name.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase(), cx, cy + rad * 0.36, { align: "center" });
+  }
+  const newPage = () => { doc.addPage(); return 16; };
+
+  // ---------- Judul + toggle mode (seperti di halaman) ----------
+  font(18, true); color(C.navy);
+  doc.text("Rekap Checkpoint (CP)", M, 18);
+  font(8.5, false); color(C.navy700);
+  doc.text("Jumlah lintasan (CP) tiap karyawan melewati checkpoint \u2014 tiap kali masuk radius checkpoint dihitung 1 CP, kecuali checkpoint yang sama dengan CP sebelumnya.", M, 24);
+  font(7.5, false); color(C.faint);
+  doc.text(`Dibuat pada ${new Date().toLocaleString("id-ID")}`, PW - M, 18, { align: "right" });
+  let tx = M;
+  [["Per Tanggal", harian], ["Per Bulan", !harian]].forEach(([lbl, active]) => {
+    font(8.5, true);
+    const w = doc.getTextWidth(lbl) + 10;
+    fill(active ? C.red : C.mist);
+    doc.roundedRect(tx, 28.5, w, 7, 3.5, 3.5, "F");
+    color(active ? [255, 255, 255] : C.navy700);
+    doc.text(lbl, tx + w / 2, 33.3, { align: "center" });
+    tx += w + 3;
+  });
+  let y = 41;
+
+  // ---------- Kartu ringkasan ----------
+  const total = sum(d.rows.map(r => r.total));
+  const active = d.rows.filter(r => r.total > 0).length;
+  const halfW = (CW - 4) / 2;
+  [[harian ? "Total CP (tanggal ini)" : "Total CP (bulan ini)", String(total)], ["Karyawan Sudah Lintas", `${active} / ${d.rows.length}`]].forEach(([lbl, val], i) => {
+    const x = M + i * (halfW + 4);
+    card(x, y, halfW, 20);
+    font(8, false); color(C.navy700);
+    doc.text(lbl, x + 5, y + 7);
+    font(17, true); color(C.navy);
+    doc.text(val, x + 5, y + 16);
+  });
+  y += 25;
+
+  // ---------- Kartu Bonus CP / Perbandingan Rute Tim (hanya per tanggal) ----------
+  if (harian && d.teamCompare) {
+    const tc = d.teamCompare;
+    const colW = (CW - 10 - 8) / 2;
+    const colItems = t => [
+      ...t.known.map(n => ({ text: n + " \u00b7 Rute Utama", bg: C.greenSoft, fg: C.green })),
+      ...t.extra.map(n => ({ text: n + " \u00b7 Rute Bantuan (di luar rute tim)", bg: C.amberSoft, fg: C.amber }))
+    ];
+    const colH = t => { const it = colItems(t); return it.length ? pills(it, 0, 0, colW, false) : 4; };
+    const foot = tc.bothPatrolled ? (tc.bonus ? "Bonus ini berlaku untuk SEMUA anggota kedua tim yang sesi patrolinya sudah Selesai hari ini \u2014 bukan cuma satu orang tertentu." : "Belum ada bonus karena checkpoint yang dilewati kedua tim hari ini masih sama.") : "";
+    const bodyH = Math.max(...tc.teams.map(colH));
+    const h = 8 + 7 + bodyH + (foot ? 12 : 0) + 4;
+    if (y + h > BOTTOM) y = newPage();
+    card(M, y, CW, h);
+    font(9, true); color(C.navy);
+    doc.text(`Bonus CP \u2014 Perbandingan Rute Tim \u2014 ${d.periodLabel}`, M + 5, y + 7);
+    if (tc.bothPatrolled) {
+      const lbl = tc.bonus ? "Bonus CP Didapat" : "Tidak Ada Bonus";
+      font(7.5, true);
+      const w = doc.getTextWidth(lbl) + 6;
+      fill(tc.bonus ? C.greenSoft : C.mist);
+      doc.roundedRect(M + CW - 5 - w, y + 3, w, 5.6, 2.8, 2.8, "F");
+      color(tc.bonus ? C.green : C.navy700);
+      doc.text(lbl, M + CW - 5 - w / 2, y + 6.8, { align: "center" });
+    }
+    tc.teams.forEach((t, i) => {
+      const x = M + 5 + i * (colW + 8);
+      font(8.5, true); color(C.navy);
+      doc.text(t.label, x, y + 14.5);
+      const it = colItems(t);
+      if (!it.length) { font(8, false); color(C.faint); doc.text("Belum ada CP tanggal ini.", x, y + 20); }
+      else pills(it, x, y + 17, colW, true);
+    });
+    if (foot) {
+      stroke(C.line); doc.setLineWidth(0.25);
+      doc.line(M + 5, y + h - 11, M + CW - 5, y + h - 11);
+      font(7.5, false); color(C.faint);
+      doc.text(foot, M + 5, y + h - 5.5);
+    }
+    y += h + 5;
+  }
+
+  // ---------- Kartu filter (menampilkan filter yang aktif) ----------
+  {
+    const chips = [[harian ? "Tanggal" : "Bulan", d.periodLabel], ["Checkpoint", d.cpLabel]];
+    if (opts.nameQuery) chips.push(["Nama", opts.nameQuery]);
+    if (y + 14 > BOTTOM) y = newPage();
+    card(M, y, CW, 13);
+    let cx = M + 5;
+    chips.forEach(([k, v]) => {
+      font(7.5, false);
+      const kw = doc.getTextWidth(k + "  ");
+      font(8.5, true);
+      const w = kw + doc.getTextWidth(v) + 8;
+      fill(C.mist); doc.roundedRect(cx, y + 3, w, 7, 2, 2, "F");
+      font(7.5, false); color(C.navy700); doc.text(k, cx + 4, y + 7.6);
+      font(8.5, true); color(C.navy); doc.text(v, cx + 4 + kw, y + 7.6);
+      cx += w + 3;
+    });
+    y += 18;
+  }
+
+  // ---------- Tabel (Karyawan, Jabatan, tiap checkpoint, Total) ----------
+  const nCp = d.cps.length;
+  const cs = { 0: { cellWidth: 62 }, 1: { cellWidth: 44 } };
+  for (let i = 0; i < nCp + 1; i++) cs[2 + i] = { halign: "center" };
+  const cardTop = y;
+  doc.autoTable({
+    startY: y,
+    margin: { left: M, right: M, bottom: 14 },
+    head: [["KARYAWAN", "JABATAN", ...d.cps.map(c => c.name.toUpperCase()), "TOTAL"]],
+    body: d.rows.length ? d.rows.map(r => [r.name, r.position, ...r.counts, r.total]) : [[{ content: "Tidak ada data yang cocok dengan filter.", colSpan: 3 + nCp, styles: { halign: "center", textColor: C.navy700, cellPadding: 10 } }]],
+    theme: "plain",
+    styles: { fontSize: 8.5, cellPadding: { top: 3.4, bottom: 3.4, left: 4, right: 4 }, textColor: C.navy700, valign: "middle", lineWidth: 0 },
+    headStyles: { fillColor: C.head, textColor: C.navy700, fontStyle: "bold", fontSize: 7, halign: "center", cellPadding: { top: 3.5, bottom: 3.5, left: 4, right: 4 } },
+    columnStyles: cs,
+    didParseCell: h => {
+      if (h.section === "head" && (h.column.index <= 1)) h.cell.styles.halign = "left";
+      if (h.section === "body" && h.column.index === 0 && d.rows.length) { h.cell.styles.cellPadding = { top: 3.4, bottom: 3.4, left: 13, right: 4 }; h.cell.styles.fontStyle = "bold"; h.cell.styles.textColor = C.navy; }
+    },
+    willDrawCell: h => {
+      if (h.section === "body" && d.rows.length && h.column.index === 2 + nCp) {
+        const v = Number(h.cell.raw) || 0;
+        if (v > 0) { fill(C.greenSoft); doc.roundedRect(h.cell.x + h.cell.width / 2 - 6, h.cell.y + h.cell.height / 2 - 3, 12, 6, 2.2, 2.2, "F"); }
+        h.cell.styles.fontStyle = "bold";
+        h.cell.styles.textColor = v > 0 ? C.navy : C.navy700;
+      }
+    },
+    didDrawCell: h => {
+      if (h.section === "body" && d.rows.length) {
+        stroke(C.line); doc.setLineWidth(0.2);
+        doc.line(h.cell.x, h.cell.y, h.cell.x + h.cell.width, h.cell.y);
+        if (h.column.index === 0) avatar(d.rows[h.row.index], h.cell.x + 7, h.cell.y + h.cell.height / 2, 3.6);
+      }
+    }
+  });
+  y = doc.lastAutoTable.finalY + 8;
+
+  // ---------- Detail (seperti "Lihat detail" / "Lihat harian" di halaman) ----------
+  const detailRows = d.rows.filter(r => (harian ? r.passes.length : r.datePills.length) > 0);
+  if (detailRows.length) {
+    const textW = CW - 12;
+    const mkItems = r => harian
+      ? r.passes.map(p => ({ text: `#${p.n} \u00b7 ${p.cp} \u00b7 ${p.time}`, bg: [255, 255, 255], fg: C.navy, border: true }))
+      : r.datePills.map(p => ({ text: `${formatDateShortID(p.date)} \u00b7 ${p.count} CP`, bg: [255, 255, 255], fg: C.navy, border: true }));
+    const blockH = r => 12 + pills(mkItems(r), 0, 0, textW, false) + 4;
+    // Judul harus ikut blok pertamanya (tidak boleh tertinggal sendirian di dasar halaman)
+    if (y + 8 + blockH(detailRows[0]) > BOTTOM) y = newPage();
+    font(10.5, true); color(C.navy);
+    doc.text(harian ? "Detail Lintasan (urutan & jam)" : "Rincian Harian", M, y + 3);
+    y += 8;
+    detailRows.forEach(r => {
+      const items = mkItems(r);
+      const h = blockH(r);
+      if (y + h > BOTTOM) y = newPage();
+      fill(C.mist); doc.roundedRect(M, y, CW, h, 3, 3, "F");
+      avatar(r, M + 8, y + 6, 3);
+      font(9, true); color(C.navy);
+      doc.text(r.name, M + 13, y + 7.2);
+      font(8, false); color(C.navy700);
+      doc.text(`${r.total} CP`, M + CW - 5, y + 7.2, { align: "right" });
+      pills(items, M + 6, y + 11, textW, true);
+      y += h + 3;
+    });
+  }
+
+  const pages = doc.getNumberOfPages();
+  for (let i = 1; i <= pages; i++) {
+    doc.setPage(i);
+    font(7.5, false); color(C.faint);
+    doc.text(`Rekap Checkpoint (CP) \u00b7 ${d.periodLabel}`, M, PH - 7);
+    doc.text(`Halaman ${i} dari ${pages}`, PW - M, PH - 7, { align: "right" });
+  }
+  doc.save(`rekap-cp-${d.mode}-${d.fileKey}.pdf`);
+}
+
 // Ekspor Penilaian Tim ke PDF. Susunannya meniru halaman Penilaian Tim (admin): judul + bulan,
 // 2 kartu ringkasan, 2 grafik batang, lalu papan peringkat (kartu per karyawan dengan bar skor).
 function exportPenilaianToPDF(rows, monthKey) {
@@ -15302,6 +15629,7 @@ function PanduanPage() {
       items: [
         "Per Tanggal \u2014 total CP tiap karyawan pada 1 hari tertentu, bisa difilter per checkpoint.",
         "Per Bulan \u2014 total CP tiap karyawan sepanjang bulan, dipecah per checkpoint, dengan rincian per tanggal yang bisa dibuka (expand).",
+        "Tombol Excel dan PDF di bar filter mengekspor rekap sesuai mode dan filter yang sedang aktif (tanggal atau bulan, checkpoint, dan pencarian nama). PDF dibuat dengan susunan seperti halaman ini: kartu ringkasan, kartu Bonus CP (Perbandingan Rute Tim, hanya Per Tanggal), tabel karyawan \u00d7 checkpoint, lalu detail lintasan (Per Tanggal) atau rincian harian (Per Bulan). Excel berisi tabel karyawan \u00d7 checkpoint plus sheet Detail Lintasan (Per Tanggal) atau sheet Per Hari karyawan \u00d7 tanggal 1\u201331 (Per Bulan), dengan baris TOTAL.",
         "Tombol \"Lihat detail\" menampilkan urutan lintasan beserta jamnya. Kalau filter checkpoint sedang dipilih, daftar itu HANYA berisi lintasan checkpoint yang difilter (nomor #1, #2, \u2026 dihitung ulang untuk checkpoint itu saja). Klik \"Reset filter\" untuk melihat urutan lengkap semua checkpoint."
       ]
     }),
@@ -15532,6 +15860,7 @@ function RekapRitPage() {
   const activeMonthlyCount = monthlyRecap.filter(r => r.total > 0).length;
   const monthCheckpoints = checkpointFilter ? checkpoints.filter(cp => cp.id === checkpointFilter) : checkpoints;
 
+  const exportOpts = { mode, dateStr: dateFilter, monthStr: monthFilter, checkpointId: checkpointFilter || null, nameQuery: nameFilter };
   function clearFilters() {
     setDateFilter(todayDateStrWITA(getTrustedNow()));
     setMonthFilter(todayDateStrWITA(getTrustedNow()).slice(0, 7));
@@ -15676,11 +16005,14 @@ function RekapRitPage() {
         onClick: clearFilters,
         style: { fontSize: 12, fontWeight: 600, color: "var(--accent-700)", textDecoration: "underline" }
       }, "Reset filter") : null,
+      React.createElement("div", { className: "flex", style: { marginLeft: "auto", gap: 8, flexWrap: "wrap" } },
+        React.createElement(Button, { variant: "outline", size: "sm", onClick: () => exportRitRecapToExcel(exportOpts) }, React.createElement(Icon, { name: "file-spreadsheet", size: 15 }), " Excel"),
+        React.createElement(Button, { variant: "outline", size: "sm", onClick: () => exportRitRecapToPDF(exportOpts) }, React.createElement(Icon, { name: "file-text", size: 15 }), " PDF")),
       canEdit ? React.createElement("button", {
         onClick: handleRemoveDuplicates,
         disabled: dupBusy,
         title: "Hapus lintasan berurutan di checkpoint yang sama (sisakan yang pertama)",
-        style: { marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "var(--red)", border: "1px solid var(--red)", borderRadius: 8, padding: "6px 12px", opacity: dupBusy ? 0.6 : 1 }
+        style: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "var(--red)", border: "1px solid var(--red)", borderRadius: 8, padding: "6px 12px", opacity: dupBusy ? 0.6 : 1 }
       }, React.createElement(Icon, { name: "trash-2", size: 14 }), dupBusy ? "Menghapus\u2026" : "Hapus rit ganda berurutan") : null
     )
   );
