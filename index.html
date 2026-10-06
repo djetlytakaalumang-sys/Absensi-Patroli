@@ -3358,6 +3358,16 @@ function exportToPDF(records, filenamePrefix = "laporan-presensi") {
   });
   doc.save(`${filenamePrefix}-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
+// Riwayat update laporan kejadian sebagai teks (dipakai ekspor Excel/PDF). Urut lama -> baru.
+function kejadianHistoryText(k) {
+  const title = { proses: "Diproses", update: "Update", selesai: "Selesai" };
+  const rows = kejadianTimeline(k);
+  if (!rows.length) return "-";
+  return rows.map(r => {
+    const when = r.time ? formatDateShortID(r.time.slice(0, 10)) + " " + formatClock(new Date(r.time)) : "-";
+    return "[" + when + "] " + (title[r.type] || "Update") + " - " + (r.by || "petugas") + (r.note ? ": " + r.note : "");
+  }).join("\n");
+}
 function exportKejadianToExcel(reports, filenamePrefix = "laporan-kejadian") {
   const rows = reports.map(k => ({
     Tanggal: formatDateShortID(k.createdAt.slice(0, 10)),
@@ -3369,7 +3379,7 @@ function exportKejadianToExcel(reports, filenamePrefix = "laporan-kejadian") {
     Lokasi: k.address || "-",
     Latitude: k.lat ?? "-",
     Longitude: k.lng ?? "-",
-    "Catatan Penanganan": k.handledNote || "-"
+    "Riwayat Penanganan": kejadianHistoryText(k)
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
   ws["!cols"] = [{
@@ -3391,7 +3401,7 @@ function exportKejadianToExcel(reports, filenamePrefix = "laporan-kejadian") {
   }, {
     wch: 12
   }, {
-    wch: 30
+    wch: 60
   }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Kejadian");
@@ -3407,10 +3417,10 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian") {
   doc.setFontSize(9);
   doc.setTextColor(100, 116, 139);
   doc.text(`Dibuat pada ${new Date().toLocaleString("id-ID")}`, 14, 21);
-  const body = reports.map(k => [formatDateShortID(k.createdAt.slice(0, 10)), formatClock(new Date(k.createdAt)), k.userName, KEJADIAN_STATUS_LABEL[k.status] || k.status, k.darurat ? "Ya" : "Tidak", k.note, k.address || "-"]);
+  const body = reports.map(k => [formatDateShortID(k.createdAt.slice(0, 10)), formatClock(new Date(k.createdAt)), k.userName, KEJADIAN_STATUS_LABEL[k.status] || k.status, k.darurat ? "Ya" : "Tidak", k.note, k.address || "-", kejadianHistoryText(k)]);
   doc.autoTable({
     startY: 27,
-    head: [["Tanggal", "Waktu", "Pelapor", "Status", "Darurat", "Catatan", "Lokasi"]],
+    head: [["Tanggal", "Waktu", "Pelapor", "Status", "Darurat", "Catatan", "Lokasi", "Riwayat Penanganan"]],
     body,
     styles: {
       fontSize: 8,
@@ -3426,9 +3436,12 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian") {
     },
     columnStyles: {
       5: {
-        cellWidth: 90
+        cellWidth: 55
       },
       6: {
+        cellWidth: 45
+      },
+      7: {
         cellWidth: 70
       }
     }
@@ -12114,39 +12127,58 @@ function LeaveRequestsPage({
 }
 
 /* ======================= LAPORAN KEJADIAN (ADMIN) ======================= */
+// Linimasa update laporan (urut lama -> baru). Laporan lama (belum punya array "progress") dibentuk dari field lama.
+function kejadianTimeline(k) {
+  if (Array.isArray(k.progress) && k.progress.length) return k.progress;
+  const t = [];
+  if (k.status !== KEJADIAN_STATUS.BARU || k.handledBy || k.handledNote) t.push({ type: "proses", by: k.handledBy || "petugas", time: k.handledAt || null, note: k.handledNote || null });
+  if (k.status === KEJADIAN_STATUS.SELESAI) t.push({ type: "selesai", by: k.finishedBy || k.handledBy || "petugas", time: k.finishedAt || null, note: k.finishedNote || null });
+  return t;
+}
+const KEJADIAN_ENTRY_TITLE = { proses: "Diproses oleh ", update: "Update progres oleh ", selesai: "Diselesaikan oleh " };
 // Jejak update yang dibuat KARYAWAN pelapor (admin hanya melihat)
 function kejadianUpdateBox(k) {
   const h = React.createElement;
-  const when = iso => iso ? formatDateShortID(iso.slice(0, 10)) + " " + formatClock(new Date(iso)) : "";
-  const rows = [];
-  if (k.status !== KEJADIAN_STATUS.BARU || k.handledBy || k.handledNote) {
-    rows.push({ title: "Diproses oleh " + (k.handledBy || "petugas") + (k.handledAt ? " \u00b7 " + when(k.handledAt) : ""), note: k.handledNote });
-  }
-  if (k.status === KEJADIAN_STATUS.SELESAI) {
-    rows.push({ title: "Diselesaikan oleh " + (k.finishedBy || k.handledBy || "petugas") + (k.finishedAt ? " \u00b7 " + when(k.finishedAt) : ""), note: k.finishedNote });
-  }
+  const rows = kejadianTimeline(k);
   if (rows.length === 0) return null;
+  const when = iso => iso ? formatDateShortID(iso.slice(0, 10)) + " " + formatClock(new Date(iso)) : "";
   return h("div", { style: { marginTop: 10, background: "var(--slate-mist)", borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 } },
     rows.map((r, i) => h("div", { key: i },
-      h("p", { style: { fontSize: 12, fontWeight: 600, color: "var(--navy-900)" } }, r.title),
+      h("p", { style: { fontSize: 12, fontWeight: 600, color: "var(--navy-900)" } }, (KEJADIAN_ENTRY_TITLE[r.type] || "Update oleh ") + (r.by || "petugas") + (r.time ? " \u00b7 " + when(r.time) : "")),
       r.note ? h("p", { style: { fontSize: 13, color: "var(--t-muted)", marginTop: 2, whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, r.note) : null)));
 }
-// Satu laporan milik karyawan: bisa ditandai Diproses lalu Diselesaikan oleh karyawan itu sendiri
+// Ringkasan 1 baris untuk tampilan ringkas (admin): update terakhir + jumlah update
+function kejadianLastUpdateLine(k) {
+  const h = React.createElement;
+  const rows = kejadianTimeline(k).filter(r => r.time);
+  if (rows.length === 0) return null;
+  const last = rows[rows.length - 1];
+  const nUpdate = rows.filter(r => r.type === "update").length;
+  const label = last.type === "selesai" ? "Diselesaikan" : last.type === "update" ? "Update terakhir" : "Diproses";
+  return h("p", { style: { fontSize: 12, color: "var(--t-faint)", marginTop: 6 } },
+    label + " " + timeAgoShortID(last.time) + (last.by ? " oleh " + last.by : "") + (nUpdate > 0 ? " \u00b7 " + nUpdate + " update" : ""));
+}
+// Satu laporan milik karyawan: Tandai Diproses -> (Update Progres berkali-kali, hari demi hari) -> Selesaikan
 function MyKejadianItem({ k, user }) {
   const h = React.createElement;
-  const [open, setOpen] = useState(null); // "proses" | "selesai" | null
+  const [open, setOpen] = useState(null); // "proses" | "update" | "selesai" | null
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  async function submit(newStatus) {
+  async function submit(kind) {
+    if (kind === "update" && !note.trim()) {
+      setError("Tulis perkembangan terbarunya dulu.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
       const nowIso = new Date().toISOString();
-      const extra = newStatus === KEJADIAN_STATUS.DITANGANI
-        ? { handledNote: note.trim() || null, handledBy: user.name, handledAt: nowIso }
-        : { finishedNote: note.trim() || null, finishedBy: user.name, finishedAt: nowIso };
-      await updateKejadianStatus(k.id, newStatus, extra);
+      const entry = { type: kind, by: user.name, time: nowIso, note: note.trim() || null };
+      const extra = { progress: [...kejadianTimeline(k), entry] };
+      if (kind === "proses") Object.assign(extra, { handledNote: entry.note, handledBy: user.name, handledAt: nowIso });
+      if (kind === "selesai") Object.assign(extra, { finishedNote: entry.note, finishedBy: user.name, finishedAt: nowIso });
+      await updateKejadianStatus(k.id, kind === "selesai" ? KEJADIAN_STATUS.SELESAI : KEJADIAN_STATUS.DITANGANI, extra);
       setOpen(null);
       setNote("");
     } catch (err) {
@@ -12155,9 +12187,9 @@ function MyKejadianItem({ k, user }) {
       setBusy(false);
     }
   }
+  function begin(kind) { setOpen(kind); setNote(""); setError(""); }
   const canAct = k.userId === user.id && k.status !== KEJADIAN_STATUS.SELESAI;
-  const nextStatus = k.status === KEJADIAN_STATUS.BARU ? KEJADIAN_STATUS.DITANGANI : KEJADIAN_STATUS.SELESAI;
-  const nextLabel = k.status === KEJADIAN_STATUS.BARU ? "Tandai Diproses" : "Selesaikan";
+  const placeholder = open === "update" ? "Perkembangan terbaru, mis. menunggu material, dilanjutkan besok" : open === "selesai" ? "Catatan penyelesaian (opsional)" : "Catatan proses (opsional), mis. sudah dikoordinasikan dengan PIC";
   return h("div", { style: { padding: "10px 12px", borderRadius: 10, background: "var(--slate-mist)" } },
     h("div", { className: "flex", style: { alignItems: "center", gap: 12 } },
       k.photo ? h("img", { src: k.photo, alt: "", style: { width: 40, height: 40, borderRadius: 8, objectFit: "cover", flexShrink: 0 } })
@@ -12167,13 +12199,18 @@ function MyKejadianItem({ k, user }) {
         h("p", { style: { fontSize: 11, color: "var(--t-faint)" } }, formatDateShortID(k.createdAt.slice(0, 10)), " \u00b7 ", formatClock(new Date(k.createdAt)), k.darurat ? " \u00b7 Darurat" : "")),
       h("span", { className: `badge ${KEJADIAN_STATUS_CLASS[k.status]}` }, KEJADIAN_STATUS_LABEL[k.status])),
     kejadianUpdateBox(k),
-    canAct && open == null ? h("div", { style: { marginTop: 10 } },
-      h(Button, { variant: k.status === KEJADIAN_STATUS.BARU ? "primary" : "success", size: "sm", onClick: () => { setOpen(nextStatus); setNote(""); setError(""); } }, nextLabel)) : null,
+    canAct && open == null ? h("div", { className: "flex", style: { marginTop: 10, gap: 8, flexWrap: "wrap" } },
+      k.status === KEJADIAN_STATUS.BARU
+        ? h(Button, { variant: "primary", size: "sm", onClick: () => begin("proses") }, "Tandai Diproses")
+        : [
+          h(Button, { key: "u", variant: "outline", size: "sm", onClick: () => begin("update") }, "Update Progres"),
+          h(Button, { key: "s", variant: "success", size: "sm", onClick: () => begin("selesai") }, "Selesaikan")
+        ]) : null,
     canAct && open != null ? h("div", { style: { marginTop: 10, display: "flex", flexDirection: "column", gap: 8 } },
-      h("textarea", { className: "input", rows: 2, placeholder: open === KEJADIAN_STATUS.DITANGANI ? "Catatan proses (opsional), mis. sudah dikoordinasikan dengan PIC" : "Catatan penyelesaian (opsional)", value: note, onChange: e => setNote(e.target.value), style: { resize: "vertical", fontFamily: "inherit" } }),
+      h("textarea", { className: "input", rows: 2, placeholder, value: note, onChange: e => setNote(e.target.value), style: { resize: "vertical", fontFamily: "inherit" } }),
       error ? h("p", { style: { fontSize: 12, color: "var(--red)" } }, error) : null,
       h("div", { className: "flex", style: { gap: 8 } },
-        h(Button, { variant: "primary", size: "sm", disabled: busy, onClick: () => submit(open) }, busy ? "Menyimpan\u2026" : "Simpan"),
+        h(Button, { variant: "primary", size: "sm", disabled: busy, onClick: () => submit(open) }, busy ? "Menyimpan\u2026" : open === "update" ? "Simpan Update" : "Simpan"),
         h(Button, { variant: "outline", size: "sm", disabled: busy, onClick: () => { setOpen(null); setError(""); } }, "Batal"))) : null);
 }
 function KejadianPage() {
@@ -12410,7 +12447,7 @@ function KejadianPage() {
         WebkitBoxOrient: "vertical",
         overflowWrap: "anywhere"
       }
-    }, k.note), expanded && /*#__PURE__*/React.createElement("div", {
+    }, k.note), !expanded && kejadianLastUpdateLine(k), expanded && /*#__PURE__*/React.createElement("div", {
       style: {
         marginTop: 12
       }
@@ -14590,14 +14627,15 @@ function PanduanPage() {
   const kejadianSection = React.createElement(GuideSection, { icon: "alert-triangle", title: "Laporan Kejadian: Baru \u2192 Diproses \u2192 Selesai" },
     React.createElement("p", null, "Laporan kejadian dibuat dan diperbarui oleh karyawan pelapor. Admin hanya memantau laporan dan perkembangannya (tidak mengubah status)."),
     React.createElement(GuideBadgeRow, { label: "Baru", color: "var(--red)", bg: "var(--red-soft)", desc: "Laporan baru dikirim petugas. Belum ada tindakan." }),
-    React.createElement(GuideBadgeRow, { label: "Diproses", color: "var(--amber)", bg: "var(--amber-soft)", desc: "Petugas menandai laporan sedang ditangani, boleh disertai catatan proses (mis. sudah dikoordinasikan dengan PIC)." }),
+    React.createElement(GuideBadgeRow, { label: "Diproses", color: "var(--amber)", bg: "var(--amber-soft)", desc: "Petugas menandai laporan sedang ditangani. Selama belum tuntas, status tetap Diproses dan petugas bisa menambah Update Progres dari hari ke hari (mis. menunggu material, lanjut besok)." }),
     React.createElement(GuideBadgeRow, { label: "Selesai", color: "var(--navy-700)", bg: "var(--slate-mist)", desc: "Petugas menyelesaikan laporan setelah kejadian tuntas, boleh disertai catatan penyelesaian." }),
     React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Cara karyawan memperbarui:"),
     React.createElement(GuideList, {
       items: [
         "Buka menu Patroli, lalu lihat kartu \"Laporan Kejadian Saya\". Laporan yang belum selesai selalu tampil di sini.",
         "Laporan berstatus Baru: tekan \"Tandai Diproses\", isi catatan kalau perlu, lalu Simpan.",
-        "Laporan berstatus Diproses: setelah kejadian beres, tekan \"Selesaikan\", isi catatan penyelesaian kalau perlu, lalu Simpan.",
+        "Laporan berstatus Diproses: setiap ada perkembangan (termasuk kalau besok masih berjalan), tekan \"Update Progres\", tulis perkembangannya, lalu Simpan Update. Status tetap Diproses dan bisa diperbarui berkali-kali.",
+        "Setelah kejadian benar-benar beres, tekan \"Selesaikan\", isi catatan penyelesaian kalau perlu, lalu Simpan.",
         "Hanya pelapor yang bisa memperbarui laporannya sendiri. Laporan berstatus Selesai tidak bisa diubah lagi."
       ]
     }),
