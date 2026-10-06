@@ -2270,6 +2270,21 @@ async function updateKejadianStatus(id, status, extra = {}) {
   }
 }
 
+// Hapus permanen satu laporan kejadian (beserta foto & riwayat update, karena semuanya satu dokumen)
+async function deleteKejadian(id) {
+  const previous = store.kejadian;
+  store.kejadian = store.kejadian.filter(k => k.id !== id);
+  _notifyStore();
+  try {
+    await withTimeout(db.collection(COL.KEJADIAN).doc(id).delete(), 20000, "Gagal menghapus laporan kejadian dari server");
+    return true;
+  } catch (err) {
+    store.kejadian = previous;
+    _notifyStore();
+    throw err;
+  }
+}
+
 /* ======================= PENILAIAN TIM (SKOR OTOMATIS & LEADERBOARD) ======================= */
 const ATTENDANCE_POINTS = {
   [STATUS.HADIR]: 100,
@@ -12747,6 +12762,20 @@ function KejadianPage() {
       setBusyId(null);
     }
   }
+  async function removeKejadian(k) {
+    const ok = window.confirm(`Hapus permanen laporan kejadian dari ${k.userName} (${formatDateShortID(k.createdAt.slice(0, 10))})?\n\nFoto dan seluruh riwayat update ikut terhapus. Tindakan ini tidak bisa dibatalkan.`);
+    if (!ok) return;
+    setBusyId(k.id);
+    setActionError("");
+    try {
+      await deleteKejadian(k.id);
+      if (expandedId === k.id) setExpandedId(null);
+    } catch (err) {
+      setActionError(err.message || "Gagal menghapus laporan kejadian. Coba lagi.");
+    } finally {
+      setBusyId(null);
+    }
+  }
   async function markSelesai(k) {
     setBusyId(k.id);
     setActionError("");
@@ -12963,7 +12992,19 @@ function KejadianPage() {
         color: "var(--t-faint)",
         marginTop: 6
       }
-    }, k.address), kejadianUpdateBox(k)));
+    }, k.address), kejadianUpdateBox(k), canEdit && /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 12
+      }
+    }, /*#__PURE__*/React.createElement(Button, {
+      variant: "danger",
+      size: "sm",
+      disabled: busyId === k.id,
+      onClick: () => removeKejadian(k)
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "trash-2",
+      size: 14
+    }), busyId === k.id ? " Menghapus\u2026" : " Hapus Laporan"))));
   })));
 }
 
@@ -15163,6 +15204,7 @@ function PanduanPage() {
         "Menu Pengajuan \u2192 Laporan Kejadian menampilkan semua laporan beserta foto, lokasi, dan jejak update dari petugas (siapa yang memproses/menyelesaikan, kapan, catatannya, dan foto kalau ada).",
         "Riwayat dikelompokkan per hari (Hari 1, Hari 2, dst). Hari terakhir terbuka, hari sebelumnya dilipat dengan ringkasan jumlah update dan foto; klik judul harinya untuk membuka. Laporan yang akan dilanjutkan besok punya lencana \"Lanjut besok\", dan yang belum diupdate sejak kemarin punya lencana \"Belum ada update hari ini\".",
         "Di tampilan ringkas, tiap laporan yang sudah diproses punya satu baris ringkasan, mis. \"Update terakhir 2 hari lalu oleh Budi · 3 update\". Buka kartu laporan untuk melihat riwayat lengkap berurutan dari yang terlama; klik foto untuk memperbesar atau mengecilkan.",
+        "Admin bisa menghapus laporan kejadian: buka kartu laporannya lalu tekan \"Hapus Laporan\" dan konfirmasi. Laporan beserta foto dan seluruh riwayat updatenya terhapus permanen dan tidak bisa dikembalikan. Kalau perlu arsip, ekspor ke Excel atau PDF dulu.",
         "Ekspor Excel dan PDF memuat kolom \"Riwayat Penanganan\" berisi semua update (tanggal, jam, petugas, catatan). Entri yang punya foto diberi tanda (+foto); fotonya sendiri tidak ikut diekspor maupun di-backup.",
         "Tab \"Baru & Diproses\" berisi laporan yang masih berjalan, tab \"Selesai\" berisi yang sudah tuntas."
       ]
