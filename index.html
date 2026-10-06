@@ -3365,7 +3365,7 @@ function kejadianHistoryText(k) {
   if (!rows.length) return "-";
   return rows.map(r => {
     const when = r.time ? formatDateShortID(r.time.slice(0, 10)) + " " + formatClock(new Date(r.time)) : "-";
-    return "[" + when + "] " + (title[r.type] || "Update") + " - " + (r.by || "petugas") + (r.note ? ": " + r.note : "");
+    return "[" + when + "] " + (title[r.type] || "Update") + " - " + (r.by || "petugas") + (r.note ? ": " + r.note : "") + (r.photo ? " (+foto)" : "");
   }).join("\n");
 }
 function exportKejadianToExcel(reports, filenamePrefix = "laporan-kejadian") {
@@ -12136,6 +12136,15 @@ function kejadianTimeline(k) {
   return t;
 }
 const KEJADIAN_ENTRY_TITLE = { proses: "Diproses oleh ", update: "Update progres oleh ", selesai: "Diselesaikan oleh " };
+// Foto pada satu entri riwayat: thumbnail, klik untuk memperbesar / mengecilkan
+function KejadianEntryPhoto({ src }) {
+  const [big, setBig] = useState(false);
+  return React.createElement("img", {
+    src, alt: "Foto update", onClick: () => setBig(!big),
+    style: { marginTop: 6, borderRadius: 8, cursor: "pointer", display: "block", objectFit: "cover",
+      width: big ? "100%" : 96, maxWidth: big ? 320 : 96, height: big ? "auto" : 96 }
+  });
+}
 // Jejak update yang dibuat KARYAWAN pelapor (admin hanya melihat)
 function kejadianUpdateBox(k) {
   const h = React.createElement;
@@ -12145,7 +12154,8 @@ function kejadianUpdateBox(k) {
   return h("div", { style: { marginTop: 10, background: "var(--slate-mist)", borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 } },
     rows.map((r, i) => h("div", { key: i },
       h("p", { style: { fontSize: 12, fontWeight: 600, color: "var(--navy-900)" } }, (KEJADIAN_ENTRY_TITLE[r.type] || "Update oleh ") + (r.by || "petugas") + (r.time ? " \u00b7 " + when(r.time) : "")),
-      r.note ? h("p", { style: { fontSize: 13, color: "var(--t-muted)", marginTop: 2, whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, r.note) : null)));
+      r.note ? h("p", { style: { fontSize: 13, color: "var(--t-muted)", marginTop: 2, whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, r.note) : null,
+      r.photo ? h(KejadianEntryPhoto, { src: r.photo }) : null)));
 }
 // Ringkasan 1 baris untuk tampilan ringkas (admin): update terakhir + jumlah update
 function kejadianLastUpdateLine(k) {
@@ -12165,8 +12175,10 @@ function MyKejadianItem({ k, user }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [photo, setPhoto] = useState(null); // foto opsional untuk entri ini
+  const [showCamera, setShowCamera] = useState(false);
   async function submit(kind) {
-    if (kind === "update" && !note.trim()) {
+    if (kind === "update" && !note.trim() && !photo) {
       setError("Tulis perkembangan terbarunya dulu.");
       return;
     }
@@ -12174,20 +12186,25 @@ function MyKejadianItem({ k, user }) {
     setError("");
     try {
       const nowIso = new Date().toISOString();
-      const entry = { type: kind, by: user.name, time: nowIso, note: note.trim() || null };
+      const entry = { type: kind, by: user.name, time: nowIso, note: note.trim() || null, photo: photo || null };
       const extra = { progress: [...kejadianTimeline(k), entry] };
+      // Foto disimpan sebagai base64 di dokumen yang sama; batas Firestore ~1MB per dokumen.
+      if (photo && JSON.stringify({ ...k, ...extra }).length > 900000) {
+        throw new Error("Ukuran laporan sudah terlalu besar untuk menambah foto lagi. Kirim update tanpa foto.");
+      }
       if (kind === "proses") Object.assign(extra, { handledNote: entry.note, handledBy: user.name, handledAt: nowIso });
       if (kind === "selesai") Object.assign(extra, { finishedNote: entry.note, finishedBy: user.name, finishedAt: nowIso });
       await updateKejadianStatus(k.id, kind === "selesai" ? KEJADIAN_STATUS.SELESAI : KEJADIAN_STATUS.DITANGANI, extra);
       setOpen(null);
       setNote("");
+      setPhoto(null);
     } catch (err) {
       setError(err.message || "Gagal menyimpan status. Coba lagi.");
     } finally {
       setBusy(false);
     }
   }
-  function begin(kind) { setOpen(kind); setNote(""); setError(""); }
+  function begin(kind) { setOpen(kind); setNote(""); setPhoto(null); setError(""); }
   const canAct = k.userId === user.id && k.status !== KEJADIAN_STATUS.SELESAI;
   const placeholder = open === "update" ? "Perkembangan terbaru, mis. menunggu material, dilanjutkan besok" : open === "selesai" ? "Catatan penyelesaian (opsional)" : "Catatan proses (opsional), mis. sudah dikoordinasikan dengan PIC";
   return h("div", { style: { padding: "10px 12px", borderRadius: 10, background: "var(--slate-mist)" } },
@@ -12208,10 +12225,22 @@ function MyKejadianItem({ k, user }) {
         ]) : null,
     canAct && open != null ? h("div", { style: { marginTop: 10, display: "flex", flexDirection: "column", gap: 8 } },
       h("textarea", { className: "input", rows: 2, placeholder, value: note, onChange: e => setNote(e.target.value), style: { resize: "vertical", fontFamily: "inherit" } }),
+      photo
+        ? h("div", { className: "flex", style: { alignItems: "center", gap: 8 } },
+          h("img", { src: photo, alt: "Foto update", style: { width: 64, height: 64, borderRadius: 8, objectFit: "cover" } }),
+          h(Button, { variant: "outline", size: "sm", disabled: busy, onClick: () => setShowCamera(true) }, "Ganti Foto"),
+          h(Button, { variant: "outline", size: "sm", disabled: busy, onClick: () => setPhoto(null) }, "Hapus"))
+        : h("div", null, h(Button, { variant: "outline", size: "sm", disabled: busy, onClick: () => setShowCamera(true) }, h(Icon, { name: "camera", size: 14 }), " Tambah Foto")),
       error ? h("p", { style: { fontSize: 12, color: "var(--red)" } }, error) : null,
       h("div", { className: "flex", style: { gap: 8 } },
         h(Button, { variant: "primary", size: "sm", disabled: busy, onClick: () => submit(open) }, busy ? "Menyimpan\u2026" : open === "update" ? "Simpan Update" : "Simpan"),
-        h(Button, { variant: "outline", size: "sm", disabled: busy, onClick: () => { setOpen(null); setError(""); } }, "Batal"))) : null);
+        h(Button, { variant: "outline", size: "sm", disabled: busy, onClick: () => { setOpen(null); setPhoto(null); setError(""); } }, "Batal"))) : null,
+    showCamera ? h(CameraCaptureModal, {
+      title: "Foto Update",
+      requireFace: false,
+      onClose: () => setShowCamera(false),
+      onCapture: dataUrl => { setPhoto(dataUrl); setShowCamera(false); }
+    }) : null);
 }
 function KejadianPage() {
   useStoreSync();
@@ -14627,22 +14656,26 @@ function PanduanPage() {
   const kejadianSection = React.createElement(GuideSection, { icon: "alert-triangle", title: "Laporan Kejadian: Baru \u2192 Diproses \u2192 Selesai" },
     React.createElement("p", null, "Laporan kejadian dibuat dan diperbarui oleh karyawan pelapor. Admin hanya memantau laporan dan perkembangannya (tidak mengubah status)."),
     React.createElement(GuideBadgeRow, { label: "Baru", color: "var(--red)", bg: "var(--red-soft)", desc: "Laporan baru dikirim petugas. Belum ada tindakan." }),
-    React.createElement(GuideBadgeRow, { label: "Diproses", color: "var(--amber)", bg: "var(--amber-soft)", desc: "Petugas menandai laporan sedang ditangani. Selama belum tuntas, status tetap Diproses dan petugas bisa menambah Update Progres dari hari ke hari (mis. menunggu material, lanjut besok)." }),
+    React.createElement(GuideBadgeRow, { label: "Diproses", color: "var(--amber)", bg: "var(--amber-soft)", desc: "Petugas menandai laporan sedang ditangani. Selama belum tuntas, status tetap Diproses dan petugas bisa menambah Update Progres dari hari ke hari (mis. menunggu material, lanjut besok), boleh disertai foto." }),
     React.createElement(GuideBadgeRow, { label: "Selesai", color: "var(--navy-700)", bg: "var(--slate-mist)", desc: "Petugas menyelesaikan laporan setelah kejadian tuntas, boleh disertai catatan penyelesaian." }),
     React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Cara karyawan memperbarui:"),
     React.createElement(GuideList, {
       items: [
         "Buka menu Patroli, lalu lihat kartu \"Laporan Kejadian Saya\". Laporan yang belum selesai selalu tampil di sini.",
-        "Laporan berstatus Baru: tekan \"Tandai Diproses\", isi catatan kalau perlu, lalu Simpan.",
-        "Laporan berstatus Diproses: setiap ada perkembangan (termasuk kalau besok masih berjalan), tekan \"Update Progres\", tulis perkembangannya, lalu Simpan Update. Status tetap Diproses dan bisa diperbarui berkali-kali.",
-        "Setelah kejadian benar-benar beres, tekan \"Selesaikan\", isi catatan penyelesaian kalau perlu, lalu Simpan.",
+        "Laporan berstatus Baru: tekan \"Tandai Diproses\", isi catatan kalau perlu, lalu Simpan. Foto boleh ditambahkan lewat tombol \"Tambah Foto\".",
+        "Laporan berstatus Diproses: setiap ada perkembangan (termasuk kalau besok masih berjalan), tekan \"Update Progres\", tulis perkembangannya, lalu Simpan Update. Status tetap Diproses dan bisa diperbarui berkali-kali. Setiap update harus berisi catatan atau foto (salah satunya cukup).",
+        "Foto di setiap update bersifat opsional dan diambil langsung dari kamera lewat tombol \"Tambah Foto\" (tidak bisa dari galeri). Sebelum disimpan, foto bisa diganti atau dihapus. Satu update memuat satu foto, dan foto otomatis dikecilkan.",
+        "Kalau laporan sudah terlalu banyak foto, aplikasi akan menolak foto baru. Kirim update tanpa foto, lalu lanjutkan dengan catatan teks.",
+        "Setelah kejadian benar-benar beres, tekan \"Selesaikan\", isi catatan penyelesaian kalau perlu (foto bukti penyelesaian boleh ditambahkan), lalu Simpan.",
         "Hanya pelapor yang bisa memperbarui laporannya sendiri. Laporan berstatus Selesai tidak bisa diubah lagi."
       ]
     }),
     React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Untuk admin:"),
     React.createElement(GuideList, {
       items: [
-        "Menu Pengajuan \u2192 Laporan Kejadian menampilkan semua laporan beserta foto, lokasi, dan jejak update dari petugas (siapa yang memproses/menyelesaikan, kapan, dan catatannya).",
+        "Menu Pengajuan \u2192 Laporan Kejadian menampilkan semua laporan beserta foto, lokasi, dan jejak update dari petugas (siapa yang memproses/menyelesaikan, kapan, catatannya, dan foto kalau ada).",
+        "Di tampilan ringkas, tiap laporan yang sudah diproses punya satu baris ringkasan, mis. \"Update terakhir 2 hari lalu oleh Budi · 3 update\". Buka kartu laporan untuk melihat riwayat lengkap berurutan dari yang terlama; klik foto untuk memperbesar atau mengecilkan.",
+        "Ekspor Excel dan PDF memuat kolom \"Riwayat Penanganan\" berisi semua update (tanggal, jam, petugas, catatan). Entri yang punya foto diberi tanda (+foto); fotonya sendiri tidak ikut diekspor maupun di-backup.",
         "Tab \"Baru & Diproses\" berisi laporan yang masih berjalan, tab \"Selesai\" berisi yang sudah tuntas."
       ]
     })
@@ -16088,7 +16121,12 @@ function BackupArchiveCard() {
       const recordsData = recordsSnap.docs.map(d => stripLargeFields(d.data(), ["checkInPhoto", "checkOutPhoto"]));
       const patrolsData = patrolsSnap.docs.map(d => stripLargeFields(d.data(), ["path"]));
       const cpData = cpSnap.docs.map(d => d.data());
-      const kejadianData = kejadianSnap.docs.map(d => stripLargeFields(d.data(), ["photo"]));
+      const kejadianData = kejadianSnap.docs.map(d => {
+        const raw = d.data();
+        const o = stripLargeFields(raw, ["photo"]);
+        if (Array.isArray(raw.progress)) o.progress = kejadianHistoryText(raw); // foto tidak ikut backup
+        return o;
+      });
       const total = recordsData.length + patrolsData.length + cpData.length + kejadianData.length;
       if (total > 0) {
         const wb = XLSX.utils.book_new();
