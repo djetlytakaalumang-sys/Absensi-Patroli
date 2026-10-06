@@ -14447,7 +14447,7 @@ function JadwalAdminPage() {
     }
   }, /*#__PURE__*/React.createElement(ScheduleBadge, {
     type: s.scheduledType
-  }), s.scheduledType === SCHEDULE_TYPE.MASUK || s.scheduledType === SCHEDULE_TYPE.PIKET_MALAM ? s.hasCheckedIn ? /*#__PURE__*/React.createElement("span", {
+  }), s.scheduledType === SCHEDULE_TYPE.MASUK || s.scheduledType === SCHEDULE_TYPE.PIKET_MALAM || s.hasCheckedIn ? s.hasCheckedIn ? /*#__PURE__*/React.createElement("span", {
     className: "badge",
     style: {
       background: "var(--green-soft)",
