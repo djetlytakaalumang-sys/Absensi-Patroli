@@ -3700,8 +3700,8 @@ function exportPenilaianToPDF(rows, monthKey) {
     font(7.5, false);
     let lx = x + 5;
     [
-      ["Kehadiran", C.accent],
-      ["Patroli", C.indigo]
+      ["Kehadiran", [100, 116, 139]],
+      ["Patroli", [182, 191, 204]]
     ].forEach(([lbl, c]) => {
       fill(c);
       doc.circle(lx + 1, cy + 12.2, 1, "F");
@@ -3717,8 +3717,9 @@ function exportPenilaianToPDF(rows, monthKey) {
       const cx = px + slot * i + slot / 2;
       const hk = (bot - top) * (Math.min(d.k, 100) / 100),
         hp = (bot - top) * (Math.min(d.p, 100) / 100);
-      bar(cx - bw - 0.3, bot - hk, bw, hk, C.accent);
-      bar(cx + 0.3, bot - hp, bw, hp, C.indigo);
+      // Warna sesuai nilai (merah <=50, hijau 100); Patroli versi lebih pucat supaya bisa dibedakan
+      bar(cx - bw - 0.3, bot - hk, bw, hk, scoreBarRGB(d.k));
+      bar(cx + 0.3, bot - hp, bw, hp, scoreBarRGB(d.p).map(v => Math.round(v * 0.5 + 127.5)));
       font(rotate ? 6.5 : 7, false);
       color(C.navy700);
       if (rotate) {
@@ -3867,7 +3868,7 @@ function exportPenilaianToPDF(rows, monthKey) {
       fill(C.mist);
       doc.roundedRect(bx, y + 21.5, bw2, 1.8, 0.9, 0.9, "F");
       if (v != null && v > 0) {
-        fill(C.accent);
+        fill(scoreBarRGB(v));
         doc.roundedRect(bx, y + 21.5, Math.max(1.8, bw2 * Math.min(v, 100) / 100), 1.8, 0.9, 0.9, "F");
       }
     });
@@ -13330,6 +13331,19 @@ const RANK_MEDAL = {
     icon: "🥉"
   }
 };
+// Warna bar skor: 50% ke bawah merah, 100% hijau, di antaranya bertahap (merah -> oranye -> hijau)
+function scoreBarRGB(v) {
+  const stops = [[50, [228, 20, 43]], [75, [217, 119, 6]], [100, [14, 169, 104]]];
+  const x = Math.max(50, Math.min(100, Number(v) || 0));
+  for (let i = 1; i < stops.length; i++) {
+    if (x <= stops[i][0]) {
+      const [x0, c0] = stops[i - 1], [x1, c1] = stops[i];
+      const t = (x - x0) / (x1 - x0);
+      return c0.map((c, k) => Math.round(c + (c1[k] - c) * t));
+    }
+  }
+  return stops[stops.length - 1][1];
+}
 function ScoreBar({
   label,
   value
@@ -13363,7 +13377,7 @@ function ScoreBar({
       height: "100%",
       width: `${value ?? 0}%`,
       borderRadius: 999,
-      background: "var(--accent-600)"
+      background: `rgb(${scoreBarRGB(value).join(",")})`
     }
   })));
 }
@@ -14087,15 +14101,22 @@ function PenilaianAdminPage() {
     iconSize: 8
   }), /*#__PURE__*/React.createElement(Bar, {
     dataKey: "Kehadiran",
-    fill: "var(--accent-600)",
+    fill: "#64748b",
     radius: [4, 4, 0, 0],
     maxBarSize: 18
-  }), /*#__PURE__*/React.createElement(Bar, {
+  }, compareData.map((d, i) => /*#__PURE__*/React.createElement(Cell, {
+    key: `k-${i}`,
+    fill: `rgb(${scoreBarRGB(d.Kehadiran).join(",")})`
+  }))), /*#__PURE__*/React.createElement(Bar, {
     dataKey: "Patroli",
-    fill: "var(--indigo)",
+    fill: "#b6bfcc",
     radius: [4, 4, 0, 0],
     maxBarSize: 18
-  }))))))), /*#__PURE__*/React.createElement(Leaderboard, {
+  }, compareData.map((d, i) => /*#__PURE__*/React.createElement(Cell, {
+    key: `p-${i}`,
+    fill: `rgb(${scoreBarRGB(d.Patroli).join(",")})`,
+    fillOpacity: 0.5
+  }))))))))), /*#__PURE__*/React.createElement(Leaderboard, {
     rows: rows,
     highlightUserId: null
   }));
