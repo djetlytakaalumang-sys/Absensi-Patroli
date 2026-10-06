@@ -3365,7 +3365,7 @@ function kejadianHistoryText(k) {
   if (!rows.length) return "-";
   return rows.map(r => {
     const when = r.time ? formatDateShortID(r.time.slice(0, 10)) + " " + formatClock(new Date(r.time)) : "-";
-    return "[" + when + "] " + (title[r.type] || "Update") + " - " + (r.by || "petugas") + (r.note ? ": " + r.note : "") + (r.photo ? " (+foto)" : "");
+    return "[" + when + "] " + (title[r.type] || "Update") + " - " + (r.by || "petugas") + (r.note ? ": " + r.note : "") + (r.type === "update" && r.next ? " (lanjut besok)" : "") + (r.photo ? " (+foto)" : "");
   }).join("\n");
 }
 function exportKejadianToExcel(reports, filenamePrefix = "laporan-kejadian") {
@@ -12539,17 +12539,70 @@ function KejadianEntryPhoto({ src }) {
       width: big ? "100%" : 96, maxWidth: big ? 320 : 96, height: big ? "auto" : 96 }
   });
 }
-// Jejak update yang dibuat KARYAWAN pelapor (admin hanya melihat)
-function kejadianUpdateBox(k) {
+// Hari kalender (WITA) dari waktu ISO; "" kalau data lama tidak punya waktu
+function kejadianDay(iso) {
+  return iso ? todayDateStrWITA(new Date(iso)) : "";
+}
+// Lencana alur harian untuk laporan Diproses:
+// - update terakhir hari ini ditandai "Lanjut besok" -> "Lanjut besok"
+// - update terakhir sebelum hari ini -> "Belum ada update hari ini"
+function kejadianContinueBadge(k) {
+  if (k.status !== KEJADIAN_STATUS.DITANGANI) return null;
+  const rows = kejadianTimeline(k).filter(r => r.time);
+  if (!rows.length) return null;
+  const last = rows[rows.length - 1];
+  const day = kejadianDay(last.time),
+    today = todayDateStrWITA();
+  let label = null,
+    cls = "badge-piket-malam";
+  if (day === today) {
+    if (last.type === "update" && last.next) label = "Lanjut besok";
+  } else if (day < today) {
+    label = "Belum ada update hari ini";
+    cls = "badge-terlambat";
+  }
+  return label ? React.createElement("span", { className: "badge " + cls }, label) : null;
+}
+// Riwayat dikelompokkan per hari. Hari terakhir terbuka, hari sebelumnya dilipat dengan ringkasan.
+function KejadianTimeline({ k }) {
   const h = React.createElement;
   const rows = kejadianTimeline(k);
+  const [openDays, setOpenDays] = useState({});
   if (rows.length === 0) return null;
-  const when = iso => iso ? formatDateShortID(iso.slice(0, 10)) + " " + formatClock(new Date(iso)) : "";
-  return h("div", { style: { marginTop: 10, background: "var(--slate-mist)", borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 } },
-    rows.map((r, i) => h("div", { key: i },
-      h("p", { style: { fontSize: 12, fontWeight: 600, color: "var(--navy-900)" } }, (KEJADIAN_ENTRY_TITLE[r.type] || "Update oleh ") + (r.by || "petugas") + (r.time ? " \u00b7 " + when(r.time) : "")),
-      r.note ? h("p", { style: { fontSize: 13, color: "var(--t-muted)", marginTop: 2, whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, r.note) : null,
-      r.photo ? h(KejadianEntryPhoto, { src: r.photo }) : null)));
+  const groups = [];
+  rows.forEach(r => {
+    const d = kejadianDay(r.time);
+    let g = groups[groups.length - 1];
+    if (!g || g.day !== d) {
+      g = { day: d, items: [] };
+      groups.push(g);
+    }
+    g.items.push(r);
+  });
+  const multi = groups.length > 1;
+  const clock = iso => iso ? formatClock(new Date(iso)) : "";
+  const full = iso => iso ? formatDateShortID(kejadianDay(iso)) + " " + clock(iso) : "";
+  const renderEntry = (r, i) => h("div", { key: i },
+    h("p", { style: { fontSize: 12, fontWeight: 600, color: "var(--navy-900)" } },
+      (KEJADIAN_ENTRY_TITLE[r.type] || "Update oleh ") + (r.by || "petugas") + (r.time ? " \u00b7 " + (multi ? clock(r.time) : full(r.time)) : "") + (r.type === "update" && r.next ? " \u00b7 Lanjut besok" : "")),
+    r.note ? h("p", { style: { fontSize: 13, color: "var(--t-muted)", marginTop: 2, whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, r.note) : null,
+    r.photo ? h(KejadianEntryPhoto, { src: r.photo }) : null);
+  return h("div", { style: { marginTop: 10, background: "var(--slate-mist)", borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 10 } },
+    groups.map((g, gi) => {
+      if (!multi) return h("div", { key: gi, style: { display: "flex", flexDirection: "column", gap: 8 } }, g.items.map(renderEntry));
+      const isLast = gi === groups.length - 1;
+      const isOpen = isLast ? openDays[gi] !== false : openDays[gi] === true;
+      const nPhoto = g.items.filter(r => r.photo).length;
+      return h("div", { key: gi, style: { display: "flex", flexDirection: "column", gap: 8 } },
+        h("button", { type: "button", onClick: () => setOpenDays({ ...openDays, [gi]: !isOpen }), style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" } },
+          h("span", { style: { fontSize: 11, fontWeight: 700, color: "var(--navy-700)" } }, (isOpen ? "\u25BE " : "\u25B8 ") + "Hari " + (gi + 1) + (g.day ? " \u00b7 " + formatDateShortID(g.day) : " \u00b7 Tanpa tanggal")),
+          !isOpen ? h("span", { style: { fontSize: 11, color: "var(--t-faint)" } }, g.items.length + " update" + (nPhoto ? " \u00b7 " + nPhoto + " foto" : "")) : null),
+        isOpen ? h("div", { style: { display: "flex", flexDirection: "column", gap: 8, paddingLeft: 10, borderLeft: "2px solid rgba(0,0,0,.08)" } }, g.items.map(renderEntry)) : null);
+    }));
+}
+// Jejak update yang dibuat KARYAWAN pelapor (admin hanya melihat)
+function kejadianUpdateBox(k) {
+  return kejadianTimeline(k).length ? React.createElement(KejadianTimeline, { k }) : null;
 }
 // Ringkasan 1 baris untuk tampilan ringkas (admin): update terakhir + jumlah update
 function kejadianLastUpdateLine(k) {
@@ -12570,6 +12623,7 @@ function MyKejadianItem({ k, user }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [photo, setPhoto] = useState(null); // foto opsional untuk entri ini
+  const [next, setNext] = useState(true); // khusus Update Progres: dilanjutkan besok?
   const [showCamera, setShowCamera] = useState(false);
   async function submit(kind) {
     if (kind === "update" && !note.trim() && !photo) {
@@ -12581,6 +12635,7 @@ function MyKejadianItem({ k, user }) {
     try {
       const nowIso = new Date().toISOString();
       const entry = { type: kind, by: user.name, time: nowIso, note: note.trim() || null, photo: photo || null };
+      if (kind === "update") entry.next = next;
       const extra = { progress: [...kejadianTimeline(k), entry] };
       // Foto disimpan sebagai base64 di dokumen yang sama; batas Firestore ~1MB per dokumen.
       if (photo && JSON.stringify({ ...k, ...extra }).length > 900000) {
@@ -12598,9 +12653,9 @@ function MyKejadianItem({ k, user }) {
       setBusy(false);
     }
   }
-  function begin(kind) { setOpen(kind); setNote(""); setPhoto(null); setError(""); }
+  function begin(kind) { setOpen(kind); setNote(""); setPhoto(null); setNext(true); setError(""); }
   const canAct = k.userId === user.id && k.status !== KEJADIAN_STATUS.SELESAI;
-  const placeholder = open === "update" ? "Perkembangan terbaru, mis. menunggu material, dilanjutkan besok" : open === "selesai" ? "Catatan penyelesaian (opsional)" : "Catatan proses (opsional), mis. sudah dikoordinasikan dengan PIC";
+  const placeholder = open === "update" ? "Perkembangan terbaru, mis. penggalian selesai, menunggu material" : open === "selesai" ? "Catatan penyelesaian (opsional)" : "Catatan proses (opsional), mis. sudah dikoordinasikan dengan PIC";
   return h("div", { style: { padding: "10px 12px", borderRadius: 10, background: "var(--slate-mist)" } },
     h("div", { className: "flex", style: { alignItems: "center", gap: 12 } },
       k.photo ? h("img", { src: k.photo, alt: "", style: { width: 40, height: 40, borderRadius: 8, objectFit: "cover", flexShrink: 0 } })
@@ -12608,7 +12663,9 @@ function MyKejadianItem({ k, user }) {
       h("div", { style: { flex: 1, minWidth: 0 } },
         h("p", { style: { fontSize: 13, fontWeight: 600, color: "var(--navy-900)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere" } }, k.note),
         h("p", { style: { fontSize: 11, color: "var(--t-faint)" } }, formatDateShortID(k.createdAt.slice(0, 10)), " \u00b7 ", formatClock(new Date(k.createdAt)), k.darurat ? " \u00b7 Darurat" : "")),
-      h("span", { className: `badge ${KEJADIAN_STATUS_CLASS[k.status]}` }, KEJADIAN_STATUS_LABEL[k.status])),
+      h("div", { className: "flex", style: { alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" } },
+        kejadianContinueBadge(k),
+        h("span", { className: `badge ${KEJADIAN_STATUS_CLASS[k.status]}` }, KEJADIAN_STATUS_LABEL[k.status]))),
     kejadianUpdateBox(k),
     canAct && open == null ? h("div", { className: "flex", style: { marginTop: 10, gap: 8, flexWrap: "wrap" } },
       k.status === KEJADIAN_STATUS.BARU
@@ -12625,6 +12682,10 @@ function MyKejadianItem({ k, user }) {
           h(Button, { variant: "outline", size: "sm", disabled: busy, onClick: () => setShowCamera(true) }, "Ganti Foto"),
           h(Button, { variant: "outline", size: "sm", disabled: busy, onClick: () => setPhoto(null) }, "Hapus"))
         : h("div", null, h(Button, { variant: "outline", size: "sm", disabled: busy, onClick: () => setShowCamera(true) }, h(Icon, { name: "camera", size: 14 }), " Tambah Foto")),
+      open === "update" ? h("div", null,
+        h("label", { className: "flex", style: { alignItems: "center", gap: 8, fontSize: 13, color: "var(--navy-900)", cursor: "pointer" } },
+          h("input", { type: "checkbox", checked: next, disabled: busy, onChange: e => setNext(e.target.checked) }), "Pekerjaan dilanjutkan besok"),
+        h("p", { style: { fontSize: 11, color: "var(--t-faint)", marginTop: 2 } }, "Kalau pekerjaan sudah tidak ada lagi, batalkan lalu tekan Selesaikan.")) : null,
       error ? h("p", { style: { fontSize: 12, color: "var(--red)" } }, error) : null,
       h("div", { className: "flex", style: { gap: 8 } },
         h(Button, { variant: "primary", size: "sm", disabled: busy, onClick: () => submit(open) }, busy ? "Menyimpan\u2026" : open === "update" ? "Simpan Update" : "Simpan"),
@@ -12856,9 +12917,17 @@ function KejadianPage() {
         fontSize: 12,
         color: "var(--t-faint)"
       }
-    }, formatDateShortID(k.createdAt.slice(0, 10)), " · ", formatClock(new Date(k.createdAt))))), /*#__PURE__*/React.createElement("span", {
+    }, formatDateShortID(k.createdAt.slice(0, 10)), " · ", formatClock(new Date(k.createdAt))))), /*#__PURE__*/React.createElement("div", {
+      className: "flex",
+      style: {
+        alignItems: "center",
+        gap: 6,
+        flexWrap: "wrap",
+        justifyContent: "flex-end"
+      }
+    }, kejadianContinueBadge(k), /*#__PURE__*/React.createElement("span", {
       className: `badge ${KEJADIAN_STATUS_CLASS[k.status]}`
-    }, KEJADIAN_STATUS_LABEL[k.status])), /*#__PURE__*/React.createElement("p", {
+    }, KEJADIAN_STATUS_LABEL[k.status]))), /*#__PURE__*/React.createElement("p", {
       style: {
         fontSize: 13,
         color: "var(--t-muted)",
@@ -15012,7 +15081,7 @@ function PanduanPage() {
     }),
     React.createElement(GuideBadgeRow, {
       label: "Piket Malam", color: "var(--indigo)", bg: "var(--indigo-soft)",
-      desc: `Otomatis terdeteksi kalau jam check-in masuk jendela shift malam (mulai ${s.nightShiftStart}), ATAU karyawan memang dijadwalkan "Piket Malam" di menu Jadwal Kerja untuk tanggal itu.`
+      desc: `Otomatis terdeteksi kalau jam check-in masuk jendela shift malam (mulai ${s.nightShiftStart}), ATAU karyawan memang dijadwalkan "Piket Malam" di menu Jadwal Kerja untuk tanggal itu. Kalau dijadwalkan Piket Malam, jam check-in berapa pun (termasuk pagi) tetap terbaca Piket Malam, tidak pernah Terlambat. Karena itu pastikan jadwal Piket Malam sudah terisi.`
     }),
     React.createElement(GuideBadgeRow, {
       label: "Alpa", color: "var(--red)", bg: "var(--red-soft)",
@@ -15028,6 +15097,8 @@ function PanduanPage() {
     }),
     React.createElement("p", { style: { fontSize: 12.5, fontStyle: "italic", marginTop: 4 } },
       "Prioritas: kalau ada Jadwal Kerja resmi untuk suatu tanggal, Jadwal itu yang menentukan (Masuk / Piket Malam / Standby On Call) \u2014 bukan deteksi otomatis dari jam absen."),
+    React.createElement("p", { style: { fontSize: 12.5, fontStyle: "italic" } },
+      "Kartu \"Jadwal & Presensi Hari Ini\" di dashboard menampilkan lencana Presensi untuk siapa pun yang sudah presensi hari itu, termasuk karyawan yang jadwalnya Standby On Call. Karyawan Standby yang belum presensi tidak ditandai \"Belum\", karena memang tidak wajib."),
     React.createElement("p", { style: { fontSize: 12.5, fontStyle: "italic" } },
       "Status yang ditampilkan (Hadir/Terlambat/Piket Malam) selalu otomatis mengikuti Jadwal Kerja yang berlaku SEKARANG \u2014 kalau Jadwal untuk suatu tanggal diperbaiki belakangan (misalnya setelah orang itu sudah presensi), tampilan status ikut menyesuaikan sendiri tanpa perlu diedit manual.")
   );
@@ -15079,6 +15150,8 @@ function PanduanPage() {
         "Laporan berstatus Baru: tekan \"Tandai Diproses\", isi catatan kalau perlu, lalu Simpan. Foto boleh ditambahkan lewat tombol \"Tambah Foto\".",
         "Laporan berstatus Diproses: setiap ada perkembangan (termasuk kalau besok masih berjalan), tekan \"Update Progres\", tulis perkembangannya, lalu Simpan Update. Status tetap Diproses dan bisa diperbarui berkali-kali. Setiap update harus berisi catatan atau foto (salah satunya cukup).",
         "Foto di setiap update bersifat opsional dan diambil langsung dari kamera lewat tombol \"Tambah Foto\" (tidak bisa dari galeri). Sebelum disimpan, foto bisa diganti atau dihapus. Satu update memuat satu foto, dan foto otomatis dikecilkan.",
+        "Di form Update Progres ada kotak \"Pekerjaan dilanjutkan besok\" (aktif secara bawaan). Biarkan tercentang kalau pekerjaan masih berlanjut besok; laporan akan diberi lencana \"Lanjut besok\". Kalau pekerjaan sudah tidak ada lagi, jangan lanjutkan: tekan Selesaikan.",
+        "Laporan Diproses yang belum diupdate sejak kemarin diberi lencana \"Belum ada update hari ini\" sebagai pengingat untuk mengisi update hari itu.",
         "Kalau laporan sudah terlalu banyak foto, aplikasi akan menolak foto baru. Kirim update tanpa foto, lalu lanjutkan dengan catatan teks.",
         "Setelah kejadian benar-benar beres, tekan \"Selesaikan\", isi catatan penyelesaian kalau perlu (foto bukti penyelesaian boleh ditambahkan), lalu Simpan.",
         "Hanya pelapor yang bisa memperbarui laporannya sendiri. Laporan berstatus Selesai tidak bisa diubah lagi."
@@ -15088,6 +15161,7 @@ function PanduanPage() {
     React.createElement(GuideList, {
       items: [
         "Menu Pengajuan \u2192 Laporan Kejadian menampilkan semua laporan beserta foto, lokasi, dan jejak update dari petugas (siapa yang memproses/menyelesaikan, kapan, catatannya, dan foto kalau ada).",
+        "Riwayat dikelompokkan per hari (Hari 1, Hari 2, dst). Hari terakhir terbuka, hari sebelumnya dilipat dengan ringkasan jumlah update dan foto; klik judul harinya untuk membuka. Laporan yang akan dilanjutkan besok punya lencana \"Lanjut besok\", dan yang belum diupdate sejak kemarin punya lencana \"Belum ada update hari ini\".",
         "Di tampilan ringkas, tiap laporan yang sudah diproses punya satu baris ringkasan, mis. \"Update terakhir 2 hari lalu oleh Budi · 3 update\". Buka kartu laporan untuk melihat riwayat lengkap berurutan dari yang terlama; klik foto untuk memperbesar atau mengecilkan.",
         "Ekspor Excel dan PDF memuat kolom \"Riwayat Penanganan\" berisi semua update (tanggal, jam, petugas, catatan). Entri yang punya foto diberi tanda (+foto); fotonya sendiri tidak ikut diekspor maupun di-backup.",
         "Tab \"Baru & Diproses\" berisi laporan yang masih berjalan, tab \"Selesai\" berisi yang sudah tuntas."
@@ -15273,7 +15347,10 @@ function PanduanPage() {
     React.createElement(GuideList, {
       items: [
         "Kalau karyawan belum punya data patroli sama sekali bulan itu (belum pernah jalanin sesi), nilai akhirnya 100% mengikuti Skor Kehadiran saja \u2014 tidak dianggap 0.",
-        "Kalau tidak ada data kehadiran maupun patroli sama sekali, nilai tidak ditampilkan (dianggap belum ada data, bukan nilai jelek)."
+        "Kalau tidak ada data kehadiran maupun patroli sama sekali, nilai tidak ditampilkan (dianggap belum ada data, bukan nilai jelek).",
+        "Warna bar Kehadiran dan Patroli mengikuti nilainya: 100% hijau, 50% ke bawah merah, dan di antaranya berubah bertahap (oranye di sekitar 75%).",
+        "Grafik \"Skor Kehadiran vs Patroli per Karyawan\" memakai warna yang sama. Batang Kehadiran berwarna penuh, batang Patroli versi lebih pucat supaya bisa dibedakan.",
+        "Tombol Cetak PDF di halaman Penilaian Tim menghasilkan PDF dengan susunan seperti halamannya: kartu Rata-rata Skor dan Skor Tertinggi, dua grafik, lalu papan peringkat tiap karyawan lengkap dengan bar skornya."
       ]
     }),
     React.createElement("p", { style: { fontWeight: 600, color: "var(--navy-900)", marginTop: 4 } }, "Arti huruf Grade-nya:"),
