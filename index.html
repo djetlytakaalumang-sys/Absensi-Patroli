@@ -3449,49 +3449,442 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian") {
   doc.save(`${filenamePrefix}-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
-// Ekspor papan peringkat Penilaian Tim (skor kehadiran, patroli, total, dan grade tiap karyawan) ke PDF
+// Ekspor Penilaian Tim ke PDF. Susunannya meniru halaman Penilaian Tim (admin): judul + bulan,
+// 2 kartu ringkasan, 2 grafik batang, lalu papan peringkat (kartu per karyawan dengan bar skor).
 function exportPenilaianToPDF(rows, monthKey) {
   const bulanLabel = new Date(monthKey + "-01T00:00:00").toLocaleDateString("id-ID", {
     month: "long",
     year: "numeric"
   });
   const doc = new jspdf.jsPDF({
-    orientation: "landscape"
+    orientation: "portrait",
+    unit: "mm",
+    format: "a4"
   });
-  doc.setFontSize(14);
-  doc.setTextColor(15, 27, 51);
-  doc.text("Papan Peringkat Penilaian Tim", 14, 15);
-  doc.setFontSize(9);
-  doc.setTextColor(100, 116, 139);
-  doc.text(`${bulanLabel} · Dibuat pada ${new Date().toLocaleString("id-ID")}`, 14, 21);
-  const body = rows.map(r => [r.rank ?? "-", r.userName, r.position || "-", r.attendance ?? "-", r.patrol ?? "-", r.total ?? "-", scoreGrade(r.total).label]);
-  doc.autoTable({
-    startY: 27,
-    head: [["Peringkat", "Nama", "Posisi", "Skor Kehadiran", "Skor Patroli", "Skor Total", "Grade"]],
-    body,
-    styles: {
-      fontSize: 8,
-      cellPadding: 2.5
+  const PW = 210,
+    PH = 297,
+    M = 14,
+    CW = PW - 2 * M,
+    BOTTOM = PH - 16;
+  const hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const C = {
+    navy: [28, 20, 24],
+    navy700: [107, 93, 99],
+    muted: [100, 116, 139],
+    faint: [148, 163, 184],
+    line: [226, 228, 232],
+    mist: [241, 242, 245],
+    accent: [239, 35, 56],
+    green: [14, 169, 104],
+    greenSoft: [227, 249, 239],
+    amber: [217, 119, 6],
+    amberSoft: [253, 241, 221],
+    indigo: [79, 95, 212],
+    red: [228, 20, 43]
+  };
+  const GRADE_RGB = {
+    "var(--green)": C.green,
+    "var(--accent-700)": [228, 20, 43],
+    "var(--amber)": C.amber,
+    "var(--red)": C.red
+  };
+  const fill = c => doc.setFillColor(c[0], c[1], c[2]);
+  const stroke = c => doc.setDrawColor(c[0], c[1], c[2]);
+  const color = c => doc.setTextColor(c[0], c[1], c[2]);
+  const font = (size, bold) => {
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFontSize(size);
+  };
+  const fit = (txt, maxW) => {
+    let t = String(txt);
+    if (doc.getTextWidth(t) <= maxW) return t;
+    while (t.length > 1 && doc.getTextWidth(t + "...") > maxW) t = t.slice(0, -1);
+    return t + "...";
+  };
+  const card = (x, y, w, h) => {
+    fill([255, 255, 255]);
+    stroke(C.line);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(x, y, w, h, 3, 3, "FD");
+  };
+  // Batang dengan sudut atas membulat, dasar rata
+  const bar = (x, y, w, h, c) => {
+    if (h <= 0) return;
+    fill(c);
+    if (h < 2.5) {
+      doc.rect(x, y, w, h, "F");
+      return;
+    }
+    doc.roundedRect(x, y, w, h, 1, 1, "F");
+    doc.rect(x, y + h - 1.2, w, 1.2, "F");
+  };
+  const fmtScore = v => v == null ? "-" : String(v);
+
+  // ---------- Data (sama dengan yang dihitung halaman Penilaian Tim) ----------
+  const scored = rows.filter(r => r.total != null);
+  const avgScore = scored.length ? Math.round(scored.reduce((s, r) => s + r.total, 0) / scored.length) : null;
+  const agg = {
+    hadir: 0,
+    terlambat: 0,
+    pikMalam: 0,
+    alpha: 0,
+    izin: 0
+  };
+  rows.forEach(r => {
+    if (!r.breakdown) return;
+    agg.hadir += r.breakdown.hadir;
+    agg.terlambat += r.breakdown.terlambat;
+    agg.pikMalam += r.breakdown.pikMalam;
+    agg.alpha += r.breakdown.alpha;
+    agg.izin += r.breakdown.izin;
+  });
+  const distData = [{
+    name: "Hadir",
+    value: agg.hadir,
+    fill: hex("#16A34A")
+  }, {
+    name: "Terlambat",
+    value: agg.terlambat,
+    fill: hex("#D97706")
+  }, {
+    name: "Piket Malam",
+    value: agg.pikMalam,
+    fill: hex("#4338CA")
+  }, {
+    name: "Alpa",
+    value: agg.alpha,
+    fill: hex("#DC2626")
+  }, {
+    name: "Izin",
+    value: agg.izin,
+    fill: hex("#7c3aed")
+  }];
+  const compareData = rows.map(r => ({
+    name: r.userName.split(" ")[0],
+    k: r.attendance ?? 0,
+    p: r.patrol ?? 0
+  }));
+
+  // ---------- Header ----------
+  fill(C.accent);
+  doc.roundedRect(M, 11, 16, 1.4, 0.7, 0.7, "F");
+  font(20, true);
+  color(C.navy);
+  doc.text("Penilaian Tim", M, 21);
+  font(9.5, false);
+  color(C.navy700);
+  doc.text("Skor otomatis & papan peringkat seluruh karyawan.", M, 27);
+  font(11, true);
+  color(C.navy);
+  doc.text(bulanLabel, PW - M, 20, {
+    align: "right"
+  });
+  font(7.5, false);
+  color(C.faint);
+  doc.text(`Dibuat pada ${new Date().toLocaleString("id-ID")}`, PW - M, 25.5, {
+    align: "right"
+  });
+  let y = 34;
+
+  // ---------- 2 kartu ringkasan ----------
+  const gap = 4,
+    halfW = (CW - gap) / 2,
+    statH = 30;
+  const statCard = (x, label, value, c, soft, iconFn) => {
+    card(x, y, halfW, statH);
+    fill(soft);
+    doc.roundedRect(x + 4.5, y + 4.5, 10, 10, 2.5, 2.5, "F");
+    stroke(c);
+    doc.setLineWidth(0.55);
+    iconFn(x + 4.5, y + 4.5);
+    font(19, true);
+    color(C.navy);
+    doc.text(String(value), x + 4.5, y + 22.5);
+    font(8.5, false);
+    color(C.faint);
+    doc.text(label, x + 4.5, y + 27);
+  };
+  const iconTrend = (ix, iy) => {
+    doc.line(ix + 2.2, iy + 6.9, ix + 4.3, iy + 4.6);
+    doc.line(ix + 4.3, iy + 4.6, ix + 5.7, iy + 6);
+    doc.line(ix + 5.7, iy + 6, ix + 7.9, iy + 3.4);
+    doc.line(ix + 7.9, iy + 3.4, ix + 6.3, iy + 3.4);
+    doc.line(ix + 7.9, iy + 3.4, ix + 7.9, iy + 5);
+  };
+  const iconTrophy = (ix, iy) => {
+    doc.rect(ix + 3.4, iy + 2.4, 3.2, 3.4, "S");
+    doc.line(ix + 5, iy + 5.8, ix + 5, iy + 7.2);
+    doc.line(ix + 3.6, iy + 7.4, ix + 6.4, iy + 7.4);
+    doc.line(ix + 3.4, iy + 3.2, ix + 2.4, iy + 3.2);
+    doc.line(ix + 2.4, iy + 3.2, ix + 2.4, iy + 4.4);
+    doc.line(ix + 6.6, iy + 3.2, ix + 7.6, iy + 3.2);
+    doc.line(ix + 7.6, iy + 3.2, ix + 7.6, iy + 4.4);
+  };
+  statCard(M, "Rata-rata Skor", avgScore ?? "-", C.green, C.greenSoft, iconTrend);
+  statCard(M + halfW + gap, "Skor Tertinggi", rows[0]?.total ?? "-", C.amber, C.amberSoft, iconTrophy);
+  y += statH + 6;
+
+  // ---------- Grafik ----------
+  const chartH = 64;
+  const sideBySide = compareData.length <= 6;
+  // Banyak karyawan: nama diputar miring di bawah batang, jadi kartu dibuat lebih tinggi
+  const rotateLabels = !sideBySide && (CW - 18) / compareData.length < 9;
+  const compareH = rotateLabels ? chartH + 7 : chartH;
+  // Kerangka grafik: kartu, judul, garis bantu + label sumbu-Y. Mengembalikan area plot.
+  const chartFrame = (x, cy, w, h, pad, title, ticks, tickLabel) => {
+    card(x, cy, w, h);
+    font(9.5, true);
+    color(C.navy);
+    doc.text(title, x + 5, cy + 8);
+    const px = x + 13,
+      pw = w - 13 - 5,
+      top = cy + 20,
+      bot = cy + h - pad;
+    doc.setLineWidth(0.2);
+    stroke(C.line);
+    font(7, false);
+    color(C.faint);
+    ticks.forEach((t, i) => {
+      const gy = bot - (bot - top) * (i / (ticks.length - 1));
+      doc.setLineDashPattern([0.8, 0.8], 0);
+      doc.line(px, gy, px + pw, gy);
+      doc.setLineDashPattern([], 0);
+      doc.text(tickLabel(t), px - 2, gy + 1, {
+        align: "right"
+      });
+    });
+    return {
+      px,
+      pw,
+      top,
+      bot
+    };
+  };
+  const drawDist = (x, cy, w) => {
+    const maxV = Math.max(0, ...distData.map(d => d.value));
+    const need = Math.max(1, maxV / 4);
+    const step = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000].find(s => s >= need) || Math.ceil(need);
+    const ticks = [0, 1, 2, 3, 4].map(i => i * step);
+    const {
+      px,
+      pw,
+      top,
+      bot
+    } = chartFrame(x, cy, w, chartH, 11, "Distribusi Kehadiran Tim Bulan Ini", ticks, t => String(t));
+    const slot = pw / distData.length,
+      bw = Math.min(slot * 0.55, 13);
+    distData.forEach((d, i) => {
+      const cx = px + slot * i + slot / 2;
+      const bh = (bot - top) * (d.value / (step * 4));
+      bar(cx - bw / 2, bot - bh, bw, bh, d.fill);
+      font(7.5, true);
+      color(C.navy);
+      doc.text(String(d.value), cx, bot - bh - 1.5, {
+        align: "center"
+      });
+      font(7, false);
+      color(C.navy700);
+      doc.text(d.name, cx, bot + 5, {
+        align: "center"
+      });
+    });
+  };
+  const drawCompare = (x, cy, w) => {
+    const {
+      px,
+      pw,
+      top,
+      bot
+    } = chartFrame(x, cy, w, compareH, rotateLabels ? 17 : 11, "Skor Kehadiran vs Patroli per Karyawan", [0, 25, 50, 75, 100], t => String(t));
+    // Legenda (kanan atas)
+    font(7.5, false);
+    let lx = x + 5;
+    [
+      ["Kehadiran", C.accent],
+      ["Patroli", C.indigo]
+    ].forEach(([lbl, c]) => {
+      fill(c);
+      doc.circle(lx + 1, cy + 12.2, 1, "F");
+      color(C.navy700);
+      doc.text(lbl, lx + 3.2, cy + 13);
+      lx += doc.getTextWidth(lbl) + 9;
+    });
+    const n = compareData.length;
+    const slot = pw / Math.max(n, 1),
+      bw = Math.min(slot * 0.34, 7);
+    const rotate = rotateLabels;
+    compareData.forEach((d, i) => {
+      const cx = px + slot * i + slot / 2;
+      const hk = (bot - top) * (Math.min(d.k, 100) / 100),
+        hp = (bot - top) * (Math.min(d.p, 100) / 100);
+      bar(cx - bw - 0.3, bot - hk, bw, hk, C.accent);
+      bar(cx + 0.3, bot - hp, bw, hp, C.indigo);
+      font(rotate ? 6.5 : 7, false);
+      color(C.navy700);
+      if (rotate) {
+        doc.text(fit(d.name, 16), cx - 1, bot + 2.8, {
+          angle: -55
+        });
+      } else {
+        doc.text(fit(d.name, slot - 1), cx, bot + 5, {
+          align: "center"
+        });
+      }
+    });
+  };
+  if (rows.length > 0) {
+    if (sideBySide) {
+      drawDist(M, y, halfW);
+      drawCompare(M + halfW + gap, y, halfW);
+      y += chartH + 6;
+    } else {
+      drawDist(M, y, CW);
+      y += chartH + 4;
+      if (y + compareH > BOTTOM) {
+        doc.addPage();
+        y = 18;
+      }
+      drawCompare(M, y, CW);
+      y += compareH + 6;
+    }
+  }
+
+  // ---------- Papan peringkat ----------
+  const RANK_STYLE = {
+    1: {
+      bg: hex("#FEF3C7"),
+      fg: hex("#B45309")
     },
-    headStyles: {
-      fillColor: [15, 27, 51],
-      textColor: 255,
-      fontStyle: "bold"
+    2: {
+      bg: hex("#E2E8F0"),
+      fg: hex("#475569")
     },
-    alternateRowStyles: {
-      fillColor: [244, 246, 249]
-    },
-    columnStyles: {
-      0: {
-        cellWidth: 20,
-        halign: "center"
-      },
-      6: {
-        cellWidth: 20,
-        halign: "center"
+    3: {
+      bg: hex("#FFEDD5"),
+      fg: hex("#9A3412")
+    }
+  };
+  const rowH = 27,
+    rowGap = 3;
+  if (y + 8 + rowH > BOTTOM) {
+    doc.addPage();
+    y = 18;
+  }
+  font(10.5, true);
+  color(C.navy);
+  doc.text("Papan Peringkat", M, y + 3);
+  y += 8;
+  if (rows.length === 0) {
+    card(M, y, CW, 24);
+    font(10, false);
+    color(C.faint);
+    doc.text("Belum ada data karyawan.", PW / 2, y + 14, {
+      align: "center"
+    });
+  }
+  rows.forEach(r => {
+    if (y + rowH > BOTTOM) {
+      doc.addPage();
+      y = 18;
+    }
+    card(M, y, CW, rowH);
+    const medal = RANK_STYLE[r.rank];
+    const grade = scoreGrade(r.total);
+    const gc = GRADE_RGB[grade.colorVar] || C.faint;
+    const cy = y + 9.5;
+    // Lingkaran peringkat
+    fill(medal ? medal.bg : C.mist);
+    doc.circle(M + 8, cy, 4.2, "F");
+    font(9, true);
+    color(medal ? medal.fg : C.muted);
+    doc.text(String(r.rank ?? "-"), M + 8, cy + 1.2, {
+      align: "center"
+    });
+    // Avatar: foto profil kalau ada, kalau tidak inisial berwarna
+    const ax = M + 19.5,
+      ar = 5;
+    let drewPhoto = false;
+    const u = (typeof store !== "undefined" && store.users || []).find(x => x.id === r.userId);
+    const m = u && u.photo && /^data:image\/(png|jpe?g)/i.exec(u.photo);
+    if (m) {
+      try {
+        doc.saveGraphicsState();
+        doc.circle(ax, cy, ar, null);
+        doc.clip();
+        doc.discardPath();
+        doc.addImage(u.photo, m[1].toLowerCase() === "png" ? "PNG" : "JPEG", ax - ar, cy - ar, ar * 2, ar * 2);
+        doc.restoreGraphicsState();
+        drewPhoto = true;
+      } catch (e) {
+        try {
+          doc.restoreGraphicsState();
+        } catch (e2) {}
       }
     }
+    if (!drewPhoto) {
+      fill(hex(/^#[0-9a-f]{6}$/i.test(r.avatarColor || "") ? r.avatarColor : "#1E3A5F"));
+      doc.circle(ax, cy, ar, "F");
+      const initials = r.userName.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase();
+      font(7.5, true);
+      color([255, 255, 255]);
+      doc.text(initials, ax, cy + 1.1, {
+        align: "center"
+      });
+    }
+    // Nama + posisi
+    const tx = M + 28;
+    font(10, true);
+    color(C.navy);
+    doc.text(fit(r.userName, CW - 28 - 32), tx, cy - 0.6);
+    font(8, false);
+    color(C.faint);
+    doc.text(fit(r.position || "-", CW - 28 - 32), tx, cy + 4);
+    // Skor total + grade
+    font(17, true);
+    color(gc);
+    doc.text(fmtScore(r.total), M + CW - 5, cy + 1.2, {
+      align: "right"
+    });
+    font(7.5, false);
+    color(C.faint);
+    doc.text(`Grade ${grade.label}`, M + CW - 5, cy + 5.2, {
+      align: "right"
+    });
+    // Bar skor kehadiran & patroli
+    const bw2 = (CW - 10 - 6) / 2;
+    [
+      ["Kehadiran", r.attendance, M + 5],
+      ["Patroli", r.patrol, M + 5 + bw2 + 6]
+    ].forEach(([lbl, v, bx]) => {
+      font(8, false);
+      color(C.muted);
+      doc.text(lbl, bx, y + 19.5);
+      font(8, true);
+      color(C.navy);
+      doc.text(v == null ? "-" : `${v}%`, bx + bw2, y + 19.5, {
+        align: "right"
+      });
+      fill(C.mist);
+      doc.roundedRect(bx, y + 21.5, bw2, 1.8, 0.9, 0.9, "F");
+      if (v != null && v > 0) {
+        fill(C.accent);
+        doc.roundedRect(bx, y + 21.5, Math.max(1.8, bw2 * Math.min(v, 100) / 100), 1.8, 0.9, 0.9, "F");
+      }
+    });
+    y += rowH + rowGap;
   });
+
+  // ---------- Footer tiap halaman ----------
+  const pages = doc.getNumberOfPages();
+  for (let i = 1; i <= pages; i++) {
+    doc.setPage(i);
+    font(7.5, false);
+    color(C.faint);
+    doc.text(`Penilaian Tim · ${bulanLabel}`, M, PH - 8);
+    doc.text(`Halaman ${i} dari ${pages}`, PW - M, PH - 8, {
+      align: "right"
+    });
+  }
   doc.save(`penilaian-tim-${monthKey}.pdf`);
 }
 const PDF_STATUS_COLOR = {
