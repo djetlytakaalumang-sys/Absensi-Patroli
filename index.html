@@ -287,6 +287,12 @@ img{max-width:100%; display:block;}
 .table-wrap{overflow-x:auto;}
 /* Tabel Rekap Checkpoint (CP): judul kolom turun baris hanya di spasi / tanda hubung (tidak dipotong di tengah kata),
    lebar kolom mengikuti isi sehingga judul checkpoint rapi 2 baris dan di tengah. */
+.rit-matrix table{width:max-content; min-width:100%;}
+.rit-matrix th, .rit-matrix td{padding:7px 2px !important; text-align:center; font-size:12px;}
+.rit-matrix thead th{font-size:10px; line-height:1.25; padding:8px 2px !important;}
+.rit-matrix th:first-child, .rit-matrix td:first-child{position:sticky; left:0; z-index:2; text-align:left; padding-left:16px !important; padding-right:10px !important; min-width:200px; background:var(--glass-bg);}
+.rit-matrix td:not(:first-child), .rit-matrix th:not(:first-child){min-width:30px;}
+.rit-matrix tfoot td{font-weight:700; border-top:1px solid var(--line);}
 .rit-table table{min-width:760px;}
 .rit-table thead th{word-break:normal !important; overflow-wrap:normal !important; hyphens:none !important; white-space:normal; line-height:1.35; padding:12px 6px; vertical-align:middle;}
 .rit-table thead th:first-child{padding-left:16px;}
@@ -385,7 +391,7 @@ html[data-theme="dark"] .leaflet-control-zoom a{background:#2a232f !important;}
 html[data-theme="dark"] .leaflet-container .leaflet-control-attribution{background:rgba(20,16,26,.75) !important; color:#b8adb3 !important;}
 html[data-theme="dark"] .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.9);}
 /* Penanda versi di halaman login (memastikan versi terbaru yang terpasang, bukan cache lama) */
-.login-glass-wrap::after{content:"Versi 2026-10-06.27"; position:absolute; left:0; right:0; bottom:calc(8px + env(safe-area-inset-bottom)); text-align:center; font-size:11px; color:rgba(255,255,255,.7); pointer-events:none;}
+.login-glass-wrap::after{content:"Versi 2026-10-06.29"; position:absolute; left:0; right:0; bottom:calc(8px + env(safe-area-inset-bottom)); text-align:center; font-size:11px; color:rgba(255,255,255,.7); pointer-events:none;}
 /* Form ringkas (mis. pengajuan izin/cuti): jarak & ukuran input dirapatkan supaya tidak terlalu panjang */
 .compact-form .label{font-size:11px; margin-bottom:4px;}
 .compact-form .input{padding:9px 12px; font-size:15px;}
@@ -2219,6 +2225,35 @@ const KEJADIAN_STATUS_CLASS = {
 function generateKejadianId() {
   return "kej-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
+// ===== Format tiket Laporan Kejadian =====
+const KEJADIAN_CATEGORIES = ["Gangguan OSP", "Gangguan Perangkat", "Kabel Laut", "Pekerjaan Pihak Ketiga", "Lainnya"];
+const KEJADIAN_PRIORITY_LABEL = { rendah: "Rendah", sedang: "Sedang", tinggi: "Tinggi" };
+const KEJADIAN_PRIORITY_STYLE = {
+  rendah: { background: "var(--green-soft)", color: "var(--green)" },
+  sedang: { background: "var(--amber-soft)", color: "var(--amber)" },
+  tinggi: { background: "var(--red-soft)", color: "var(--red)" }
+};
+// Nomor tiket: NIT-YYYYMMDD-NNN, urut per hari (tanggal WITA)
+function generateTicketId(iso) {
+  const prefix = "NIT-" + todayDateStrWITA(new Date(iso)).replace(/-/g, "") + "-";
+  const used = new Set(store.kejadian.map(k => k.ticketId).filter(Boolean));
+  let n = store.kejadian.filter(k => k.ticketId && k.ticketId.startsWith(prefix)).length + 1;
+  while (used.has(prefix + String(n).padStart(3, "0"))) n++;
+  return prefix + String(n).padStart(3, "0");
+}
+// Judul tiket; laporan lama (tanpa judul) memakai baris pertama catatannya
+function kejadianTitle(k) {
+  return k.title || String(k.note || "").split("\n")[0].slice(0, 90) || "Laporan Kejadian";
+}
+// Chip kategori + prioritas (null untuk laporan lama yang tidak punya)
+function kejadianTicketChips(k) {
+  const h = React.createElement;
+  const base = { fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 999 };
+  const chips = [];
+  if (k.category) chips.push(h("span", { key: "c", style: { ...base, background: "var(--slate-mist)", color: "var(--navy-700)" } }, k.category));
+  if (k.priority && KEJADIAN_PRIORITY_LABEL[k.priority]) chips.push(h("span", { key: "p", style: { ...base, ...KEJADIAN_PRIORITY_STYLE[k.priority] } }, "Prioritas " + KEJADIAN_PRIORITY_LABEL[k.priority]));
+  return chips.length ? h("div", { className: "flex", style: { gap: 6, flexWrap: "wrap", marginTop: 4 } }, chips) : null;
+}
 function getKejadianReports() {
   return store.kejadian.slice().sort((a, b) => a.createdAt < b.createdAt ? 1 : -1);
 }
@@ -2228,11 +2263,16 @@ function getKejadianReportsByUser(userId) {
 // Sama polanya spt fungsi2 sebelumnya — laporan kejadian bisa berisi info keamanan/insiden
 // penting, jadi WAJIB dipastikan benar2 tersimpan di server sebelum dianggap berhasil.
 async function addKejadianReport(user, data) {
+  const nowIso = new Date().toISOString();
   const report = {
     id: generateKejadianId(),
+    ticketId: generateTicketId(nowIso),
+    title: (data.title || "").trim() || null,
+    category: data.category || null,
+    priority: data.priority || null,
     userId: user.id,
     userName: user.name,
-    createdAt: new Date().toISOString(),
+    createdAt: nowIso,
     lat: data.lat ?? null,
     lng: data.lng ?? null,
     address: data.address || null,
@@ -3392,12 +3432,16 @@ function kejadianHistoryText(k) {
 }
 function exportKejadianToExcel(reports, filenamePrefix = "laporan-kejadian") {
   const rows = reports.map(k => ({
+    "Ticket ID": k.ticketId || "-",
+    Kategori: k.category || "-",
+    Prioritas: KEJADIAN_PRIORITY_LABEL[k.priority] || "-",
+    Judul: k.title || "-",
     Tanggal: formatDateShortID(k.createdAt.slice(0, 10)),
     Waktu: formatClock(new Date(k.createdAt)),
     Pelapor: k.userName,
     Status: KEJADIAN_STATUS_LABEL[k.status] || k.status,
     Darurat: k.darurat ? "Ya" : "Tidak",
-    Catatan: k.note,
+    Kronologi: k.note,
     Lokasi: k.address || "-",
     Latitude: k.lat ?? "-",
     Longitude: k.lng ?? "-",
@@ -3405,6 +3449,14 @@ function exportKejadianToExcel(reports, filenamePrefix = "laporan-kejadian") {
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
   ws["!cols"] = [{
+    wch: 20
+  }, {
+    wch: 22
+  }, {
+    wch: 10
+  }, {
+    wch: 32
+  }, {
     wch: 12
   }, {
     wch: 8
@@ -3439,10 +3491,11 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian") {
   doc.setFontSize(9);
   doc.setTextColor(100, 116, 139);
   doc.text(`Dibuat pada ${new Date().toLocaleString("id-ID")}`, 14, 21);
-  const body = reports.map(k => [formatDateShortID(k.createdAt.slice(0, 10)), formatClock(new Date(k.createdAt)), k.userName, KEJADIAN_STATUS_LABEL[k.status] || k.status, k.darurat ? "Ya" : "Tidak", k.note, k.address || "-", kejadianHistoryText(k)]);
+  const ticketCell = k => [k.ticketId || "-", k.title || "", [k.category, KEJADIAN_PRIORITY_LABEL[k.priority] ? "Prioritas " + KEJADIAN_PRIORITY_LABEL[k.priority] : ""].filter(Boolean).join(" \u00b7 ")].filter(Boolean).join("\n");
+  const body = reports.map(k => [ticketCell(k), formatDateShortID(k.createdAt.slice(0, 10)), formatClock(new Date(k.createdAt)), k.userName, KEJADIAN_STATUS_LABEL[k.status] || k.status, k.darurat ? "Ya" : "Tidak", k.note, k.address || "-", kejadianHistoryText(k)]);
   doc.autoTable({
     startY: 27,
-    head: [["Tanggal", "Waktu", "Pelapor", "Status", "Darurat", "Catatan", "Lokasi", "Riwayat Penanganan"]],
+    head: [["Tiket", "Tanggal", "Waktu", "Pelapor", "Status", "Darurat", "Kronologi", "Lokasi", "Riwayat Penanganan"]],
     body,
     styles: {
       fontSize: 8,
@@ -3457,14 +3510,17 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian") {
       fillColor: [244, 246, 249]
     },
     columnStyles: {
-      5: {
-        cellWidth: 55
+      0: {
+        cellWidth: 36
       },
       6: {
-        cellWidth: 45
+        cellWidth: 48
       },
       7: {
-        cellWidth: 70
+        cellWidth: 38
+      },
+      8: {
+        cellWidth: 62
       }
     }
   });
@@ -3570,6 +3626,33 @@ function exportRitRecapToExcel(opts) {
     XLSX.utils.book_append_sheet(wb, ws2, "Per Hari");
   }
   XLSX.writeFile(wb, `rekap-cp-${d.mode}-${d.fileKey}.xlsx`);
+}
+// Judul kolom PDF: pecah hanya di spasi / setelah tanda hubung (tidak pernah di tengah kata)
+function pdfHeaderTokens(text) {
+  const tokens = [];
+  let cur = "", needSpace = false;
+  for (const ch of String(text)) {
+    if (ch === " ") {
+      if (cur) { tokens.push({ t: cur, sp: needSpace }); cur = ""; }
+      needSpace = true;
+    } else {
+      cur += ch;
+      if (ch === "-") { tokens.push({ t: cur, sp: needSpace }); cur = ""; needSpace = false; }
+    }
+  }
+  if (cur) tokens.push({ t: cur, sp: needSpace });
+  return tokens;
+}
+// Bungkus judul ke beberapa baris sesuai lebar (mm) memakai font yang sedang aktif di doc
+function wrapPdfHeader(doc, text, maxW) {
+  const lines = [];
+  let cur = "";
+  pdfHeaderTokens(text).forEach(tk => {
+    const trial = cur ? cur + (tk.sp ? " " : "") + tk.t : tk.t;
+    if (cur && doc.getTextWidth(trial) > maxW) { lines.push(cur); cur = tk.t; } else cur = trial;
+  });
+  if (cur) lines.push(cur);
+  return lines.join("\n");
 }
 function exportRitRecapToPDF(opts) {
   const d = buildRitRecapExport(opts);
@@ -3726,20 +3809,40 @@ function exportRitRecapToPDF(opts) {
 
   // ---------- Tabel (Karyawan, Jabatan, tiap checkpoint, Total) ----------
   const nCp = d.cps.length;
-  const cs = { 0: { cellWidth: 62 }, 1: { cellWidth: 44 } };
-  for (let i = 0; i < nCp + 1; i++) cs[2 + i] = { halign: "center" };
+  let head, cs, extra = {};
+  // Lebar kolom dihitung dari isi: kolom checkpoint tidak boleh lebih sempit dari kata terpanjang
+  // di judulnya (kalau sempit, tabel PDF memotong kata di tengah, mis. "AERMADIDI" -> "AER/MADIDI").
+  const HEAD_FS = 7, HEAD_PAD = 1.5, TOTAL_W = 16;
+  font(HEAD_FS, true);
+  const headTexts = d.cps.map(c => c.name.toUpperCase());
+  const needCp = Math.max(0, ...headTexts.map(t => Math.max(0, ...pdfHeaderTokens(t).map(tk => doc.getTextWidth(tk.t))))) + HEAD_PAD * 2 + 1;
+  font(8.5, true);
+  const nameW = Math.max(0, ...d.rows.map(r => doc.getTextWidth(String(r.name))));
+  font(8.5, false);
+  const posW = Math.max(doc.getTextWidth("JABATAN"), ...d.rows.map(r => doc.getTextWidth(String(r.position || "-"))));
+  const kar = Math.min(62, Math.max(44, nameW + 17));
+  const jab = Math.min(44, Math.max(24, posW + 9));
+  const equal = nCp ? (CW - kar - jab - TOTAL_W) / nCp : 0;
+  const cpW = Math.max(needCp, equal);
+  font(HEAD_FS, true);
+  head = [["KARYAWAN", "JABATAN", ...headTexts.map(t => wrapPdfHeader(doc, t, cpW - HEAD_PAD * 2 - 0.5)), "TOTAL"]];
+  cs = { 0: { cellWidth: kar }, 1: { cellWidth: jab } };
+  for (let i = 0; i < nCp; i++) cs[2 + i] = { halign: "center", cellWidth: cpW };
+  cs[2 + nCp] = { halign: "center", cellWidth: TOTAL_W };
+  if (kar + jab + TOTAL_W + cpW * nCp > CW + 0.5) extra = { horizontalPageBreak: true, horizontalPageBreakRepeat: 0 };
   const cardTop = y;
   doc.autoTable({
     startY: y,
     margin: { left: M, right: M, bottom: 14 },
-    head: [["KARYAWAN", "JABATAN", ...d.cps.map(c => c.name.toUpperCase()), "TOTAL"]],
+    head,
     body: d.rows.length ? d.rows.map(r => [r.name, r.position, ...r.counts, r.total]) : [[{ content: "Tidak ada data yang cocok dengan filter.", colSpan: 3 + nCp, styles: { halign: "center", textColor: C.navy700, cellPadding: 10 } }]],
     theme: "plain",
     styles: { fontSize: 8.5, cellPadding: { top: 3.4, bottom: 3.4, left: 4, right: 4 }, textColor: C.navy700, valign: "middle", lineWidth: 0 },
-    headStyles: { fillColor: C.head, textColor: C.navy700, fontStyle: "bold", fontSize: 7, halign: "center", cellPadding: { top: 3.5, bottom: 3.5, left: 4, right: 4 } },
+    headStyles: { fillColor: C.head, textColor: C.navy700, fontStyle: "bold", fontSize: 7, halign: "center", valign: "middle", cellPadding: { top: 3.5, bottom: 3.5, left: 1.5, right: 1.5 } },
     columnStyles: cs,
+    ...extra,
     didParseCell: h => {
-      if (h.section === "head" && (h.column.index <= 1)) h.cell.styles.halign = "left";
+      if (h.section === "head" && (h.column.index <= 1)) { h.cell.styles.halign = "left"; h.cell.styles.cellPadding = { top: 3.5, bottom: 3.5, left: h.column.index === 0 ? 13 : 4, right: 4 }; }
       if (h.section === "body" && h.column.index === 0 && d.rows.length) { h.cell.styles.cellPadding = { top: 3.4, bottom: 3.4, left: 13, right: 4 }; h.cell.styles.fontStyle = "bold"; h.cell.styles.textColor = C.navy; }
     },
     willDrawCell: h => {
@@ -5988,13 +6091,16 @@ function IncidentReportModal({
   const [showCamera, setShowCamera] = useState(false);
   const [photo, setPhoto] = useState(null);
   const [note, setNote] = useState("");
+  const [title, setTitle] = useState("");
+  const [category, setCategory] = useState(KEJADIAN_CATEGORIES[0]);
+  const [priority, setPriority] = useState("sedang");
   const [darurat, setDarurat] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!note.trim()) {
-      setError("Catatan kejadian wajib diisi.");
+    if (!title.trim() || !note.trim()) {
+      setError("Judul dan kronologi kejadian wajib diisi.");
       return;
     }
     setSaving(true);
@@ -6008,6 +6114,9 @@ function IncidentReportModal({
         address,
         photo,
         note,
+        title,
+        category,
+        priority,
         darurat
       });
       onSaved();
@@ -6081,6 +6190,60 @@ function IncidentReportModal({
     }
   }, error), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "label"
+  }, "Judul"), /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    value: title,
+    maxLength: 120,
+    onChange: e => setTitle(e.target.value),
+    placeholder: "mis. FO Cut pada Jalur OSP MaMi \u2013 Manado"
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      gap: 10,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: "1 1 180px"
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "label"
+  }, "Kategori"), /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    value: category,
+    onChange: e => setCategory(e.target.value)
+  }, KEJADIAN_CATEGORIES.map(c => /*#__PURE__*/React.createElement("option", {
+    key: c,
+    value: c
+  }, c)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: "1 1 180px"
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "label"
+  }, "Prioritas"), /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      gap: 6
+    }
+  }, Object.keys(KEJADIAN_PRIORITY_LABEL).map(pk => /*#__PURE__*/React.createElement("button", {
+    key: pk,
+    type: "button",
+    onClick: () => setPriority(pk),
+    style: {
+      flex: 1,
+      padding: "10px 6px",
+      borderRadius: 8,
+      fontSize: 13,
+      fontWeight: 700,
+      border: priority === pk ? "1.5px solid currentColor" : "1px solid var(--line)",
+      ...(priority === pk ? KEJADIAN_PRIORITY_STYLE[pk] : {
+        background: "var(--slate-mist)",
+        color: "var(--navy-700)"
+      })
+    }
+  }, KEJADIAN_PRIORITY_LABEL[pk]))))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: "label"
   }, "Foto kejadian ", /*#__PURE__*/React.createElement("span", {
     style: {
       color: "var(--t-faint)",
@@ -6147,7 +6310,7 @@ function IncidentReportModal({
     }
   }, "Ambil foto"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "label"
-  }, "Catatan kejadian"), /*#__PURE__*/React.createElement("textarea", {
+  }, "Kronologi"), /*#__PURE__*/React.createElement("textarea", {
     className: "input",
     rows: 4,
     value: note,
@@ -6155,7 +6318,7 @@ function IncidentReportModal({
       setNote(e.target.value);
       setError("");
     },
-    placeholder: "Jelaskan apa yang terjadi…",
+    placeholder: "Jelaskan kronologi: apa yang ditemukan dan kondisi awalnya\u2026",
     style: {
       resize: "vertical",
       fontFamily: "inherit"
@@ -10434,7 +10597,7 @@ function AdminDashboard({
       textOverflow: "ellipsis",
       whiteSpace: "nowrap"
     }
-  }, k.note)), /*#__PURE__*/React.createElement("span", {
+  }, k.title || k.note)), /*#__PURE__*/React.createElement("span", {
     className: `badge ${KEJADIAN_STATUS_CLASS[k.status]}`,
     style: {
       flexShrink: 0
@@ -13010,11 +13173,13 @@ function MyKejadianItem({ k, user }) {
       k.photo ? h("img", { src: k.photo, alt: "", style: { width: 40, height: 40, borderRadius: 8, objectFit: "cover", flexShrink: 0 } })
         : h("div", { style: { width: 40, height: 40, borderRadius: 8, background: "var(--slate-mist)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, h(Icon, { name: "file-text", size: 16 })),
       h("div", { style: { flex: 1, minWidth: 0 } },
-        h("p", { style: { fontSize: 13, fontWeight: 600, color: "var(--navy-900)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere" } }, k.note),
-        h("p", { style: { fontSize: 11, color: "var(--t-faint)" } }, formatDateShortID(k.createdAt.slice(0, 10)), " \u00b7 ", formatClock(new Date(k.createdAt)), k.darurat ? " \u00b7 Darurat" : "")),
+        h("p", { style: { fontSize: 13, fontWeight: 600, color: "var(--navy-900)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere" } }, kejadianTitle(k)),
+        h("p", { style: { fontSize: 11, color: "var(--t-faint)" } }, k.ticketId ? k.ticketId + " \u00b7 " : "", formatDateShortID(k.createdAt.slice(0, 10)), " \u00b7 ", formatClock(new Date(k.createdAt)), k.darurat ? " \u00b7 Darurat" : ""),
+        kejadianTicketChips(k)),
       h("div", { className: "flex", style: { alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" } },
         kejadianContinueBadge(k),
         h("span", { className: `badge ${KEJADIAN_STATUS_CLASS[k.status]}` }, KEJADIAN_STATUS_LABEL[k.status]))),
+    k.title ? h("p", { style: { fontSize: 12, color: "var(--t-muted)", marginTop: 8, whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, k.note) : null,
     kejadianUpdateBox(k),
     canAct && open == null ? h("div", { className: "flex", style: { marginTop: 10, gap: 8, flexWrap: "wrap" } },
       k.status === KEJADIAN_STATUS.BARU
@@ -13280,7 +13445,7 @@ function KejadianPage() {
         fontSize: 12,
         color: "var(--t-faint)"
       }
-    }, formatDateShortID(k.createdAt.slice(0, 10)), " · ", formatClock(new Date(k.createdAt))))), /*#__PURE__*/React.createElement("div", {
+    }, k.ticketId ? k.ticketId + " · " : "", formatDateShortID(k.createdAt.slice(0, 10)), " · ", formatClock(new Date(k.createdAt))), kejadianTicketChips(k))), /*#__PURE__*/React.createElement("div", {
       className: "flex",
       style: {
         alignItems: "center",
@@ -13290,11 +13455,19 @@ function KejadianPage() {
       }
     }, kejadianContinueBadge(k), /*#__PURE__*/React.createElement("span", {
       className: `badge ${KEJADIAN_STATUS_CLASS[k.status]}`
-    }, KEJADIAN_STATUS_LABEL[k.status]))), /*#__PURE__*/React.createElement("p", {
+    }, KEJADIAN_STATUS_LABEL[k.status]))), k.title && /*#__PURE__*/React.createElement("p", {
+      style: {
+        fontSize: 14,
+        fontWeight: 700,
+        color: "var(--navy-900)",
+        marginTop: 10,
+        overflowWrap: "anywhere"
+      }
+    }, k.title), /*#__PURE__*/React.createElement("p", {
       style: {
         fontSize: 13,
         color: "var(--t-muted)",
-        marginTop: 10,
+        marginTop: k.title ? 4 : 10,
         whiteSpace: expanded ? "pre-wrap" : "normal",
         overflow: expanded ? "visible" : "hidden",
         display: expanded ? "block" : "-webkit-box",
@@ -15515,6 +15688,7 @@ function PanduanPage() {
 
   const kejadianSection = React.createElement(GuideSection, { icon: "alert-triangle", title: "Laporan Kejadian: Baru \u2192 Diproses \u2192 Selesai" },
     React.createElement("p", null, "Laporan kejadian dibuat dan diperbarui oleh karyawan pelapor. Admin hanya memantau laporan dan perkembangannya (tidak mengubah status)."),
+    React.createElement("p", null, "Setiap laporan berbentuk tiket: nomor tiket otomatis (format NIT-TahunBulanTanggal-Urutan, mis. NIT-20261007-001), Kategori (Gangguan OSP, Gangguan Perangkat, Kabel Laut, Pekerjaan Pihak Ketiga, atau Lainnya), Prioritas (Rendah, Sedang, Tinggi), Judul, Kronologi, lokasi, foto, dan riwayat tindakan. Judul dan kronologi wajib diisi saat melapor. Laporan lama yang dibuat sebelum format ini tetap tampil tanpa nomor tiket."),
     React.createElement(GuideBadgeRow, { label: "Baru", color: "var(--red)", bg: "var(--red-soft)", desc: "Laporan baru dikirim petugas. Belum ada tindakan." }),
     React.createElement(GuideBadgeRow, { label: "Diproses", color: "var(--amber)", bg: "var(--amber-soft)", desc: "Petugas menandai laporan sedang ditangani. Selama belum tuntas, status tetap Diproses dan petugas bisa menambah Update Progres dari hari ke hari (mis. menunggu material, lanjut besok), boleh disertai foto." }),
     React.createElement(GuideBadgeRow, { label: "Selesai", color: "var(--navy-700)", bg: "var(--slate-mist)", desc: "Petugas menyelesaikan laporan setelah kejadian tuntas, boleh disertai catatan penyelesaian." }),
@@ -15636,6 +15810,7 @@ function PanduanPage() {
       items: [
         "Per Tanggal \u2014 total CP tiap karyawan pada 1 hari tertentu, bisa difilter per checkpoint.",
         "Per Bulan \u2014 total CP tiap karyawan sepanjang bulan, dipecah per checkpoint, dengan rincian per tanggal yang bisa dibuka (expand).",
+        "Per Hari (1 Bulan) \u2014 tabel karyawan \u00d7 tanggal untuk satu bulan penuh: setiap kotak berisi jumlah CP karyawan pada hari itu, ada total per karyawan dan total per hari. Kolom hari ini ditandai merah dan akhir pekan berwarna abu-abu. Klik angka atau tanggal untuk langsung membuka detail jam & checkpoint hari itu di mode Per Tanggal; filter checkpoint dan pencarian nama tetap berlaku.",
         "Tombol Excel dan PDF di bar filter mengekspor rekap sesuai mode dan filter yang sedang aktif (tanggal atau bulan, checkpoint, dan pencarian nama). PDF dibuat dengan susunan seperti halaman ini: kartu ringkasan, kartu Bonus CP (Perbandingan Rute Tim, hanya Per Tanggal), tabel karyawan \u00d7 checkpoint, lalu detail lintasan (Per Tanggal) atau rincian harian (Per Bulan). Excel berisi tabel karyawan \u00d7 checkpoint plus sheet Detail Lintasan (Per Tanggal) atau sheet Per Hari karyawan \u00d7 tanggal 1\u201331 (Per Bulan), dengan baris TOTAL.",
         "Tombol \"Lihat detail\" menampilkan urutan lintasan beserta jamnya. Kalau filter checkpoint sedang dipilih, daftar itu HANYA berisi lintasan checkpoint yang difilter (nomor #1, #2, \u2026 dihitung ulang untuk checkpoint itu saja). Klik \"Reset filter\" untuk melihat urutan lengkap semua checkpoint."
       ]
@@ -15810,7 +15985,7 @@ function loginDeviceLabel(ua) {
 }
 function RekapRitPage() {
   useStoreSync();
-  const [mode, setMode] = useState("harian"); // "harian" | "bulanan"
+  const [mode, setMode] = useState("harian"); // "harian" | "bulanan" | "matriks" (per hari, 1 bulan)
   // WITA-forced (bukan todayDateStr() device-local) — supaya default "hari ini" di halaman
   // rekap ini benar-benar cocok dengan tanggal WITA yang tersimpan di data rit checkpoint.
   const [dateFilter, setDateFilter] = useState(todayDateStrWITA(getTrustedNow()));
@@ -15867,7 +16042,24 @@ function RekapRitPage() {
   const activeMonthlyCount = monthlyRecap.filter(r => r.total > 0).length;
   const monthCheckpoints = checkpointFilter ? checkpoints.filter(cp => cp.id === checkpointFilter) : checkpoints;
 
-  const exportOpts = { mode, dateStr: dateFilter, monthStr: monthFilter, checkpointId: checkpointFilter || null, nameQuery: nameFilter };
+  // ---- Mode Per Hari (1 Bulan): matriks karyawan x tanggal ----
+  const dayMatrix = useMemo(() => {
+    const [yy, mm] = monthFilter.split("-").map(Number);
+    const days = new Date(yy, mm, 0).getDate();
+    const start = `${monthFilter}-01`;
+    const end = `${monthFilter}-${String(days).padStart(2, "0")}`;
+    const byUser = {};
+    store.checkpointPasses.forEach(p => {
+      if (p.date < start || p.date > end) return;
+      if (checkpointFilter && p.checkpointId !== checkpointFilter) return;
+      const dd = Number(p.date.slice(8, 10));
+      byUser[p.userId] = byUser[p.userId] || {};
+      byUser[p.userId][dd] = (byUser[p.userId][dd] || 0) + 1;
+    });
+    return { days, byUser };
+  }, [monthFilter, checkpointFilter, store.checkpointPasses]);
+
+  const exportOpts = { mode: mode === "matriks" ? "bulanan" : mode, dateStr: dateFilter, monthStr: monthFilter, checkpointId: checkpointFilter || null, nameQuery: nameFilter };
   function clearFilters() {
     setDateFilter(todayDateStrWITA(getTrustedNow()));
     setMonthFilter(todayDateStrWITA(getTrustedNow()).slice(0, 7));
@@ -15879,7 +16071,7 @@ function RekapRitPage() {
   const headerEl = React.createElement("div", { style: { marginBottom: 20 } },
     React.createElement("h1", { style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Rekap Checkpoint (CP)"),
     React.createElement("p", { style: { color: "var(--navy-700)", fontSize: 14, marginTop: 2 } },
-      "Jumlah lintasan (CP) tiap karyawan melewati checkpoint — tiap kali masuk radius checkpoint dihitung 1 CP, KECUALI checkpoint yang sama dengan CP sebelumnya (harus mampir checkpoint lain dulu supaya terhitung lagi). Pilih mode Per Tanggal untuk rekap 1 hari, atau Per Bulan untuk melihat total per checkpoint sebulan (mis. \u201cRivaldo lewat STO Bahu berapa kali bulan ini\u201d).")
+      "Jumlah lintasan (CP) tiap karyawan melewati checkpoint — tiap kali masuk radius checkpoint dihitung 1 CP, KECUALI checkpoint yang sama dengan CP sebelumnya (harus mampir checkpoint lain dulu supaya terhitung lagi). Pilih mode Per Tanggal untuk rekap 1 hari, Per Bulan untuk melihat total per checkpoint sebulan (mis. \u201cRivaldo lewat STO Bahu berapa kali bulan ini\u201d), atau Per Hari (1 Bulan) untuk melihat semua tanggal sekaligus tanpa memilih satu per satu.")
   );
 
   const modeToggleEl = React.createElement("div", {
@@ -15900,7 +16092,15 @@ function RekapRitPage() {
         background: mode === "bulanan" ? "var(--red)" : "var(--navy-50)",
         color: mode === "bulanan" ? "#fff" : "var(--navy-700)"
       }
-    }, "Per Bulan")
+    }, "Per Bulan"),
+    React.createElement("button", {
+      onClick: () => setMode("matriks"),
+      style: {
+        fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 999,
+        background: mode === "matriks" ? "var(--red)" : "var(--navy-50)",
+        color: mode === "matriks" ? "#fff" : "var(--navy-700)"
+      }
+    }, "Per Hari (1 Bulan)")
   );
 
   const summaryEl = React.createElement("div", {
@@ -16162,8 +16362,59 @@ function RekapRitPage() {
     );
   }
 
+  /* ============ TABEL MODE PER HARI (1 BULAN): karyawan x tanggal ============ */
+  function renderMatrixTable() {
+    const h = React.createElement;
+    const todayStr = todayDateStrWITA(getTrustedNow());
+    const { days, byUser } = dayMatrix;
+    const dayNames = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
+    const dayList = Array.from({ length: days }, (_, i) => i + 1);
+    const dateOf = d => `${monthFilter}-${String(d).padStart(2, "0")}`;
+    const dowOf = d => new Date(`${dateOf(d)}T00:00:00`).getDay();
+    const rowsData = filteredMonthly.map(r => {
+      const m = byUser[r.userId] || {};
+      return { r, m, tot: Object.values(m).reduce((a, b) => a + b, 0) };
+    }).sort((a, b) => b.tot - a.tot || a.r.userName.localeCompare(b.r.userName));
+    const colTotals = dayList.map(d => rowsData.reduce((a, x) => a + (x.m[d] || 0), 0));
+    const grand = colTotals.reduce((a, b) => a + b, 0);
+    const openDay = d => { setDateFilter(dateOf(d)); setMode("harian"); };
+    const colBg = d => dateOf(d) === todayStr ? "var(--accent-50)" : (dowOf(d) === 0 || dowOf(d) === 6) ? "var(--slate-mist)" : undefined;
+    const thead = h("thead", null, h("tr", null,
+      h("th", null, "Karyawan"),
+      ...dayList.map(d => h("th", {
+        key: d,
+        onClick: () => openDay(d),
+        title: "Lihat detail " + formatDateShortID(dateOf(d)),
+        style: { cursor: "pointer", background: dateOf(d) === todayStr ? "var(--accent-600)" : colBg(d), color: dateOf(d) === todayStr ? "#fff" : undefined }
+      }, h("div", { style: { fontSize: 12, fontWeight: 700 } }, d), h("div", { style: { fontSize: 8, fontWeight: 600, opacity: 0.8 } }, dayNames[dowOf(d)]))),
+      h("th", { style: { minWidth: 56 } }, "Total")));
+    const body = rowsData.map(({ r, m, tot }) => h("tr", { key: r.userId },
+      h("td", null, h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+        h(Avatar, { name: r.userName, color: r.avatarColor, size: 28 }),
+        h("span", { style: { fontWeight: 600, color: "var(--navy-900)", whiteSpace: "nowrap" } }, r.userName))),
+      ...dayList.map(d => {
+        const n = m[d] || 0;
+        const future = dateOf(d) > todayStr;
+        return h("td", { key: d, style: { background: colBg(d) } },
+          n > 0 ? h("button", {
+            onClick: () => openDay(d),
+            title: `${formatDateShortID(dateOf(d))} \u00b7 ${n} CP \u2014 klik untuk detail`,
+            style: { display: "inline-block", minWidth: 24, padding: "2px 4px", borderRadius: 6, background: "var(--green-soft)", color: "var(--green)", fontWeight: 700, fontSize: 12 }
+          }, n) : h("span", { style: { color: "var(--t-faint)", opacity: future ? 0.35 : 0.8 } }, future ? "" : "\u00b7"));
+      }),
+      h("td", null, h("span", { style: { display: "inline-block", minWidth: 32, padding: "3px 8px", borderRadius: 8, fontWeight: 700, background: tot > 0 ? "var(--green-soft)" : "transparent", color: tot > 0 ? "var(--green)" : "var(--t-faint)" } }, tot))));
+    const tfoot = h("tfoot", null, h("tr", null,
+      h("td", null, "Total per hari"),
+      ...dayList.map((d, i) => h("td", { key: d, style: { background: colBg(d), color: colTotals[i] > 0 ? "var(--navy-900)" : "var(--t-faint)" } }, colTotals[i] > 0 ? colTotals[i] : "")),
+      h("td", null, grand)));
+    return h(React.Fragment, null,
+      h("p", { style: { fontSize: 12, color: "var(--t-faint)", padding: "12px 16px 4px" } }, "Angka = jumlah CP karyawan pada tanggal itu. Klik angka atau tanggal untuk melihat detail jam & checkpoint hari tersebut."),
+      h("div", { className: "table-wrap rit-matrix" },
+        h("table", null, thead, h("tbody", null, rowsData.length === 0 ? h("tr", null, h("td", { colSpan: days + 2, style: { textAlign: "center", padding: 24, color: "var(--t-faint)" } }, "Tidak ada data yang cocok dengan filter.")) : body), rowsData.length ? tfoot : null)));
+  }
+
   const listCardEl = React.createElement("div", { className: "card", style: { overflow: "hidden" } },
-    mode === "harian" ? renderDailyTable() : renderMonthlyTable()
+    mode === "harian" ? renderDailyTable() : mode === "matriks" ? renderMatrixTable() : renderMonthlyTable()
   );
 
   const noticeEl = notice ? React.createElement("div", {
