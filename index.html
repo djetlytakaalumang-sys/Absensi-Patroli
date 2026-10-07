@@ -11745,8 +11745,8 @@ function PatrolTracker({
             // ini masih bisa tercatat selama petugas masih di dalam radius pada update berikutnya.
             if (!clockSkewWarnedRef.current) {
               clockSkewWarnedRef.current = true;
-              setClockSkewToast("Rit di " + cp.name + " belum bisa dicatat: jam perangkat tidak sesuai jam server. Aktifkan tanggal & waktu otomatis di HP — rit akan tercatat otomatis begitu jam tersinkron.");
-              setTimeout(() => setClockSkewToast(""), 5000);
+              window.dispatchEvent(new CustomEvent("nit-clock-skew", { detail: "Rit di " + cp.name + " belum bisa dicatat: jam perangkat tidak sesuai jam server. Aktifkan tanggal & waktu otomatis di HP — rit akan tercatat otomatis begitu jam tersinkron." }));
+              setTimeout(() => window.dispatchEvent(new CustomEvent("nit-clock-skew", { detail: "" })), 5000);
             }
             if (!resyncAttemptedRef.current) {
               resyncAttemptedRef.current = true;
@@ -11915,6 +11915,12 @@ function PatrolPage({
   const [showIncidentModal, setShowIncidentModal] = useState(false);
   const [incidentToast, setIncidentToast] = useState("");
   const [clockSkewToast, setClockSkewToast] = useState("");
+  // Peringatan jam tidak sesuai dikirim oleh PatrolTracker (komponen global) lewat event ini
+  useEffect(() => {
+    const onSkew = e => setClockSkewToast(e.detail || "");
+    window.addEventListener("nit-clock-skew", onSkew);
+    return () => window.removeEventListener("nit-clock-skew", onSkew);
+  }, []);
   const [showBatteryTip, setShowBatteryTip] = useState(() => {
     try {
       return localStorage.getItem("hideBatteryTip") !== "1";
@@ -18392,10 +18398,6 @@ const EMPLOYEE_NAV = [{
   key: "profile",
   label: "Profil",
   icon: "user-circle"
-}, {
-  key: "panduan",
-  label: "Panduan",
-  icon: "help-circle"
 }];
 
 /* ======================= NOTIFIKASI ALARM LAPORAN DARURAT (ADMIN) ======================= */
@@ -18704,7 +18706,6 @@ function App() {
     if (page === "profile") return /*#__PURE__*/React.createElement(ProfilePage, {
       user: user
     });
-    if (page === "panduan") return /*#__PURE__*/React.createElement(PanduanPage, null);
     return /*#__PURE__*/React.createElement(EmployeeDashboard, {
       user: user
     });
