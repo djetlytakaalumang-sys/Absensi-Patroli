@@ -462,6 +462,11 @@ const ROLES = {
 function canAccessAdminPanel(user) {
   return !!user && (user.role === ROLES.ADMIN || user.role === ROLES.VIEWER);
 }
+// Leader Team: karyawan yang ditandai admin (Pengaturan -> Hak Akses). Selain pelapor, leader juga
+// boleh memproses/mengupdate/menyelesaikan laporan kejadian milik anggota lain.
+function isTeamLeader(user) {
+  return !!user && user.role === ROLES.EMPLOYEE && user.isTeamLeader === true;
+}
 function canEditData(user) {
   return !!user && user.role === ROLES.ADMIN;
 }
@@ -3223,6 +3228,7 @@ function useCamera() {
   }, []);
   const start = useCallback(async (mode = facingMode) => {
     setError(null);
+    setFacingMode(mode); // pratinjau & hasil foto hanya dicerminkan untuk kamera depan
     try {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop());
@@ -3302,11 +3308,15 @@ function useCamera() {
     const ctx = canvas.getContext("2d");
     const sx = (video.videoWidth - size) / 2,
       sy = (video.videoHeight - size) / 2;
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
+    if (facingMode === "user") {
+      // kamera depan: cermin supaya hasil foto sama dengan pratinjau (selfie).
+      // kamera belakang: tidak dicerminkan, supaya tulisan/papan tidak terbalik.
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+    }
     ctx.drawImage(video, sx, sy, size, size, 0, 0, canvas.width, canvas.height);
     return canvas.toDataURL("image/jpeg", outQuality);
-  }, []);
+  }, [facingMode]);
 
   // Validasi ulang hasil foto yang sudah diambil — memastikan benar-benar ada wajah di dalamnya
   const verifyPhotoHasFace = useCallback(dataUrl => {
@@ -3341,6 +3351,7 @@ function useCamera() {
     stop,
     capture,
     switchCamera,
+    facingMode,
     modelsReady,
     modelsError,
     faceDetected,
@@ -5830,6 +5841,7 @@ function CameraCaptureModal({
     stop,
     capture,
     switchCamera,
+    facingMode,
     modelsReady,
     modelsError,
     faceDetected,
@@ -5908,7 +5920,7 @@ function CameraCaptureModal({
       width: "100%",
       height: "100%",
       objectFit: "cover",
-      transform: "scaleX(-1)"
+      transform: facingMode === "user" ? "scaleX(-1)" : "none"
     }
   }), photo && /*#__PURE__*/React.createElement("img", {
     src: photo,
@@ -6005,7 +6017,28 @@ function CameraCaptureModal({
       padding: "5px 12px",
       borderRadius: 999
     }
-  }, faceDetected ? "✓ Wajah terdeteksi" : "Posisikan wajah Anda di dalam bingkai"))), /*#__PURE__*/React.createElement("div", {
+  }, faceDetected ? "✓ Wajah terdeteksi" : "Posisikan wajah Anda di dalam bingkai"))), !requireFace && !photo && /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      justifyContent: "center",
+      gap: 8,
+      padding: "14px 20px 0"
+    }
+  }, [["user", "Kamera Depan"], ["environment", "Kamera Belakang"]].map(([mode, label]) => /*#__PURE__*/React.createElement("button", {
+    key: mode,
+    type: "button",
+    onClick: () => {
+      if (facingMode !== mode) start(mode);
+    },
+    style: {
+      padding: "8px 14px",
+      borderRadius: 999,
+      fontSize: 13,
+      fontWeight: 600,
+      background: facingMode === mode ? "#fff" : "rgba(255,255,255,.12)",
+      color: facingMode === mode ? "var(--navy-900)" : "#fff"
+    }
+  }, label))), /*#__PURE__*/React.createElement("div", {
     className: "flex",
     style: {
       alignItems: "center",
@@ -6018,6 +6051,7 @@ function CameraCaptureModal({
     disabled: !isActive,
     "aria-label": "Ganti kamera",
     style: {
+      visibility: requireFace ? "visible" : "hidden",
       width: 48,
       height: 48,
       borderRadius: 999,
@@ -11908,6 +11942,13 @@ function PatrolPage({
     const mine = getKejadianReportsByUser(user.id);
     return [...mine.filter(k => k.status !== KEJADIAN_STATUS.SELESAI), ...mine.filter(k => k.status === KEJADIAN_STATUS.SELESAI).slice(0, 5)];
   }, [user.id, store.kejadian]);
+  // Leader Team: laporan anggota lain (yang belum selesai + 5 terbaru yang sudah selesai)
+  const isLeader = isTeamLeader(user);
+  const teamReports = useMemo(() => {
+    if (!isLeader) return [];
+    const others = getKejadianReports().filter(k => k.userId !== user.id);
+    return [...others.filter(k => k.status !== KEJADIAN_STATUS.SELESAI), ...others.filter(k => k.status === KEJADIAN_STATUS.SELESAI).slice(0, 5)];
+  }, [isLeader, user.id, store.kejadian]);
   const [starting, setStarting] = useState(false);
   const [ending, setEnding] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -12493,7 +12534,32 @@ function PatrolPage({
       flexDirection: "column",
       gap: 8
     }
-  }, myReports.map(k => /*#__PURE__*/React.createElement(MyKejadianItem, { key: k.id, k: k, user: user })))));
+  }, myReports.map(k => /*#__PURE__*/React.createElement(MyKejadianItem, { key: k.id, k: k, user: user })))), isLeader && teamReports.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "card",
+    style: {
+      padding: 20,
+      marginTop: 20
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontSize: 14,
+      fontWeight: 700,
+      color: "var(--navy-900)",
+      marginBottom: 4
+    }
+  }, "Laporan Kejadian Tim"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12,
+      color: "var(--t-faint)",
+      marginBottom: 12
+    }
+  }, "Sebagai Leader Team, Anda bisa memproses, mengupdate, dan menyelesaikan laporan anggota tim."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 8
+    }
+  }, teamReports.map(k => /*#__PURE__*/React.createElement(MyKejadianItem, { key: k.id, k: k, user: user })))));
 }
 function EmployeesPage() {
   useStoreSync();
@@ -13172,7 +13238,7 @@ function MyKejadianItem({ k, user }) {
     }
   }
   function begin(kind) { setOpen(kind); setNote(""); setPhoto(null); setNext(true); setError(""); }
-  const canAct = k.userId === user.id && k.status !== KEJADIAN_STATUS.SELESAI;
+  const canAct = (k.userId === user.id || isTeamLeader(user)) && k.status !== KEJADIAN_STATUS.SELESAI;
   const placeholder = open === "update" ? "Perkembangan terbaru, mis. penggalian selesai, menunggu material" : open === "selesai" ? "Catatan penyelesaian (opsional)" : "Catatan proses (opsional), mis. sudah dikoordinasikan dengan PIC";
   return h("div", { style: { padding: "10px 12px", borderRadius: 10, background: "var(--slate-mist)" } },
     h("div", { className: "flex", style: { alignItems: "center", gap: 12 } },
@@ -13180,7 +13246,7 @@ function MyKejadianItem({ k, user }) {
         : h("div", { style: { width: 40, height: 40, borderRadius: 8, background: "var(--slate-mist)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, h(Icon, { name: "file-text", size: 16 })),
       h("div", { style: { flex: 1, minWidth: 0 } },
         h("p", { style: { fontSize: 13, fontWeight: 600, color: "var(--navy-900)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere" } }, kejadianTitle(k)),
-        h("p", { style: { fontSize: 11, color: "var(--t-faint)" } }, k.ticketId ? k.ticketId + " \u00b7 " : "", formatDateShortID(k.createdAt.slice(0, 10)), " \u00b7 ", formatClock(new Date(k.createdAt)), k.darurat ? " \u00b7 Darurat" : ""),
+        h("p", { style: { fontSize: 11, color: "var(--t-faint)" } }, k.ticketId ? k.ticketId + " \u00b7 " : "", formatDateShortID(k.createdAt.slice(0, 10)), " \u00b7 ", formatClock(new Date(k.createdAt)), k.darurat ? " \u00b7 Darurat" : "", k.userId !== user.id ? " \u00b7 Pelapor: " + k.userName : ""),
         kejadianTicketChips(k)),
       h("div", { className: "flex", style: { alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" } },
         kejadianContinueBadge(k),
@@ -15598,7 +15664,7 @@ function PanduanPage() {
   const headerEl = React.createElement("div", { style: { marginBottom: 24 } },
     React.createElement("h1", { style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Panduan & Penjelasan Perhitungan"),
     React.createElement("p", { style: { color: "var(--navy-700)", fontSize: 14, marginTop: 2 } },
-      "Penjelasan cara kerja setiap status, skor, CP, dan pengaturan di aplikasi ini \u2014 klik tiap bagian untuk membuka.")
+      "Panduan khusus admin: penjelasan cara kerja setiap status, skor, CP, laporan kejadian, dan pengaturan di aplikasi ini \u2014 klik tiap bagian untuk membuka.")
   );
 
   const ringkasanSection = React.createElement(GuideSection, { icon: "sparkles", title: "Ringkasan Cepat: Dari Mana Nilai Saya?", defaultOpen: true },
@@ -15693,15 +15759,25 @@ function PanduanPage() {
   );
 
   const kejadianSection = React.createElement(GuideSection, { icon: "alert-triangle", title: "Laporan Kejadian: Baru \u2192 Diproses \u2192 Selesai" },
-    React.createElement("p", null, "Laporan kejadian dibuat dan diperbarui oleh karyawan pelapor. Admin hanya memantau laporan dan perkembangannya (tidak mengubah status)."),
+    React.createElement("p", null, "Laporan kejadian dibuat dan diperbarui oleh karyawan pelapor. Admin hanya memantau laporan dan perkembangannya (tidak mengubah status). Selain pelapor, karyawan yang ditandai Leader Team juga bisa memproses, mengupdate, dan menyelesaikan laporan anggota lain; mereka melihat laporan tim di kartu \"Laporan Kejadian Tim\" pada halaman Patroli. Nama yang tercatat di riwayat adalah nama yang melakukan update."),
     React.createElement("p", null, "Setiap laporan berbentuk tiket: nomor tiket otomatis (format NIT-TahunBulanTanggal-Urutan, mis. NIT-20261007-001), Kategori (Gangguan OSP, Gangguan Perangkat, Kabel Laut, Pekerjaan Pihak Ketiga, atau Lainnya), Prioritas (Rendah, Sedang, Tinggi), Judul, Kronologi, lokasi, foto, dan riwayat tindakan. Judul dan kronologi wajib diisi saat melapor. Laporan lama yang dibuat sebelum format ini tetap tampil tanpa nomor tiket."),
     React.createElement(GuideBadgeRow, { label: "Baru", color: "var(--red)", bg: "var(--red-soft)", desc: "Laporan baru dikirim petugas. Belum ada tindakan." }),
     React.createElement(GuideBadgeRow, { label: "Diproses", color: "var(--amber)", bg: "var(--amber-soft)", desc: "Petugas menandai laporan sedang ditangani. Selama belum tuntas, status tetap Diproses dan petugas bisa menambah Update Progres dari hari ke hari (mis. menunggu material, lanjut besok), boleh disertai foto." }),
     React.createElement(GuideBadgeRow, { label: "Selesai", color: "var(--navy-700)", bg: "var(--slate-mist)", desc: "Petugas menyelesaikan laporan setelah kejadian tuntas, boleh disertai catatan penyelesaian." }),
+    React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Cara karyawan melapor:"),
+    React.createElement(GuideList, {
+      items: [
+        "Buka menu Patroli, lalu tekan \"Lapor Kejadian\".",
+        "Isi Judul singkat, pilih Kategori dan Prioritas (bawaannya Sedang), lalu tulis Kronologi: apa yang ditemukan dan kondisi awalnya. Judul dan Kronologi wajib diisi.",
+        "Foto kejadian bersifat opsional dan diambil langsung dari kamera (tidak bisa dari galeri). Pilih \"Kamera Depan\" atau \"Kamera Belakang\" lewat dua tombol di bawah pratinjau. Kamera belakang tidak dicerminkan, jadi tulisan atau papan di lokasi terbaca benar.",
+        "Centang \"Tandai sebagai Darurat\" kalau kejadiannya mendesak; admin akan mendapat notifikasi prioritas. Lokasi diambil otomatis dari GPS.",
+        "Setelah terkirim, laporan langsung mendapat nomor tiket dan berstatus Baru."
+      ]
+    }),
     React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Cara karyawan memperbarui:"),
     React.createElement(GuideList, {
       items: [
-        "Buka menu Patroli, lalu lihat kartu \"Laporan Kejadian Saya\". Laporan yang belum selesai selalu tampil di sini.",
+        "Buka menu Patroli, lalu lihat kartu \"Laporan Kejadian Saya\". Laporan yang belum selesai selalu tampil di sini. Leader Team juga melihat kartu \"Laporan Kejadian Tim\" berisi laporan anggota lain.",
         "Laporan berstatus Baru: tekan \"Tandai Diproses\", isi catatan kalau perlu, lalu Simpan. Foto boleh ditambahkan lewat tombol \"Tambah Foto\".",
         "Laporan berstatus Diproses: setiap ada perkembangan (termasuk kalau besok masih berjalan), tekan \"Update Progres\", tulis perkembangannya, lalu Simpan Update. Status tetap Diproses dan bisa diperbarui berkali-kali. Setiap update harus berisi catatan atau foto (salah satunya cukup).",
         "Foto di setiap update bersifat opsional dan diambil langsung dari kamera lewat tombol \"Tambah Foto\" (tidak bisa dari galeri). Sebelum disimpan, foto bisa diganti atau dihapus. Satu update memuat satu foto, dan foto otomatis dikecilkan.",
@@ -15709,17 +15785,19 @@ function PanduanPage() {
         "Laporan Diproses yang belum diupdate sejak kemarin diberi lencana \"Belum ada update hari ini\" sebagai pengingat untuk mengisi update hari itu.",
         "Kalau laporan sudah terlalu banyak foto, aplikasi akan menolak foto baru. Kirim update tanpa foto, lalu lanjutkan dengan catatan teks.",
         "Setelah kejadian benar-benar beres, tekan \"Selesaikan\", isi catatan penyelesaian kalau perlu (foto bukti penyelesaian boleh ditambahkan), lalu Simpan.",
-        "Hanya pelapor yang bisa memperbarui laporannya sendiri. Laporan berstatus Selesai tidak bisa diubah lagi."
+        "Yang bisa memperbarui laporan hanya pelapor dan karyawan yang ditandai Leader Team. Admin dan karyawan lain hanya melihat. Laporan berstatus Selesai tidak bisa diubah lagi."
       ]
     }),
     React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Untuk admin:"),
     React.createElement(GuideList, {
       items: [
+        "Setiap kartu laporan menampilkan nomor tiket, judul, kategori (chip abu-abu), dan prioritas (hijau = Rendah, kuning = Sedang, merah = Tinggi). Laporan lama yang dibuat sebelum format tiket tetap tampil tanpa nomor tiket.",
+        "Menentukan Leader Team: Pengaturan \u2192 Hak Akses, centang kolom \"Leader Team\" pada karyawan yang dimaksud. Update dari Leader Team tercatat atas nama leader tersebut di riwayat.",
         "Menu Pengajuan \u2192 Laporan Kejadian menampilkan semua laporan beserta foto, lokasi, dan jejak update dari petugas (siapa yang memproses/menyelesaikan, kapan, catatannya, dan foto kalau ada).",
         "Riwayat dikelompokkan per hari (Hari 1, Hari 2, dst). Hari terakhir terbuka, hari sebelumnya dilipat dengan ringkasan jumlah update dan foto; klik judul harinya untuk membuka. Laporan yang akan dilanjutkan besok punya lencana \"Lanjut besok\", dan yang belum diupdate sejak kemarin punya lencana \"Belum ada update hari ini\".",
         "Di tampilan ringkas, tiap laporan yang sudah diproses punya satu baris ringkasan, mis. \"Update terakhir 2 hari lalu oleh Budi · 3 update\". Buka kartu laporan untuk melihat riwayat lengkap berurutan dari yang terlama; klik foto untuk memperbesar atau mengecilkan.",
         "Admin bisa menghapus laporan kejadian: buka kartu laporannya lalu tekan \"Hapus Laporan\" dan konfirmasi. Laporan beserta foto dan seluruh riwayat updatenya terhapus permanen dan tidak bisa dikembalikan. Kalau perlu arsip, ekspor ke Excel atau PDF dulu.",
-        "Ekspor Excel dan PDF memuat kolom \"Riwayat Penanganan\" berisi semua update (tanggal, jam, petugas, catatan). Entri yang punya foto diberi tanda (+foto); fotonya sendiri tidak ikut diekspor maupun di-backup.",
+        "Ekspor Excel memuat kolom Ticket ID, Kategori, Prioritas, Judul, Kronologi, dan \"Riwayat Penanganan\" (semua update: tanggal, jam, petugas, catatan). PDF memuat kolom Tiket (nomor, judul, kategori, prioritas) dan Riwayat Penanganan. Entri yang punya foto diberi tanda (+foto); fotonya sendiri tidak ikut diekspor maupun di-backup.",
         "Tab \"Baru & Diproses\" berisi laporan yang masih berjalan, tab \"Selesai\" berisi yang sudah tuntas."
       ]
     })
@@ -15811,13 +15889,13 @@ function PanduanPage() {
   );
 
   const ritSection = React.createElement(GuideSection, { icon: "repeat", title: "CP & Checkpoint Patroli (Rekap Checkpoint (CP))" },
-    React.createElement("p", null, "\"CP\" adalah satu kali lintasan: setiap kali petugas MASUK radius sebuah checkpoint, tercatat 1 CP baru untuk checkpoint itu. Semua CP bisa dilihat di halaman ", React.createElement("strong", null, "Operasional Lapangan \u2192 Rekap Checkpoint (CP)"), ", dengan 2 mode:"),
+    React.createElement("p", null, "\"CP\" adalah satu kali lintasan: setiap kali petugas MASUK radius sebuah checkpoint, tercatat 1 CP baru untuk checkpoint itu. Semua CP bisa dilihat di halaman ", React.createElement("strong", null, "Operasional Lapangan \u2192 Rekap Checkpoint (CP)"), ", dengan 3 mode:"),
     React.createElement(GuideList, {
       items: [
         "Per Tanggal \u2014 total CP tiap karyawan pada 1 hari tertentu, bisa difilter per checkpoint.",
         "Per Bulan \u2014 total CP tiap karyawan sepanjang bulan, dipecah per checkpoint, dengan rincian per tanggal yang bisa dibuka (expand).",
         "Per Hari (1 Bulan) \u2014 tabel karyawan \u00d7 tanggal untuk satu bulan penuh: setiap kotak berisi jumlah CP karyawan pada hari itu, ada total per karyawan dan total per hari. Kolom hari ini ditandai merah dan akhir pekan berwarna abu-abu. Klik angka atau tanggal untuk langsung membuka detail jam & checkpoint hari itu di mode Per Tanggal; filter checkpoint dan pencarian nama tetap berlaku.",
-        "Tombol Excel dan PDF di bar filter mengekspor rekap sesuai mode dan filter yang sedang aktif (tanggal atau bulan, checkpoint, dan pencarian nama). PDF dibuat dengan susunan seperti halaman ini: kartu ringkasan, kartu Bonus CP (Perbandingan Rute Tim, hanya Per Tanggal), tabel karyawan \u00d7 checkpoint, lalu detail lintasan (Per Tanggal) atau rincian harian (Per Bulan). Excel berisi tabel karyawan \u00d7 checkpoint plus sheet Detail Lintasan (Per Tanggal) atau sheet Per Hari karyawan \u00d7 tanggal 1\u201331 (Per Bulan), dengan baris TOTAL.",
+        "Tombol Excel dan PDF di bar filter mengekspor rekap sesuai mode dan filter yang sedang aktif (tanggal atau bulan, checkpoint, dan pencarian nama). PDF dibuat dengan susunan seperti halaman ini: kartu ringkasan, kartu Bonus CP (Perbandingan Rute Tim, hanya Per Tanggal), tabel karyawan \u00d7 checkpoint, lalu detail lintasan (Per Tanggal) atau rincian harian (Per Bulan). Excel berisi tabel karyawan \u00d7 checkpoint plus sheet Detail Lintasan (Per Tanggal) atau sheet Per Hari karyawan \u00d7 tanggal 1\u201331 (Per Bulan), dengan baris TOTAL. Di mode Per Hari (1 Bulan), tombol Excel dan PDF menghasilkan ekspor yang sama dengan mode Per Bulan (tabel karyawan \u00d7 tanggal ada di sheet Per Hari pada Excel).",
         "Tombol \"Lihat detail\" menampilkan urutan lintasan beserta jamnya. Kalau filter checkpoint sedang dipilih, daftar itu HANYA berisi lintasan checkpoint yang difilter (nomor #1, #2, \u2026 dihitung ulang untuk checkpoint itu saja). Klik \"Reset filter\" untuk melihat urutan lengkap semua checkpoint."
       ]
     }),
@@ -15929,7 +16007,7 @@ function PanduanPage() {
       items: [
         "Jam & Presensi \u2014 Jam Potong Masuk (checkInDeadline): batas jam check-in supaya masih dihitung \"Hadir\", lewat dari jam ini otomatis \"Terlambat\". Jam Pulang Normal (shiftEndTime): jam pulang yang diharapkan untuk shift Hadir/Terlambat, dipakai mendeteksi \"pulang lebih awal\". Mulai/Selesai Piket Malam (nightShiftStart/nightShiftEnd): jendela jam untuk mendeteksi otomatis status Piket Malam kalau tidak ada Jadwal resmi.",
         `Checkpoint & Lokasi \u2014 kartu Tim & Rute Checkpoint (atur anggota tim & urutan rute, lihat bagian "Tim & Rute Patroli" di atas); daftar Checkpoint Patroli (nama, koordinat, radius), maksimal ${MAX_CHECKPOINTS} titik \u2014 checkpoint otomatis tercentang saat petugas berada dalam radiusnya; Lokasi Kantor (officeLocations), maksimal ${MAX_OFFICE_LOCATIONS} lokasi, tiap lokasi bisa punya radius toleransi sendiri (kalau kosong, dipakai Radius Presensi/radiusMeters sebagai nilai default); dan sakelar Wajib Dalam Radius (enforceRadius) \u2014 kalau aktif, karyawan di luar radius semua Lokasi Kantor tidak bisa presensi sama sekali.`,
-        "Hak Akses \u2014 kartu Hak Akses Pengguna (atur siapa saja yang punya akses Admin, View Only, atau Karyawan, dan tempat menambah karyawan/pengguna baru lewat tombol \"Tambah Pengguna\"), serta kartu Riwayat Login (catatan waktu setiap pengguna login, memakai jam server \u2014 bukan jam perangkat \u2014 supaya tidak bisa direkayasa, bisa difilter per nama/tanggal). Di daftar yang sama juga otomatis muncul dua jenis kejadian sistem: (1) Tutup Otomatis (ikon \u26a0\ufe0f kuning) \u2014 saat ada presensi/sesi patroli yang lupa diakhiri dari hari sebelumnya, lalu ditutup paksa oleh sistem; dan (2) Logout Otomatis (ikon \ud83d\udeaa biru) \u2014 setiap pengguna yang sedang login otomatis dikeluarkan begitu tanggal berganti (00:00 WITA, jam server), sehingga wajib login ulang tiap hari.",
+        "Hak Akses \u2014 kartu Hak Akses Pengguna (atur siapa saja yang punya akses Admin, View Only, atau Karyawan, dan tempat menambah karyawan/pengguna baru lewat tombol \"Tambah Pengguna\"; kolom \"Leader Team\" dicentang untuk menjadikan seorang karyawan Leader Team yang ikut bisa memproses, mengupdate, dan menyelesaikan laporan kejadian anggota lain), serta kartu Riwayat Login (catatan waktu setiap pengguna login, memakai jam server \u2014 bukan jam perangkat \u2014 supaya tidak bisa direkayasa, bisa difilter per nama/tanggal). Di daftar yang sama juga otomatis muncul dua jenis kejadian sistem: (1) Tutup Otomatis (ikon \u26a0\ufe0f kuning) \u2014 saat ada presensi/sesi patroli yang lupa diakhiri dari hari sebelumnya, lalu ditutup paksa oleh sistem; dan (2) Logout Otomatis (ikon \ud83d\udeaa biru) \u2014 setiap pengguna yang sedang login otomatis dikeluarkan begitu tanggal berganti (00:00 WITA, jam server), sehingga wajib login ulang tiap hari.",
         "Backup & Arsip Data \u2014 kartu Backup & Arsipkan Data Lama: pilih rentang tanggal (dari\u2013sampai), lalu unduh presensi/patroli/checkpoint/laporan kejadian pada rentang itu sebagai file Excel (foto selfie & foto kejadian TIDAK disertakan, karena ukurannya terlalu besar untuk 1 sel Excel). Setelah file terunduh, admin bisa pilih menghapus data itu dari server (opsional, membantu menjaga kuota database tetap aman) \u2014 tindakan hapus ini tidak bisa dibatalkan setelah dijalankan. Di bawahnya ada kartu Import Data dari Excel, untuk mengembalikan data dari file backup itu ke server kapan saja (mis. kalau ternyata data yang sudah dihapus masih dibutuhkan) \u2014 aman diulang berkali-kali, data dengan id yang sama tidak akan dobel."
       ]
     })
@@ -17649,6 +17727,21 @@ function RoleAccessCard() {
     setDeleteTarget(null);
     showToast(`Pengguna "${name}" berhasil dihapus.`);
   }
+  async function handleLeaderToggle(target, checked) {
+    setError("");
+    if (!canEdit) {
+      setError("Kamu tidak punya izin untuk mengubah Leader Team.");
+      return;
+    }
+    try {
+      await updateUser(target.id, {
+        isTeamLeader: checked
+      });
+      showToast(checked ? `"${target.name}" ditetapkan sebagai Leader Team.` : `"${target.name}" tidak lagi menjadi Leader Team.`);
+    } catch (err) {
+      setError(err.message || "Gagal menyimpan Leader Team ke server. Coba lagi.");
+    }
+  }
   async function handleRoleChange(target, nextRole) {
     setError("");
     if (!canEdit) {
@@ -17728,7 +17821,7 @@ function RoleAccessCard() {
     style: {
       overflowX: "auto"
     }
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Nama"), /*#__PURE__*/React.createElement("th", null, "Username"), /*#__PURE__*/React.createElement("th", null, "Jabatan"), /*#__PURE__*/React.createElement("th", null, "Role"), canEdit && /*#__PURE__*/React.createElement("th", null, "Aksi"))), /*#__PURE__*/React.createElement("tbody", null, allUsers.map(u => {
+  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Nama"), /*#__PURE__*/React.createElement("th", null, "Username"), /*#__PURE__*/React.createElement("th", null, "Jabatan"), /*#__PURE__*/React.createElement("th", null, "Role"), /*#__PURE__*/React.createElement("th", null, "Leader Team"), canEdit && /*#__PURE__*/React.createElement("th", null, "Aksi"))), /*#__PURE__*/React.createElement("tbody", null, allUsers.map(u => {
     const roleCell = /*#__PURE__*/React.createElement("select", {
       className: "input",
       style: {
@@ -17802,7 +17895,20 @@ function RoleAccessCard() {
         color: "var(--navy-700)",
         marginLeft: 6
       }
-    }, "(kamu)")), /*#__PURE__*/React.createElement("td", null, u.username), /*#__PURE__*/React.createElement("td", null, u.position || "-"), /*#__PURE__*/React.createElement("td", null, roleCell), actionCell);
+    }, "(kamu)")), /*#__PURE__*/React.createElement("td", null, u.username), /*#__PURE__*/React.createElement("td", null, u.position || "-"), /*#__PURE__*/React.createElement("td", null, roleCell), /*#__PURE__*/React.createElement("td", null, u.role === ROLES.EMPLOYEE ? /*#__PURE__*/React.createElement("label", {
+      className: "flex",
+      style: {
+        alignItems: "center",
+        gap: 6,
+        fontSize: 13,
+        cursor: canEdit ? "pointer" : "default"
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "checkbox",
+      checked: u.isTeamLeader === true,
+      disabled: !canEdit,
+      onChange: e => handleLeaderToggle(u, e.target.checked)
+    }), u.isTeamLeader === true ? "Leader" : "") : "-"), actionCell);
   }))))), editTarget && /*#__PURE__*/React.createElement(EmployeeFormModal, {
     employee: editTarget,
     onClose: () => setEditTarget(null),
