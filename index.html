@@ -391,7 +391,7 @@ html[data-theme="dark"] .leaflet-control-zoom a{background:#2a232f !important;}
 html[data-theme="dark"] .leaflet-container .leaflet-control-attribution{background:rgba(20,16,26,.75) !important; color:#b8adb3 !important;}
 html[data-theme="dark"] .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.9);}
 /* Penanda versi di halaman login (memastikan versi terbaru yang terpasang, bukan cache lama) */
-.login-glass-wrap::after{content:"Versi 2026-10-06.29"; position:absolute; left:0; right:0; bottom:calc(8px + env(safe-area-inset-bottom)); text-align:center; font-size:11px; color:rgba(255,255,255,.7); pointer-events:none;}
+.login-glass-wrap::after{content:"Versi 2026-10-08.30"; position:absolute; left:0; right:0; bottom:calc(8px + env(safe-area-inset-bottom)); text-align:center; font-size:11px; color:rgba(255,255,255,.7); pointer-events:none;}
 /* Form ringkas (mis. pengajuan izin/cuti): jarak & ukuran input dirapatkan supaya tidak terlalu panjang */
 .compact-form .label{font-size:11px; margin-bottom:4px;}
 .compact-form .input{padding:9px 12px; font-size:15px;}
@@ -3431,6 +3431,20 @@ function exportToPDF(records, filenamePrefix = "laporan-presensi") {
   });
   doc.save(`${filenamePrefix}-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
+// Font bawaan PDF (Helvetica) hanya mendukung karakter Latin. Emoji & simbol lain membuat teks
+// jadi karakter aneh dan lebar teks salah dihitung (teks melebihi kolom), jadi dibersihkan dulu.
+function pdfSafeText(v) {
+  if (v == null) return "";
+  return String(v)
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/\u2026/g, "...")
+    .replace(/[\u2018\u2019\u201A\u2032]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u2033]/g, '"')
+    .replace(/[\u2022\u25CF\u25AA\u2023]/g, "-")
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFE0E\uFE0F\uFEFF]/g, "")
+    .replace(/[^\u0009\u000A\u000D\u0020-\u007E\u00A0-\u00FF]/g, "")
+    .replace(/[ \t]{2,}/g, " ");
+}
 // Riwayat update laporan kejadian sebagai teks (dipakai ekspor Excel/PDF). Urut lama -> baru.
 function kejadianHistoryText(k) {
   const title = { proses: "Diproses", update: "Update", selesai: "Selesai" };
@@ -3503,7 +3517,7 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian") {
   doc.setTextColor(100, 116, 139);
   doc.text(`Dibuat pada ${new Date().toLocaleString("id-ID")}`, 14, 21);
   const ticketCell = k => [k.ticketId || "-", k.title || "", [k.category, KEJADIAN_PRIORITY_LABEL[k.priority] ? "Prioritas " + KEJADIAN_PRIORITY_LABEL[k.priority] : ""].filter(Boolean).join(" \u00b7 ")].filter(Boolean).join("\n");
-  const body = reports.map(k => [ticketCell(k), formatDateShortID(k.createdAt.slice(0, 10)), formatClock(new Date(k.createdAt)), k.userName, KEJADIAN_STATUS_LABEL[k.status] || k.status, k.darurat ? "Ya" : "Tidak", k.note, k.address || "-", kejadianHistoryText(k)]);
+  const body = reports.map(k => [ticketCell(k), formatDateShortID(k.createdAt.slice(0, 10)), formatClock(new Date(k.createdAt)), k.userName, KEJADIAN_STATUS_LABEL[k.status] || k.status, k.darurat ? "Ya" : "Tidak", k.note, k.address || "-", kejadianHistoryText(k)].map(pdfSafeText));
   doc.autoTable({
     startY: 27,
     head: [["Tiket", "Tanggal", "Waktu", "Pelapor", "Status", "Darurat", "Kronologi", "Lokasi", "Riwayat Penanganan"]],
@@ -3667,6 +3681,9 @@ function wrapPdfHeader(doc, text, maxW) {
 }
 function exportRitRecapToPDF(opts) {
   const d = buildRitRecapExport(opts);
+  // Font PDF bawaan tidak mendukung emoji/simbol: bersihkan nama pada SALINAN data (data aplikasi tidak diubah)
+  d.cps = d.cps.map(c => ({ ...c, name: pdfSafeText(c.name) }));
+  d.rows = d.rows.map(r => ({ ...r, name: pdfSafeText(r.name), position: pdfSafeText(r.position), passes: r.passes ? r.passes.map(q => ({ ...q, cp: pdfSafeText(q.cp) })) : r.passes }));
   const harian = d.mode === "harian";
   const doc = new jspdf.jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const PW = 297, PH = 210, M = 14, CW = PW - 2 * M, BOTTOM = PH - 14;
