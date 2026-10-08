@@ -391,7 +391,7 @@ html[data-theme="dark"] .leaflet-control-zoom a{background:#2a232f !important;}
 html[data-theme="dark"] .leaflet-container .leaflet-control-attribution{background:rgba(20,16,26,.75) !important; color:#b8adb3 !important;}
 html[data-theme="dark"] .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.9);}
 /* Penanda versi di halaman login (memastikan versi terbaru yang terpasang, bukan cache lama) */
-.login-glass-wrap::after{content:"Versi 2026-10-08.30"; position:absolute; left:0; right:0; bottom:calc(8px + env(safe-area-inset-bottom)); text-align:center; font-size:11px; color:rgba(255,255,255,.7); pointer-events:none;}
+.login-glass-wrap::after{content:"Versi 2026-10-08.32"; position:absolute; left:0; right:0; bottom:calc(8px + env(safe-area-inset-bottom)); text-align:center; font-size:11px; color:rgba(255,255,255,.7); pointer-events:none;}
 /* Form ringkas (mis. pengajuan izin/cuti): jarak & ukuran input dirapatkan supaya tidak terlalu panjang */
 .compact-form .label{font-size:11px; margin-bottom:4px;}
 .compact-form .input{padding:9px 12px; font-size:15px;}
@@ -400,6 +400,13 @@ html[data-theme="dark"] .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) b
 .compact-form .form-head h3{font-size:15px !important;}
 .compact-form .form-body{padding:14px 16px !important; gap:10px !important;}
 .compact-form .form-foot{padding:12px 16px !important;}
+/* Kotak form (modal): latar SOLID, tidak transparan, di semua perangkat dan kedua tema */
+.modal-box{background:#ffffff !important; backdrop-filter:none !important; -webkit-backdrop-filter:none !important; border-color:rgba(0,0,0,.08) !important;}
+html[data-theme="dark"] .modal-box{background:#241e2b !important; border-color:rgba(255,255,255,.12) !important;}
+/* Kartu laporan darurat: berdenyut & berkedip supaya mencolok */
+@keyframes nit-emergency-pulse{0%,100%{box-shadow:0 10px 30px rgba(0,0,0,.3),0 0 0 0 rgba(228,20,43,.8);}50%{box-shadow:0 10px 30px rgba(0,0,0,.3),0 0 0 16px rgba(228,20,43,0);}}
+@keyframes nit-emergency-blink{0%,100%{filter:none;}50%{filter:brightness(1.4) saturate(1.25);}}
+.emergency-card{animation:nit-emergency-pulse 1s infinite, nit-emergency-blink .8s infinite;}
 /* ===== Layout desktop penuh (100%) & form rapi ===== */
 @media (min-width:1024px){
   .container-app, .container-lg{max-width:2200px; padding-left:clamp(20px,2.4vw,44px); padding-right:clamp(20px,2.4vw,44px);}
@@ -2258,6 +2265,28 @@ function kejadianTicketChips(k) {
   if (k.category) chips.push(h("span", { key: "c", style: { ...base, background: "var(--slate-mist)", color: "var(--navy-700)" } }, k.category));
   if (k.priority && KEJADIAN_PRIORITY_LABEL[k.priority]) chips.push(h("span", { key: "p", style: { ...base, ...KEJADIAN_PRIORITY_STYLE[k.priority] } }, "Prioritas " + KEJADIAN_PRIORITY_LABEL[k.priority]));
   return chips.length ? h("div", { className: "flex", style: { gap: 6, flexWrap: "wrap", marginTop: 4 } }, chips) : null;
+}
+// ===== Urutan daftar laporan kejadian (admin & Leader Team) =====
+// "status": Baru -> Diproses -> Selesai (yang masih berjalan di atas, Selesai di bawah);
+// "terbaru" / "terlama": murni berdasarkan tanggal laporan.
+const KEJADIAN_SORT_OPTIONS = [["status", "Status (Diproses di atas)"], ["terbaru", "Tanggal terbaru"], ["terlama", "Tanggal terlama"]];
+function sortKejadianReports(list, mode) {
+  const rank = { [KEJADIAN_STATUS.BARU]: 0, [KEJADIAN_STATUS.DITANGANI]: 1, [KEJADIAN_STATUS.SELESAI]: 2 };
+  const newest = (a, b) => a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0;
+  const arr = [...list];
+  if (mode === "terlama") return arr.sort((a, b) => -newest(a, b));
+  if (mode === "terbaru") return arr.sort(newest);
+  return arr.sort((a, b) => {
+    const r = (rank[a.status] ?? 1) - (rank[b.status] ?? 1);
+    if (r !== 0) return r;
+    if (a.status !== KEJADIAN_STATUS.SELESAI && !!a.darurat !== !!b.darurat) return a.darurat ? -1 : 1;
+    return newest(a, b);
+  });
+}
+function KejadianSortSelect({ value, onChange }) {
+  return React.createElement("label", { className: "flex", style: { alignItems: "center", gap: 6, fontSize: 12, color: "var(--t-faint)" } }, "Urutkan",
+    React.createElement("select", { className: "input", value, onChange: e => onChange(e.target.value), style: { width: "auto", padding: "6px 10px", fontSize: 12 } },
+      KEJADIAN_SORT_OPTIONS.map(([v, l]) => React.createElement("option", { key: v, value: v }, l))));
 }
 function getKejadianReports() {
   return store.kejadian.slice().sort((a, b) => a.createdAt < b.createdAt ? 1 : -1);
@@ -11955,17 +11984,18 @@ function PatrolPage({
   useStoreSync();
   const checkpoints = useMemo(() => getCheckpoints(), [store.checkpoints]);
   const activePatrol = useMemo(() => getActivePatrolForUser(user.id), [user.id, store.patrols]);
+  const [kejadianSort, setKejadianSort] = useState("status");
   const myReports = useMemo(() => {
     const mine = getKejadianReportsByUser(user.id);
-    return [...mine.filter(k => k.status !== KEJADIAN_STATUS.SELESAI), ...mine.filter(k => k.status === KEJADIAN_STATUS.SELESAI).slice(0, 5)];
-  }, [user.id, store.kejadian]);
+    return sortKejadianReports([...mine.filter(k => k.status !== KEJADIAN_STATUS.SELESAI), ...mine.filter(k => k.status === KEJADIAN_STATUS.SELESAI).slice(0, 5)], kejadianSort);
+  }, [user.id, store.kejadian, kejadianSort]);
   // Leader Team: laporan anggota lain (yang belum selesai + 5 terbaru yang sudah selesai)
   const isLeader = isTeamLeader(user);
   const teamReports = useMemo(() => {
     if (!isLeader) return [];
     const others = getKejadianReports().filter(k => k.userId !== user.id);
-    return [...others.filter(k => k.status !== KEJADIAN_STATUS.SELESAI), ...others.filter(k => k.status === KEJADIAN_STATUS.SELESAI).slice(0, 5)];
-  }, [isLeader, user.id, store.kejadian]);
+    return sortKejadianReports([...others.filter(k => k.status !== KEJADIAN_STATUS.SELESAI), ...others.filter(k => k.status === KEJADIAN_STATUS.SELESAI).slice(0, 5)], kejadianSort);
+  }, [isLeader, user.id, store.kejadian, kejadianSort]);
   const [starting, setStarting] = useState(false);
   const [ending, setEnding] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -12564,7 +12594,14 @@ function PatrolPage({
       color: "var(--navy-900)",
       marginBottom: 4
     }
-  }, "Laporan Kejadian Tim"), /*#__PURE__*/React.createElement("p", {
+  }, "Laporan Kejadian Tim"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement(KejadianSortSelect, {
+    value: kejadianSort,
+    onChange: setKejadianSort
+  })), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 12,
       color: "var(--t-faint)",
@@ -13311,15 +13348,14 @@ function KejadianPage() {
   const [expandedId, setExpandedId] = useState(null);
   const [actionError, setActionError] = useState("");
   const [busyId, setBusyId] = useState(null);
+  const [sortMode, setSortMode] = useState("status");
+  const [dateFilter, setDateFilter] = useState("");
   const all = useMemo(() => getKejadianReports(), [store.kejadian]);
   const baruCount = all.filter(k => k.status === KEJADIAN_STATUS.BARU).length;
-  const aktif = all.filter(k => k.status === KEJADIAN_STATUS.BARU || k.status === KEJADIAN_STATUS.DITANGANI).sort((a, b) => {
-    if (a.status !== b.status) return a.status === KEJADIAN_STATUS.BARU ? -1 : 1;
-    if (a.darurat !== b.darurat) return a.darurat ? -1 : 1;
-    return a.createdAt < b.createdAt ? 1 : -1;
-  });
-  const selesai = all.filter(k => k.status === KEJADIAN_STATUS.SELESAI);
-  const list = tab === "aktif" ? aktif : tab === "selesai" ? selesai : all;
+  const filtered = dateFilter ? all.filter(k => todayDateStrWITA(new Date(k.createdAt)) === dateFilter) : all;
+  const aktif = sortKejadianReports(filtered.filter(k => k.status === KEJADIAN_STATUS.BARU || k.status === KEJADIAN_STATUS.DITANGANI), sortMode);
+  const selesai = sortKejadianReports(filtered.filter(k => k.status === KEJADIAN_STATUS.SELESAI), sortMode);
+  const list = tab === "aktif" ? aktif : tab === "selesai" ? selesai : sortKejadianReports(filtered, sortMode);
   const TABS = [{
     key: "aktif",
     label: "Baru & Diproses"
@@ -13439,7 +13475,44 @@ function KejadianPage() {
     key: t.key,
     onClick: () => setTab(t.key),
     className: `chip ${tab === t.key ? "chip-active" : "chip-inactive"}`
-  }, t.label, t.key === "aktif" && baruCount > 0 ? ` (${baruCount})` : ""))), list.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }, t.label, t.key === "aktif" && baruCount > 0 ? ` (${baruCount})` : ""))), /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      gap: 12,
+      flexWrap: "wrap",
+      alignItems: "center",
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement(KejadianSortSelect, {
+    value: sortMode,
+    onChange: setSortMode
+  }), /*#__PURE__*/React.createElement("label", {
+    className: "flex",
+    style: {
+      alignItems: "center",
+      gap: 6,
+      fontSize: 12,
+      color: "var(--t-faint)"
+    }
+  }, "Tanggal", /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    className: "input",
+    value: dateFilter,
+    onChange: e => setDateFilter(e.target.value),
+    style: {
+      width: "auto",
+      padding: "6px 10px",
+      fontSize: 12
+    }
+  })), dateFilter ? /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => setDateFilter(""),
+    style: {
+      fontSize: 12,
+      color: "var(--red)",
+      fontWeight: 600
+    }
+  }, "Reset tanggal") : null), list.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: 40,
@@ -13450,7 +13523,7 @@ function KejadianPage() {
       color: "var(--t-faint)",
       fontSize: 14
     }
-  }, "Tidak ada laporan pada kategori ini.")) : /*#__PURE__*/React.createElement("div", {
+  }, "Tidak ada laporan pada kategori atau tanggal ini.")) : /*#__PURE__*/React.createElement("div", {
     className: "kejadian-list",
     style: {
       display: "flex",
@@ -15815,7 +15888,10 @@ function PanduanPage() {
         "Di tampilan ringkas, tiap laporan yang sudah diproses punya satu baris ringkasan, mis. \"Update terakhir 2 hari lalu oleh Budi · 3 update\". Buka kartu laporan untuk melihat riwayat lengkap berurutan dari yang terlama; klik foto untuk memperbesar atau mengecilkan.",
         "Admin bisa menghapus laporan kejadian: buka kartu laporannya lalu tekan \"Hapus Laporan\" dan konfirmasi. Laporan beserta foto dan seluruh riwayat updatenya terhapus permanen dan tidak bisa dikembalikan. Kalau perlu arsip, ekspor ke Excel atau PDF dulu.",
         "Ekspor Excel memuat kolom Ticket ID, Kategori, Prioritas, Judul, Kronologi, dan \"Riwayat Penanganan\" (semua update: tanggal, jam, petugas, catatan). PDF memuat kolom Tiket (nomor, judul, kategori, prioritas) dan Riwayat Penanganan. Entri yang punya foto diberi tanda (+foto); fotonya sendiri tidak ikut diekspor maupun di-backup.",
-        "Tab \"Baru & Diproses\" berisi laporan yang masih berjalan, tab \"Selesai\" berisi yang sudah tuntas."
+        "Tab \"Baru & Diproses\" berisi laporan yang masih berjalan, tab \"Selesai\" berisi yang sudah tuntas.",
+        "Urutan daftar bawaannya mengikuti status: Baru, lalu Diproses (yang Darurat paling atas), dan Selesai di paling bawah. Pilihan \"Urutkan\" bisa diganti ke Tanggal terbaru atau Tanggal terlama, dan kolom \"Tanggal\" menyaring laporan pada satu hari tertentu (tekan \"Reset tanggal\" untuk menampilkan semua). Leader Team punya pilihan urutan yang sama di kartu \"Laporan Kejadian Tim\".",
+        "Laporan yang ditandai Darurat memicu SIRINE keras yang terus berbunyi di akun admin, disertai getar, judul tab berkedip, dan kartu merah yang berdenyut. Sirine berhenti setelah Anda menekan \"Matikan Bunyi Alarm\" atau menutup laporannya (dan otomatis berhenti setelah 3 menit).",
+        "Browser hanya mengizinkan suara setelah halaman disentuh. Setelah membuka aplikasi, ketuk atau klik halaman sekali supaya sirine bisa berbunyi; jika bunyi terblokir, muncul petunjuk di atas kartu darurat. Besar bunyi mengikuti volume HP/laptop, jadi pastikan volumenya tidak dimatikan."
       ]
     })
   );
@@ -18524,26 +18600,84 @@ const EMPLOYEE_NAV = [{
 }];
 
 /* ======================= NOTIFIKASI ALARM LAPORAN DARURAT (ADMIN) ======================= */
-function playAlertBeep() {
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    const ctx = new Ctx();
-    [0, 350].forEach(delay => {
-      setTimeout(() => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "sine";
-        osc.frequency.value = 880;
-        gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.01);
-        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.45);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.5);
-      }, delay);
-    });
-  } catch (e) {}
+// Sirine darurat: bunyi "wail" keras (gigi gergaji + kotak), berdenyut, terus berulang sampai dimatikan.
+// Dibangun di satu AudioContext yang dibuka (unlock) saat pengguna pertama kali menyentuh halaman,
+// karena browser memblokir suara otomatis sebelum ada interaksi.
+let _alarmCtx = null, _alarmNodes = null, _alarmWanted = false, _alarmStopTimer = null, _alarmTitleTimer = null, _alarmVibTimer = null, _alarmOrigTitle = null;
+function _alarmRunning() { return !!(_alarmCtx && _alarmCtx.state === "running"); }
+function _alarmBuild(ctx, dest) {
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -14; comp.knee.value = 0; comp.ratio.value = 20; comp.attack.value = 0.002; comp.release.value = 0.08;
+  const master = ctx.createGain();
+  master.gain.value = 1.2;
+  comp.connect(master); master.connect(dest);
+  const voice = (type, base, gain) => {
+    const o = ctx.createOscillator(); o.type = type; o.frequency.value = base;
+    const g = ctx.createGain(); g.gain.value = gain;
+    o.connect(g); g.connect(comp);
+    return o;
+  };
+  const a = voice("sawtooth", 1000, 0.7), b = voice("square", 1500, 0.4);
+  // LFO "wail": nada naik-turun ~650 s/d 1350 Hz sekitar 1,1 kali per detik
+  const lfo = ctx.createOscillator(); lfo.type = "triangle"; lfo.frequency.value = 1.1;
+  const d1 = ctx.createGain(); d1.gain.value = 360; lfo.connect(d1); d1.connect(a.frequency);
+  const d2 = ctx.createGain(); d2.gain.value = 540; lfo.connect(d2); d2.connect(b.frequency);
+  // denyut volume 3 kali per detik supaya menembus kebisingan sekitar
+  const am = ctx.createOscillator(); am.type = "square"; am.frequency.value = 3;
+  const amg = ctx.createGain(); amg.gain.value = 0.25; am.connect(amg); amg.connect(master.gain);
+  const oscs = [a, b, lfo, am];
+  oscs.forEach(o => o.start());
+  return { oscs, master };
+}
+function _alarmEnsureCtx() {
+  if (_alarmCtx) return _alarmCtx;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  try { _alarmCtx = new Ctx(); } catch (e) { _alarmCtx = null; }
+  return _alarmCtx;
+}
+function _alarmStartNodes() {
+  if (_alarmNodes || !_alarmWanted || !_alarmRunning()) return;
+  try { _alarmNodes = _alarmBuild(_alarmCtx, _alarmCtx.destination); } catch (e) { _alarmNodes = null; }
+}
+function _alarmStopNodes() {
+  if (!_alarmNodes) return;
+  try { _alarmNodes.oscs.forEach(o => { try { o.stop(); } catch (e) {} }); _alarmNodes.master.disconnect(); } catch (e) {}
+  _alarmNodes = null;
+}
+// Dibuka saat pengguna menyentuh/menekan apa pun di halaman (syarat browser agar suara boleh diputar)
+function _alarmUnlock() {
+  const ctx = _alarmEnsureCtx();
+  if (!ctx) return;
+  if (ctx.state === "suspended") {
+    try { ctx.resume().then(_alarmStartNodes).catch(() => {}); } catch (e) {}
+  }
+  try { const src = ctx.createBufferSource(); src.buffer = ctx.createBuffer(1, 1, 22050); src.connect(ctx.destination); src.start(0); } catch (e) {}
+  _alarmStartNodes();
+}
+["pointerdown", "touchend", "keydown", "click"].forEach(ev => document.addEventListener(ev, _alarmUnlock, { capture: true, passive: true }));
+function startEmergencyAlarm() {
+  _alarmWanted = true;
+  const ctx = _alarmEnsureCtx();
+  if (ctx && ctx.state === "suspended") { try { ctx.resume().then(_alarmStartNodes).catch(() => {}); } catch (e) {} }
+  _alarmStartNodes();
+  if (navigator.vibrate && !_alarmVibTimer) {
+    navigator.vibrate([600, 200, 600, 200, 600]);
+    _alarmVibTimer = setInterval(() => navigator.vibrate([600, 200, 600, 200, 600]), 3500);
+  }
+  if (!_alarmTitleTimer) {
+    _alarmOrigTitle = document.title;
+    _alarmTitleTimer = setInterval(() => { document.title = document.title === _alarmOrigTitle ? "\uD83D\uDEA8 DARURAT! \uD83D\uDEA8" : _alarmOrigTitle; }, 800);
+  }
+  clearTimeout(_alarmStopTimer);
+  _alarmStopTimer = setTimeout(stopEmergencyAlarm, 180000); // batas aman 3 menit
+}
+function stopEmergencyAlarm() {
+  _alarmWanted = false;
+  _alarmStopNodes();
+  clearTimeout(_alarmStopTimer); _alarmStopTimer = null;
+  if (_alarmVibTimer) { clearInterval(_alarmVibTimer); _alarmVibTimer = null; try { navigator.vibrate && navigator.vibrate(0); } catch (e) {} }
+  if (_alarmTitleTimer) { clearInterval(_alarmTitleTimer); _alarmTitleTimer = null; if (_alarmOrigTitle != null) document.title = _alarmOrigTitle; _alarmOrigTitle = null; }
 }
 const SEEN_DARURAT_KEY = "nit-seen-darurat-ids";
 function useEmergencyAlerts(enabled) {
@@ -18567,21 +18701,43 @@ function useEmergencyAlerts(enabled) {
         const existingIds = new Set(prev.map(a => a.id));
         return [...prev, ...fresh.filter(f => !existingIds.has(f.id))].slice(-3);
       });
-      playAlertBeep();
-      if (navigator.vibrate) navigator.vibrate([250, 100, 250]);
+      startEmergencyAlarm();
     }
   }, [enabled, store.kejadian]);
+  useEffect(() => {
+    if (alerts.length === 0) stopEmergencyAlarm();
+  }, [alerts.length]);
+  useEffect(() => () => stopEmergencyAlarm(), [enabled]);
   function dismiss(id) {
     setAlerts(prev => prev.filter(a => a.id !== id));
   }
+  function dismissAll() {
+    setAlerts([]);
+  }
   return {
     alerts,
-    dismiss
+    dismiss,
+    dismissAll
   };
+}
+function EmergencyAlarmControls({ onStop }) {
+  const h = React.createElement;
+  const [blocked, setBlocked] = useState(!_alarmRunning());
+  useEffect(() => {
+    const t = setInterval(() => setBlocked(!_alarmRunning()), 400);
+    return () => clearInterval(t);
+  }, []);
+  return h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+    h("button", {
+      onClick: onStop,
+      style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%", padding: "12px 14px", borderRadius: 12, background: "#fff", color: "var(--accent-700)", fontWeight: 800, fontSize: 14, boxShadow: "0 10px 30px rgba(0,0,0,.3)", border: "2px solid var(--accent-700)" }
+    }, h(Icon, { name: "volume-x", size: 18 }), "Matikan Bunyi Alarm"),
+    blocked ? h("p", { style: { fontSize: 12, fontWeight: 600, color: "#fff", background: "rgba(0,0,0,.65)", borderRadius: 8, padding: "6px 10px", textAlign: "center" } }, "Bunyi diblokir browser \u2014 ketuk / klik di mana saja pada halaman untuk mengaktifkan.") : null);
 }
 function EmergencyAlertBanner({
   alerts,
   onDismiss,
+  onDismissAll,
   onNavigate
 }) {
   if (alerts.length === 0) return null;
@@ -18597,8 +18753,11 @@ function EmergencyAlertBanner({
       gap: 8,
       width: "min(420px, calc(100vw - 24px))"
     }
-  }, alerts.map(k => /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(EmergencyAlarmControls, {
+    onStop: onDismissAll
+  }), alerts.map(k => /*#__PURE__*/React.createElement("div", {
     key: k.id,
+    className: "emergency-card",
     style: {
       background: "var(--accent-700)",
       color: "#fff",
@@ -18753,7 +18912,8 @@ function App() {
   const isAdminUser = canAccessAdminPanel(user);
   const {
     alerts: emergencyAlerts,
-    dismiss: dismissEmergencyAlert
+    dismiss: dismissEmergencyAlert,
+    dismissAll: dismissAllEmergencyAlerts
   } = useEmergencyAlerts(isAdminUser);
   if (loading) {
     return /*#__PURE__*/React.createElement("div", {
@@ -18842,6 +19002,7 @@ function App() {
   }, canViewAdmin && /*#__PURE__*/React.createElement(EmergencyAlertBanner, {
     alerts: emergencyAlerts,
     onDismiss: dismissEmergencyAlert,
+    onDismissAll: dismissAllEmergencyAlerts,
     onNavigate: setPage
   }), !canViewAdmin && /*#__PURE__*/React.createElement(PatrolTracker, {
     user: user
