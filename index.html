@@ -404,9 +404,8 @@ html[data-theme="dark"] .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) b
 .modal-box{background:#ffffff !important; backdrop-filter:none !important; -webkit-backdrop-filter:none !important; border-color:rgba(0,0,0,.08) !important;}
 html[data-theme="dark"] .modal-box{background:#241e2b !important; border-color:rgba(255,255,255,.12) !important;}
 /* Kartu laporan darurat: berdenyut & berkedip supaya mencolok */
-@keyframes nit-emergency-pulse{0%,100%{box-shadow:0 10px 30px rgba(0,0,0,.3),0 0 0 0 rgba(228,20,43,.8);}50%{box-shadow:0 10px 30px rgba(0,0,0,.3),0 0 0 16px rgba(228,20,43,0);}}
-@keyframes nit-emergency-blink{0%,100%{filter:none;}50%{filter:brightness(1.4) saturate(1.25);}}
-.emergency-card{animation:nit-emergency-pulse 1s infinite, nit-emergency-blink .8s infinite;}
+@keyframes nit-emergency-pulse{0%,100%{box-shadow:0 10px 30px rgba(0,0,0,.3),0 0 0 0 rgba(228,20,43,.35);}50%{box-shadow:0 10px 30px rgba(0,0,0,.3),0 0 0 8px rgba(228,20,43,0);}}
+.emergency-card{animation:nit-emergency-pulse 2.6s ease-in-out infinite;}
 /* ===== Layout desktop penuh (100%) & form rapi ===== */
 @media (min-width:1024px){
   .container-app, .container-lg{max-width:2200px; padding-left:clamp(20px,2.4vw,44px); padding-right:clamp(20px,2.4vw,44px);}
@@ -15890,8 +15889,8 @@ function PanduanPage() {
         "Ekspor Excel memuat kolom Ticket ID, Kategori, Prioritas, Judul, Kronologi, dan \"Riwayat Penanganan\" (semua update: tanggal, jam, petugas, catatan). PDF memuat kolom Tiket (nomor, judul, kategori, prioritas) dan Riwayat Penanganan. Entri yang punya foto diberi tanda (+foto); fotonya sendiri tidak ikut diekspor maupun di-backup.",
         "Tab \"Baru & Diproses\" berisi laporan yang masih berjalan, tab \"Selesai\" berisi yang sudah tuntas.",
         "Urutan daftar bawaannya mengikuti status: Baru, lalu Diproses (yang Darurat paling atas), dan Selesai di paling bawah. Pilihan \"Urutkan\" bisa diganti ke Tanggal terbaru atau Tanggal terlama, dan kolom \"Tanggal\" menyaring laporan pada satu hari tertentu (tekan \"Reset tanggal\" untuk menampilkan semua). Leader Team punya pilihan urutan yang sama di kartu \"Laporan Kejadian Tim\".",
-        "Laporan yang ditandai Darurat memicu SIRINE keras yang terus berbunyi di akun admin, disertai getar, judul tab berkedip, dan kartu merah yang berdenyut. Sirine berhenti setelah Anda menekan \"Matikan Bunyi Alarm\" atau menutup laporannya (dan otomatis berhenti setelah 3 menit).",
-        "Browser hanya mengizinkan suara setelah halaman disentuh. Setelah membuka aplikasi, ketuk atau klik halaman sekali supaya sirine bisa berbunyi; jika bunyi terblokir, muncul petunjuk di atas kartu darurat. Besar bunyi mengikuti volume HP/laptop, jadi pastikan volumenya tidak dimatikan."
+        "Laporan yang ditandai Darurat memunculkan kartu merah di akun admin disertai nada notifikasi lembut dua nada yang berulang tiap beberapa detik, getar singkat, dan judul tab berkedip pelan. Bunyinya berhenti setelah Anda menekan \"Matikan Bunyi Alarm\" atau menutup laporannya, dan otomatis berhenti sendiri setelah 30 detik (kartunya tetap tampil sampai ditutup).",
+        "Browser hanya mengizinkan suara setelah halaman disentuh. Setelah membuka aplikasi, ketuk atau klik halaman sekali supaya nada alarm bisa berbunyi; jika bunyi terblokir, muncul petunjuk di atas kartu darurat. Besar bunyi mengikuti volume HP/laptop, jadi pastikan volumenya tidak dimatikan."
       ]
     })
   );
@@ -18600,34 +18599,30 @@ const EMPLOYEE_NAV = [{
 }];
 
 /* ======================= NOTIFIKASI ALARM LAPORAN DARURAT (ADMIN) ======================= */
-// Sirine darurat: bunyi "wail" keras (gigi gergaji + kotak), berdenyut, terus berulang sampai dimatikan.
+// Alarm darurat: nada notifikasi lembut dua nada ("ding-dong"), berulang tiap beberapa detik dan
+// berhenti sendiri setelah sebentar (kartu darurat tetap tampil sampai ditutup).
 // Dibangun di satu AudioContext yang dibuka (unlock) saat pengguna pertama kali menyentuh halaman,
 // karena browser memblokir suara otomatis sebelum ada interaksi.
 let _alarmCtx = null, _alarmNodes = null, _alarmWanted = false, _alarmStopTimer = null, _alarmTitleTimer = null, _alarmVibTimer = null, _alarmOrigTitle = null;
+const ALARM_REPEAT_MS = 4000; // jeda antar nada
+const ALARM_MAX_MS = 30000; // otomatis berhenti setelah 30 detik
 function _alarmRunning() { return !!(_alarmCtx && _alarmCtx.state === "running"); }
-function _alarmBuild(ctx, dest) {
-  const comp = ctx.createDynamicsCompressor();
-  comp.threshold.value = -14; comp.knee.value = 0; comp.ratio.value = 20; comp.attack.value = 0.002; comp.release.value = 0.08;
-  const master = ctx.createGain();
-  master.gain.value = 1.2;
-  comp.connect(master); master.connect(dest);
-  const voice = (type, base, gain) => {
-    const o = ctx.createOscillator(); o.type = type; o.frequency.value = base;
-    const g = ctx.createGain(); g.gain.value = gain;
-    o.connect(g); g.connect(comp);
-    return o;
-  };
-  const a = voice("sawtooth", 1000, 0.7), b = voice("square", 1500, 0.4);
-  // LFO "wail": nada naik-turun ~650 s/d 1350 Hz sekitar 1,1 kali per detik
-  const lfo = ctx.createOscillator(); lfo.type = "triangle"; lfo.frequency.value = 1.1;
-  const d1 = ctx.createGain(); d1.gain.value = 360; lfo.connect(d1); d1.connect(a.frequency);
-  const d2 = ctx.createGain(); d2.gain.value = 540; lfo.connect(d2); d2.connect(b.frequency);
-  // denyut volume 3 kali per detik supaya menembus kebisingan sekitar
-  const am = ctx.createOscillator(); am.type = "square"; am.frequency.value = 3;
-  const amg = ctx.createGain(); amg.gain.value = 0.25; am.connect(amg); amg.connect(master.gain);
-  const oscs = [a, b, lfo, am];
-  oscs.forEach(o => o.start());
-  return { oscs, master };
+function _alarmBeep(ctx) {
+  const t0 = ctx.currentTime;
+  [[880, 0], [660, 0.34]].forEach(([freq, delay]) => {
+    const o = ctx.createOscillator(); o.type = "sine"; o.frequency.value = freq;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0 + delay);
+    g.gain.exponentialRampToValueAtTime(0.2, t0 + delay + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + delay + 0.55);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(t0 + delay); o.stop(t0 + delay + 0.6);
+  });
+}
+function _alarmBuild(ctx) {
+  _alarmBeep(ctx);
+  const timer = setInterval(() => { if (_alarmRunning()) _alarmBeep(ctx); }, ALARM_REPEAT_MS);
+  return { timer };
 }
 function _alarmEnsureCtx() {
   if (_alarmCtx) return _alarmCtx;
@@ -18642,7 +18637,7 @@ function _alarmStartNodes() {
 }
 function _alarmStopNodes() {
   if (!_alarmNodes) return;
-  try { _alarmNodes.oscs.forEach(o => { try { o.stop(); } catch (e) {} }); _alarmNodes.master.disconnect(); } catch (e) {}
+  try { clearInterval(_alarmNodes.timer); } catch (e) {}
   _alarmNodes = null;
 }
 // Dibuka saat pengguna menyentuh/menekan apa pun di halaman (syarat browser agar suara boleh diputar)
@@ -18662,21 +18657,21 @@ function startEmergencyAlarm() {
   if (ctx && ctx.state === "suspended") { try { ctx.resume().then(_alarmStartNodes).catch(() => {}); } catch (e) {} }
   _alarmStartNodes();
   if (navigator.vibrate && !_alarmVibTimer) {
-    navigator.vibrate([600, 200, 600, 200, 600]);
-    _alarmVibTimer = setInterval(() => navigator.vibrate([600, 200, 600, 200, 600]), 3500);
+    try { navigator.vibrate([200, 120, 200]); } catch (e) {}
+    _alarmVibTimer = setTimeout(() => { _alarmVibTimer = null; }, ALARM_MAX_MS); // getar cukup sekali
   }
   if (!_alarmTitleTimer) {
     _alarmOrigTitle = document.title;
-    _alarmTitleTimer = setInterval(() => { document.title = document.title === _alarmOrigTitle ? "\uD83D\uDEA8 DARURAT! \uD83D\uDEA8" : _alarmOrigTitle; }, 800);
+    _alarmTitleTimer = setInterval(() => { document.title = document.title === _alarmOrigTitle ? "\uD83D\uDEA8 DARURAT" : _alarmOrigTitle; }, 1500);
   }
   clearTimeout(_alarmStopTimer);
-  _alarmStopTimer = setTimeout(stopEmergencyAlarm, 180000); // batas aman 3 menit
+  _alarmStopTimer = setTimeout(stopEmergencyAlarm, ALARM_MAX_MS); // berhenti sendiri setelah 30 detik
 }
 function stopEmergencyAlarm() {
   _alarmWanted = false;
   _alarmStopNodes();
   clearTimeout(_alarmStopTimer); _alarmStopTimer = null;
-  if (_alarmVibTimer) { clearInterval(_alarmVibTimer); _alarmVibTimer = null; try { navigator.vibrate && navigator.vibrate(0); } catch (e) {} }
+  if (_alarmVibTimer) { clearTimeout(_alarmVibTimer); _alarmVibTimer = null; try { navigator.vibrate && navigator.vibrate(0); } catch (e) {} }
   if (_alarmTitleTimer) { clearInterval(_alarmTitleTimer); _alarmTitleTimer = null; if (_alarmOrigTitle != null) document.title = _alarmOrigTitle; _alarmOrigTitle = null; }
 }
 const SEEN_DARURAT_KEY = "nit-seen-darurat-ids";
