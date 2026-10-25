@@ -2165,13 +2165,35 @@ async function importSchedules(entries) {
     const batch = db.batch();
     chunk.forEach(entry => {
       const id = `sch-${entry.userId}-${entry.date}`;
-      const doc = {
+      let doc = {
         id,
         userId: entry.userId,
         userName: entry.userName,
         date: entry.date,
         type: entry.type
       };
+      // Tanggal yang sedang tercakup izin yang SUDAH DISETUJUI tidak boleh tertimpa kembali jadi
+      // Masuk/Piket Malam oleh import ulang: tetap "Izin", sedangkan jadwal hasil import disimpan di
+      // prevType supaya otomatis jadi jadwal yang dipulihkan kalau persetujuan izin dibatalkan/dihapus.
+      const cur = store.schedules.find(s => s.id === id);
+      if (cur && cur.type === SCHEDULE_TYPE.IZIN && cur.leaveId) {
+        doc = {
+          ...doc,
+          type: SCHEDULE_TYPE.IZIN,
+          leaveId: cur.leaveId,
+          prevType: entry.type
+        };
+      } else if (entry.type === SCHEDULE_TYPE.MASUK || entry.type === SCHEDULE_TYPE.PIKET_MALAM) {
+        // Jadwal baru untuk tanggal yang belum pernah berjadwal tapi masuk rentang izin disetujui.
+        const lv = store.leaves.find(l => l.status === LEAVE_STATUS.APPROVED && l.userId === entry.userId && l.startDate <= entry.date && entry.date <= l.endDate);
+        const alreadyIn = store.records.some(r => r.userId === entry.userId && r.date === entry.date && r.checkInTime);
+        if (lv && !alreadyIn) doc = {
+          ...doc,
+          type: SCHEDULE_TYPE.IZIN,
+          leaveId: lv.id,
+          prevType: entry.type
+        };
+      }
       batch.set(db.collection(COL.SCHEDULES).doc(id), doc);
       const idx = store.schedules.findIndex(s => s.id === id);
       if (idx === -1) store.schedules.push(doc);else store.schedules[idx] = doc;
@@ -8528,14 +8550,121 @@ function openLeaveAttachment(leave) {
     console.warn("Gagal membuka lampiran izin/cuti.", err);
   }
 }
+// Pratinjau lampiran langsung di dalam aplikasi (tanpa pindah ke tab baru): gambar tampil penuh,
+// PDF ditampilkan lewat iframe. Tombol "Tab baru" tetap ada sebagai cadangan (mis. WebView yang tidak
+// bisa menampilkan PDF di dalam halaman).
+function LeaveAttachmentViewer({
+  data,
+  name,
+  type,
+  onClose
+}) {
+  const isImage = !!(type && type.startsWith("image/"));
+  const blobUrl = useMemo(() => {
+    if (isImage || !data) return null;
+    try {
+      return URL.createObjectURL(dataUrlToBlob(data));
+    } catch (err) {
+      return null;
+    }
+  }, [data, isImage]);
+  useEffect(() => () => {
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+  }, [blobUrl]);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "modal-backdrop",
+    style: {
+      zIndex: 1100
+    },
+    onClick: e => {
+      e.stopPropagation();
+      onClose();
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "modal-box fade-up",
+    style: {
+      maxWidth: 720
+    },
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 10,
+      padding: "12px 16px",
+      borderBottom: "1px solid var(--line)"
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 14,
+      fontWeight: 700,
+      color: "var(--navy-900)",
+      flex: 1,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, name || "File pendukung"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-outline btn-sm",
+    onClick: () => openLeaveAttachment({
+      attachmentData: data
+    })
+  }, "Tab baru"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: onClose,
+    "aria-label": "Tutup",
+    style: {
+      color: "var(--t-faint)",
+      padding: 4
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "x",
+    size: 20
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 12,
+      background: "var(--slate-mist)",
+      display: "flex",
+      justifyContent: "center"
+    }
+  }, isImage ? /*#__PURE__*/React.createElement("img", {
+    src: data,
+    alt: name || "Lampiran",
+    style: {
+      maxWidth: "100%",
+      maxHeight: "70vh",
+      objectFit: "contain",
+      borderRadius: 8
+    }
+  }) : blobUrl ? /*#__PURE__*/React.createElement("iframe", {
+    src: blobUrl,
+    title: name || "Lampiran PDF",
+    style: {
+      width: "100%",
+      height: "70vh",
+      border: "none",
+      borderRadius: 8,
+      background: "#fff"
+    }
+  }) : /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 13,
+      color: "var(--t-muted)",
+      padding: 20
+    }
+  }, "File tidak dapat ditampilkan. Coba tombol \"Tab baru\"."))));
+}
 function LeaveAttachmentChip({
   leave
 }) {
+  const [open, setOpen] = useState(false);
   if (!leave || !leave.attachmentData) return null;
   const isImage = leave.attachmentType && leave.attachmentType.startsWith("image/");
-  return /*#__PURE__*/React.createElement("button", {
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
     type: "button",
-    onClick: () => openLeaveAttachment(leave),
+    onClick: () => setOpen(true),
     className: "flex",
     style: {
       alignItems: "center",
@@ -8548,7 +8677,12 @@ function LeaveAttachmentChip({
   }, /*#__PURE__*/React.createElement(Icon, {
     name: isImage ? "image" : "file-text",
     size: 14
-  }), "Lihat file pendukung");
+  }), "Lihat file pendukung"), open && /*#__PURE__*/React.createElement(LeaveAttachmentViewer, {
+    data: leave.attachmentData,
+    name: leave.attachmentName,
+    type: leave.attachmentType,
+    onClose: () => setOpen(false)
+  }));
 }
 function LeaveAttachmentField({
   attachment,
@@ -8557,6 +8691,7 @@ function LeaveAttachmentField({
 }) {
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState("");
+  const [viewing, setViewing] = useState(false);
   const inputRef = useRef(null);
   async function handleFile(e) {
     const file = e.target.files && e.target.files[0];
@@ -8573,7 +8708,7 @@ function LeaveAttachmentField({
       setBusy(false);
     }
   }
-  return /*#__PURE__*/React.createElement("div", {
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -8586,7 +8721,7 @@ function LeaveAttachmentField({
     style: {
       marginBottom: 0
     }
-  }, "File pendukung (opsional)"), /*#__PURE__*/React.createElement("input", {
+  }, "Lampiran (opsional)"), /*#__PURE__*/React.createElement("input", {
     ref: inputRef,
     type: "file",
     accept: "image/*,application/pdf",
@@ -8597,12 +8732,15 @@ function LeaveAttachmentField({
     disabled: disabled || busy
   }), attachment ? /*#__PURE__*/React.createElement("div", {
     className: "flex",
+    title: "Klik untuk melihat",
+    onClick: () => setViewing(true),
     style: {
       alignItems: "center",
       gap: 10,
       border: "1px solid var(--line)",
       borderRadius: 10,
-      padding: "8px 12px"
+      padding: "8px 12px",
+      cursor: "pointer"
     }
   }, attachment.attachmentType && attachment.attachmentType.startsWith("image/") ? /*#__PURE__*/React.createElement("img", {
     src: attachment.attachmentData,
@@ -8632,7 +8770,10 @@ function LeaveAttachmentField({
     }
   }, attachment.attachmentName), /*#__PURE__*/React.createElement("button", {
     type: "button",
-    onClick: () => onChange(null),
+    onClick: e => {
+      e.stopPropagation();
+      onChange(null);
+    },
     disabled: disabled,
     "aria-label": "Hapus lampiran",
     style: {
@@ -8651,19 +8792,18 @@ function LeaveAttachmentField({
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "paperclip",
     size: 14
-  }), busy ? " Memproses…" : " Lampirkan foto/PDF"), localError && /*#__PURE__*/React.createElement("p", {
+  }), busy ? " Memproses…" : " Foto / PDF"), localError && /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 12,
       color: "var(--red)",
       flexBasis: "100%"
     }
-  }, localError), !attachment && !localError && /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontSize: 12,
-      color: "var(--t-faint)",
-      marginTop: 6
-    }
-  }, "Contoh: foto surat keterangan dokter atau bukti pendukung lainnya."));
+  }, localError)), viewing && attachment && /*#__PURE__*/React.createElement(LeaveAttachmentViewer, {
+    data: attachment.attachmentData,
+    name: attachment.attachmentName,
+    type: attachment.attachmentType,
+    onClose: () => setViewing(false)
+  }));
 }
 function LeaveRequestModal({
   user,
@@ -8784,22 +8924,17 @@ function LeaveRequestModal({
     value: form.endDate,
     min: form.startDate,
     onChange: e => update("endDate", e.target.value)
-  }))), /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontSize: 11,
-      color: "var(--t-faint)",
-      marginTop: -4
-    }
-  }, "Sabtu & Minggu dalam rentang ini tidak dihitung sebagai hari izin."), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+  }))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "label"
   }, "Alasan"), /*#__PURE__*/React.createElement("textarea", {
     className: "input",
     rows: 2,
     value: form.reason,
     onChange: e => update("reason", e.target.value),
-    placeholder: "cth. Acara keluarga, sakit, urusan mendesak…",
+    placeholder: "mis. sakit, acara keluarga, urusan mendesak…",
+    maxLength: 300,
     style: {
-      resize: "vertical",
+      resize: "none",
       fontFamily: "inherit"
     }
   })), /*#__PURE__*/React.createElement(LeaveAttachmentField, {
