@@ -1758,16 +1758,20 @@ async function decideLeaveRequest(id, decision) {
 
 // Membatalkan persetujuan izin: status kembali "Menunggu", jadwal dikembalikan persis ke jadwal semula
 // (prevType), dan record presensi "Izin" milik pengajuan ini dihapus. Atomik dalam satu batch.
-async function revokeLeaveApproval(id) {
+// opts.remove = true -> pengajuan dihapus permanen (boleh status apa saja). Kalau pengajuan itu sudah
+// disetujui, jadwal & catatan Izin-nya dibersihkan dulu dengan cara yang sama.
+async function revokeLeaveApproval(id, opts) {
+  const remove = !!(opts && opts.remove);
   const previous = store.leaves.find(l => l.id === id);
-  if (!previous || previous.status !== LEAVE_STATUS.APPROVED) return null;
+  if (!previous || !remove && previous.status !== LEAVE_STATUS.APPROVED) return null;
+  const wasApproved = previous.status === LEAVE_STATUS.APPROVED;
   const updated = {
     ...previous,
     status: LEAVE_STATUS.PENDING,
     decidedAt: null
   };
   const batch = db.batch();
-  batch.update(db.collection(COL.LEAVES).doc(id), {
+  if (remove) batch.delete(db.collection(COL.LEAVES).doc(id));else batch.update(db.collection(COL.LEAVES).doc(id), {
     status: LEAVE_STATUS.PENDING,
     decidedAt: null
   });
@@ -1792,7 +1796,7 @@ async function revokeLeaveApproval(id) {
   const removedRecords = [];
   const cursor = new Date(previous.startDate + "T00:00:00");
   const end = new Date(previous.endDate + "T00:00:00");
-  while (cursor <= end) {
+  while (wasApproved && cursor <= end) {
     const dateStr = todayDateStr(cursor);
     const recId = `izin-${previous.userId}-${dateStr}`;
     const local = store.records.find(r => r.id === recId);
@@ -1809,15 +1813,15 @@ async function revokeLeaveApproval(id) {
   if (ops > LEAVE_BATCH_LIMIT) throw new Error("Rentang izin terlalu panjang untuk dibatalkan sekaligus.");
   const removedIds = new Set(removedRecords.map(r => r.id));
   const removedLocal = store.records.filter(r => removedIds.has(r.id));
-  store.leaves = store.leaves.map(l => l.id === id ? updated : l);
+  store.leaves = remove ? store.leaves.filter(l => l.id !== id) : store.leaves.map(l => l.id === id ? updated : l);
   if (restored.size) store.schedules = store.schedules.map(sc => restored.get(sc.id) || sc);
   if (removedLocal.length) store.records = store.records.filter(r => !removedIds.has(r.id));
   _notifyStore();
   try {
-    await withTimeout(batch.commit(), 20000, "Gagal membatalkan persetujuan izin di server");
+    await withTimeout(batch.commit(), 20000, remove ? "Gagal menghapus pengajuan izin di server" : "Gagal membatalkan persetujuan izin di server");
     return updated;
   } catch (err) {
-    store.leaves = store.leaves.map(l => l.id === id ? previous : l);
+    store.leaves = remove ? [previous, ...store.leaves].sort((a, b) => a.createdAt < b.createdAt ? 1 : -1) : store.leaves.map(l => l.id === id ? previous : l);
     if (izinSchedules.length) store.schedules = store.schedules.map(sc => {
       const was = izinSchedules.find(o => o.id === sc.id);
       return was || sc;
@@ -1826,6 +1830,12 @@ async function revokeLeaveApproval(id) {
     _notifyStore();
     throw err;
   }
+}
+
+function deleteLeaveRequest(id) {
+  return revokeLeaveApproval(id, {
+    remove: true
+  });
 }
 
 /* ======================= PATROLI: CHECKPOINT & SESI ======================= */
@@ -13141,6 +13151,21 @@ function LeaveRequestsPage({
       setBusyId(null);
     }
   }
+  async function removeLeave(lv) {
+    const msg = lv.status === LEAVE_STATUS.APPROVED ? "Hapus pengajuan izin ini? Karena sudah disetujui, jadwal karyawan akan dikembalikan ke semula dan catatan Izin pada tanggal tersebut ikut dihapus. Tindakan ini tidak bisa dibatalkan." : "Hapus pengajuan izin ini secara permanen? Tindakan ini tidak bisa dibatalkan.";
+    if (!window.confirm(msg)) return;
+    setBusyId(lv.id);
+    setError("");
+    try {
+      await deleteLeaveRequest(lv.id);
+      setRefreshKey(k => k + 1);
+      if (onChanged) onChanged();
+    } catch (err) {
+      setError(err.message || "Gagal menghapus pengajuan izin di server. Coba lagi.");
+    } finally {
+      setBusyId(null);
+    }
+  }
   async function revoke(id) {
     if (!window.confirm("Batalkan persetujuan izin ini? Jadwal karyawan akan dikembalikan ke semula dan catatan Izin pada tanggal tersebut dihapus.")) return;
     setBusyId(id);
@@ -13311,7 +13336,25 @@ function LeaveRequestsPage({
       fontSize: 11,
       color: "var(--t-faint)"
     }
-  }, "Jadwal & catatan Izin dikembalikan seperti semula."))))));
+  }, "Jadwal & catatan Izin dikembalikan seperti semula.")), canEdit && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10,
+      paddingTop: 10,
+      borderTop: "1px solid var(--line)"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    disabled: busyId === lv.id,
+    onClick: () => removeLeave(lv),
+    style: {
+      background: "none",
+      border: "none",
+      color: "var(--red)",
+      fontSize: 12,
+      fontWeight: 600,
+      cursor: "pointer",
+      padding: 0
+    }
+  }, "Hapus pengajuan"))))));
 }
 
 /* ======================= LAPORAN KEJADIAN (ADMIN) ======================= */
