@@ -1639,10 +1639,34 @@ function eachWeekdayInRange(startDate, endDate) {
   }
   return dates;
 }
-// Sama polanya spt fungsi2 sebelumnya — ditunggu penuh & dibatalkan (rollback) di layar kalau
-// gagal, supaya admin tidak mengira sudah approve/tolak izin padahal gagal tersimpan, dan supaya
-// record presensi "Izin" utk tiap hari kerja dalam rentang izin itu (kalau di-approve) benar2
-// tersimpan di server, bukan cuma tampil lokal saja.
+// Tanggal yang benar-benar dicakup izin untuk karyawan ini, mengikuti JADWAL resmi:
+//  - Jadwal Masuk / Piket Malam  -> dicakup (termasuk Sabtu/Minggu kalau memang dijadwalkan masuk)
+//  - Jadwal Standby/Off atau sudah Izin -> dilewati
+//  - Belum ada jadwal sama sekali -> aturan lama (Senin–Jumat)
+function leaveWorkingDates(userId, startDate, endDate) {
+  const dates = [];
+  const cursor = new Date(startDate + "T00:00:00");
+  const end = new Date(endDate + "T00:00:00");
+  while (cursor <= end) {
+    const dateStr = todayDateStr(cursor);
+    const sch = getScheduleFor(userId, dateStr);
+    if (sch) {
+      if (sch.type === SCHEDULE_TYPE.MASUK || sch.type === SCHEDULE_TYPE.PIKET_MALAM) dates.push(dateStr);
+    } else {
+      const dow = cursor.getDay();
+      if (dow !== 0 && dow !== 6) dates.push(dateStr);
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+}
+const LEAVE_BATCH_LIMIT = 450; // batas aman Firestore batch (maks 500 operasi)
+
+// Keputusan izin. Kalau DISETUJUI, dalam SATU batch atomik (status izin + jadwal + record presensi):
+//  1) jadwal Masuk/Piket Malam pada tanggal izin diubah jadi "Izin" (jadwal lama disimpan di prevType),
+//  2) dibuatkan record presensi "Izin" untuk tiap tanggal tsb.
+// Karena atomik, tidak mungkin status "disetujui" tersimpan tapi jadwalnya gagal berubah. Kalau gagal,
+// semua perubahan di layar dikembalikan (rollback) supaya admin tidak mengira sudah tersimpan.
 async function decideLeaveRequest(id, decision) {
   const idx = store.leaves.findIndex(l => l.id === id);
   if (idx === -1) return null;
@@ -1652,61 +1676,153 @@ async function decideLeaveRequest(id, decision) {
     status: decision,
     decidedAt: new Date().toISOString()
   };
-  store.leaves = store.leaves.map(l => l.id === id ? updated : l);
-  _notifyStore();
-  const newRecordIds = [];
-  try {
-    await withTimeout(db.collection(COL.LEAVES).doc(id).update({
-      status: decision,
-      decidedAt: updated.decidedAt
-    }), 20000, "Gagal menyimpan keputusan izin ke server");
-
-    if (decision === LEAVE_STATUS.APPROVED) {
-      const leave = updated;
-      const existingDates = new Set(store.records.filter(r => r.userId === leave.userId).map(r => r.date));
-      const batch = db.batch();
-      const newRecordsLocal = [];
-      eachWeekdayInRange(leave.startDate, leave.endDate).forEach(dateStr => {
-        if (existingDates.has(dateStr)) return;
-        const rec = {
-          id: `izin-${leave.userId}-${dateStr}`,
-          userId: leave.userId,
-          userName: leave.userName,
-          date: dateStr,
-          status: STATUS.IZIN,
+  const batch = db.batch();
+  batch.update(db.collection(COL.LEAVES).doc(id), {
+    status: decision,
+    decidedAt: updated.decidedAt
+  });
+  let ops = 1;
+  const oldSchedules = new Map(); // id -> jadwal lama (untuk rollback)
+  const newSchedules = new Map(); // id -> jadwal Izin baru
+  const newRecords = [];
+  if (decision === LEAVE_STATUS.APPROVED) {
+    const leave = updated;
+    const userRecords = store.records.filter(r => r.userId === leave.userId);
+    const existingDates = new Set(userRecords.map(r => r.date));
+    // Tanggal yang sudah ada presensi masuk (check-in) TIDAK diubah jadwalnya — orangnya sudah hadir.
+    const checkedInDates = new Set(userRecords.filter(r => r.checkInTime).map(r => r.date));
+    leaveWorkingDates(leave.userId, leave.startDate, leave.endDate).forEach(dateStr => {
+      if (checkedInDates.has(dateStr)) return;
+      const sch = getScheduleFor(leave.userId, dateStr);
+      if (sch) {
+        const izinSch = {
+          id: sch.id,
+          userId: sch.userId,
+          userName: sch.userName,
+          date: sch.date,
+          type: SCHEDULE_TYPE.IZIN,
           leaveId: leave.id,
-          leaveReason: leave.reason,
-          checkInTime: null,
-          checkOutTime: null,
-          checkInPhoto: null,
-          checkOutPhoto: null,
-          checkInLat: null,
-          checkInLng: null,
-          checkInAddress: null,
-          checkInAccuracy: null,
-          checkOutLat: null,
-          checkOutLng: null,
-          checkOutAddress: null
+          prevType: sch.type
         };
-        newRecordsLocal.push(rec);
-        newRecordIds.push(rec.id);
-        existingDates.add(dateStr);
-        batch.set(db.collection(COL.RECORDS).doc(rec.id), rec);
-      });
-      if (newRecordsLocal.length) {
-        store.records = [...store.records, ...newRecordsLocal];
-        _notifyStore();
-        await withTimeout(batch.commit(), 20000, "Gagal menyimpan record izin ke server");
+        oldSchedules.set(sch.id, sch);
+        newSchedules.set(sch.id, izinSch);
+        batch.set(db.collection(COL.SCHEDULES).doc(sch.id), izinSch);
+        ops++;
       }
-    }
+      if (existingDates.has(dateStr)) return;
+      const rec = {
+        id: `izin-${leave.userId}-${dateStr}`,
+        userId: leave.userId,
+        userName: leave.userName,
+        date: dateStr,
+        status: STATUS.IZIN,
+        leaveId: leave.id,
+        leaveReason: leave.reason,
+        checkInTime: null,
+        checkOutTime: null,
+        checkInPhoto: null,
+        checkOutPhoto: null,
+        checkInLat: null,
+        checkInLng: null,
+        checkInAddress: null,
+        checkInAccuracy: null,
+        checkOutLat: null,
+        checkOutLng: null,
+        checkOutAddress: null
+      };
+      newRecords.push(rec);
+      existingDates.add(dateStr);
+      batch.set(db.collection(COL.RECORDS).doc(rec.id), rec);
+      ops++;
+    });
+    if (ops > LEAVE_BATCH_LIMIT) throw new Error("Rentang izin terlalu panjang untuk disimpan sekaligus. Mohon pecah menjadi beberapa pengajuan.");
+  }
+  store.leaves = store.leaves.map(l => l.id === id ? updated : l);
+  if (newSchedules.size) store.schedules = store.schedules.map(sc => newSchedules.get(sc.id) || sc);
+  if (newRecords.length) store.records = [...store.records, ...newRecords];
+  _notifyStore();
+  try {
+    await withTimeout(batch.commit(), 20000, "Gagal menyimpan keputusan izin ke server");
     return updated;
   } catch (err) {
-    // Rollback total: kembalikan status izin ke semula, dan buang record2 "Izin" yg sudah
-    // sempat ditambahkan lokal tapi gagal tersimpan di server.
     store.leaves = store.leaves.map(l => l.id === id ? previous : l);
-    if (newRecordIds.length) {
-      store.records = store.records.filter(r => !newRecordIds.includes(r.id));
+    if (oldSchedules.size) store.schedules = store.schedules.map(sc => oldSchedules.get(sc.id) || sc);
+    if (newRecords.length) {
+      const ids = new Set(newRecords.map(r => r.id));
+      store.records = store.records.filter(r => !ids.has(r.id));
     }
+    _notifyStore();
+    throw err;
+  }
+}
+
+// Membatalkan persetujuan izin: status kembali "Menunggu", jadwal dikembalikan persis ke jadwal semula
+// (prevType), dan record presensi "Izin" milik pengajuan ini dihapus. Atomik dalam satu batch.
+async function revokeLeaveApproval(id) {
+  const previous = store.leaves.find(l => l.id === id);
+  if (!previous || previous.status !== LEAVE_STATUS.APPROVED) return null;
+  const updated = {
+    ...previous,
+    status: LEAVE_STATUS.PENDING,
+    decidedAt: null
+  };
+  const batch = db.batch();
+  batch.update(db.collection(COL.LEAVES).doc(id), {
+    status: LEAVE_STATUS.PENDING,
+    decidedAt: null
+  });
+  let ops = 1;
+  const izinSchedules = store.schedules.filter(sc => sc.leaveId === id && sc.type === SCHEDULE_TYPE.IZIN);
+  const restored = new Map();
+  izinSchedules.forEach(sc => {
+    const orig = {
+      id: sc.id,
+      userId: sc.userId,
+      userName: sc.userName,
+      date: sc.date,
+      type: sc.prevType || SCHEDULE_TYPE.MASUK
+    };
+    restored.set(sc.id, orig);
+    batch.set(db.collection(COL.SCHEDULES).doc(sc.id), orig);
+    ops++;
+  });
+  // Record Izin dicari lewat id yang deterministik (izin-<userId>-<tanggal>) — bukan cuma dari data yang
+  // sedang dimuat — supaya record lama di luar jendela data live (mis. HP: 7 hari) ikut terhapus.
+  // Dilewati kalau ternyata sudah ada check-in atau milik pengajuan izin lain.
+  const removedRecords = [];
+  const cursor = new Date(previous.startDate + "T00:00:00");
+  const end = new Date(previous.endDate + "T00:00:00");
+  while (cursor <= end) {
+    const dateStr = todayDateStr(cursor);
+    const recId = `izin-${previous.userId}-${dateStr}`;
+    const local = store.records.find(r => r.id === recId);
+    const foreign = local && (local.checkInTime || (local.leaveId && local.leaveId !== id));
+    if (!foreign) {
+      removedRecords.push(local || {
+        id: recId
+      });
+      batch.delete(db.collection(COL.RECORDS).doc(recId));
+      ops++;
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  if (ops > LEAVE_BATCH_LIMIT) throw new Error("Rentang izin terlalu panjang untuk dibatalkan sekaligus.");
+  const removedIds = new Set(removedRecords.map(r => r.id));
+  const removedLocal = store.records.filter(r => removedIds.has(r.id));
+  store.leaves = store.leaves.map(l => l.id === id ? updated : l);
+  if (restored.size) store.schedules = store.schedules.map(sc => restored.get(sc.id) || sc);
+  if (removedLocal.length) store.records = store.records.filter(r => !removedIds.has(r.id));
+  _notifyStore();
+  try {
+    await withTimeout(batch.commit(), 20000, "Gagal membatalkan persetujuan izin di server");
+    return updated;
+  } catch (err) {
+    store.leaves = store.leaves.map(l => l.id === id ? previous : l);
+    if (izinSchedules.length) store.schedules = store.schedules.map(sc => {
+      const was = izinSchedules.find(o => o.id === sc.id);
+      return was || sc;
+    });
+    if (removedLocal.length) store.records = [...store.records, ...removedLocal];
     _notifyStore();
     throw err;
   }
@@ -1943,7 +2059,10 @@ function getRitRecap(dateStr, checkpointId) {
 const SCHEDULE_TYPE = {
   MASUK: "Masuk",
   PIKET_MALAM: "Piket Malam",
-  OFF: "Off"
+  OFF: "Off",
+  // Diisi otomatis saat pengajuan izin/cuti disetujui (lihat decideLeaveRequest). Dokumen jadwalnya
+  // menyimpan leaveId + prevType supaya bisa dikembalikan persis ke jadwal semula kalau persetujuan dibatalkan.
+  IZIN: "Izin"
 };
 function getSchedules() {
   return store.schedules;
@@ -1971,7 +2090,7 @@ function getLoginLogsByUser(userId) {
 // Kalau belum ada Jadwal sama sekali untuk tanggal itu, fallback ke aturan lama (Sabtu/Minggu libur).
 function isOffDay(userId, dateStr) {
   const sch = getScheduleFor(userId, dateStr);
-  if (sch) return sch.type === SCHEDULE_TYPE.OFF;
+  if (sch) return sch.type === SCHEDULE_TYPE.OFF || sch.type === SCHEDULE_TYPE.IZIN;
   const dow = new Date(dateStr + "T00:00:00").getDay();
   return dow === 0 || dow === 6;
 }
@@ -2923,7 +3042,7 @@ function getEffectiveRecordsForUserMonth(userId, userName, monthKey) {
     const sch = getScheduleFor(userId, dateStr);
     if (sch) {
       // Ada jadwal resmi: "Off" tidak pernah dihitung Alpa; "Masuk"/"Piket Malam" tanpa presensi = Alpa.
-      if (sch.type === SCHEDULE_TYPE.OFF) continue;
+      if (sch.type === SCHEDULE_TYPE.OFF || sch.type === SCHEDULE_TYPE.IZIN) continue;
     } else {
       // Belum ada jadwal untuk tanggal ini: pakai aturan lama (Sabtu/Minggu dianggap libur).
       const dow = new Date(dateStr + "T00:00:00").getDay();
@@ -9342,7 +9461,10 @@ function RekapPDFModal({
       const dateStr = `${yr}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
       const rec = recMap[dateStr];
       let status = rec ? effectiveRecordStatus(rec) : STATUS.ALPHA;
-      if (!rec && isOffDay(selectedUser.id, dateStr)) status = SCHEDULE_TYPE.OFF;
+      if (!rec && isOffDay(selectedUser.id, dateStr)) {
+        const _schDay = getScheduleFor(selectedUser.id, dateStr);
+        status = _schDay && _schDay.type === SCHEDULE_TYPE.IZIN ? STATUS.IZIN : SCHEDULE_TYPE.OFF;
+      }
       rows.push({
         date: dateStr,
         checkInTime: rec ? rec.checkInTime : null,
@@ -13019,6 +13141,20 @@ function LeaveRequestsPage({
       setBusyId(null);
     }
   }
+  async function revoke(id) {
+    if (!window.confirm("Batalkan persetujuan izin ini? Jadwal karyawan akan dikembalikan ke semula dan catatan Izin pada tanggal tersebut dihapus.")) return;
+    setBusyId(id);
+    setError("");
+    try {
+      await revokeLeaveApproval(id);
+      setRefreshKey(k => k + 1);
+      if (onChanged) onChanged();
+    } catch (err) {
+      setError(err.message || "Gagal membatalkan persetujuan izin di server. Coba lagi.");
+    } finally {
+      setBusyId(null);
+    }
+  }
   const TABS = [{
     key: "pending",
     label: "Menunggu"
@@ -13154,7 +13290,28 @@ function LeaveRequestsPage({
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "x",
     size: 14
-  }), " Tolak"))))));
+  }), " Tolak")), canEdit && lv.status === LEAVE_STATUS.APPROVED && /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: {
+      gap: 8,
+      marginTop: 12,
+      alignItems: "center",
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement(Button, {
+    variant: "outline",
+    size: "sm",
+    disabled: busyId === lv.id,
+    onClick: () => revoke(lv.id)
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "x",
+    size: 14
+  }), " Batalkan Persetujuan"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--t-faint)"
+    }
+  }, "Jadwal & catatan Izin dikembalikan seperti semula."))))));
 }
 
 /* ======================= LAPORAN KEJADIAN (ADMIN) ======================= */
@@ -14913,6 +15070,10 @@ const SCHEDULE_BADGE = {
   [SCHEDULE_TYPE.OFF]: {
     bg: "var(--slate-mist)",
     color: "var(--t-muted)"
+  },
+  [SCHEDULE_TYPE.IZIN]: {
+    bg: "var(--violet-soft)",
+    color: "var(--violet)"
   }
 };
 function ScheduleBadge({
@@ -15302,7 +15463,7 @@ function JadwalAdminPage() {
       fontSize: 12,
       color: "var(--t-muted)"
     }
-  }, "Belum ada jadwal untuk hari ini.") : [SCHEDULE_TYPE.MASUK, SCHEDULE_TYPE.PIKET_MALAM, SCHEDULE_TYPE.OFF].filter(t => todayGroups[t]).map(t => /*#__PURE__*/React.createElement("div", {
+  }, "Belum ada jadwal untuk hari ini.") : [SCHEDULE_TYPE.MASUK, SCHEDULE_TYPE.PIKET_MALAM, SCHEDULE_TYPE.OFF, SCHEDULE_TYPE.IZIN].filter(t => todayGroups[t]).map(t => /*#__PURE__*/React.createElement("div", {
     key: t,
     style: {
       display: "flex",
@@ -15439,7 +15600,9 @@ function JadwalAdminPage() {
     type: SCHEDULE_TYPE.PIKET_MALAM
   }), " Piket Malam (P) \xA0", /*#__PURE__*/React.createElement(ScheduleBadge, {
     type: SCHEDULE_TYPE.OFF
-  }), " Standby On Call (S)")))));
+  }), " Standby On Call (S) \xA0", /*#__PURE__*/React.createElement(ScheduleBadge, {
+    type: SCHEDULE_TYPE.IZIN
+  }), " Izin (otomatis dari izin disetujui)")))));
 }
 const TODAY_SCHEDULE_STYLE = {
   [SCHEDULE_TYPE.MASUK]: {
@@ -15459,6 +15622,12 @@ const TODAY_SCHEDULE_STYLE = {
     color: "var(--t-muted)",
     icon: "coffee",
     label: "Jadwal Standby / Libur"
+  },
+  [SCHEDULE_TYPE.IZIN]: {
+    bg: "var(--violet-soft)",
+    color: "var(--violet)",
+    icon: "calendar-days",
+    label: "Izin / Cuti (disetujui)"
   }
 };
 function TodayScheduleCard({
@@ -15825,6 +15994,10 @@ function PanduanPage() {
     React.createElement(GuideBadgeRow, {
       label: "Standby On Call (S)", color: "var(--navy-700)", bg: "var(--slate-mist)",
       desc: "Karyawan standby on call / libur pada tanggal itu. Tidak dihitung Alpa."
+    }),
+    React.createElement(GuideBadgeRow, {
+      label: "Izin", color: "var(--violet)", bg: "var(--violet-soft)",
+      desc: "Terisi otomatis saat pengajuan izin/cuti disetujui (menggantikan Masuk/Piket Malam di tanggal izin). Kembali ke jadwal semula kalau persetujuan dibatalkan. Tidak dihitung Alpa."
     }),
     React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Grid Jadwal Bulanan"),
     React.createElement(GuideList, {
