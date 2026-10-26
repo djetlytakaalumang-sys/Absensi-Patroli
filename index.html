@@ -423,6 +423,8 @@ main{min-width:0; max-width:100%;}
 .sidebar-rail{min-height:0; overflow-y:auto; scrollbar-width:none;}
 .sidebar-rail::-webkit-scrollbar{display:none;}
 @media (min-width:1100px){ .kejadian-list{display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start;} }
+/* Daftar pengajuan izin: kotak-kotak 2 kolom seperti daftar Laporan Kejadian */
+@media (min-width:700px){ .leave-grid{display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start;} }
 @media (min-width:760px){
   .modal-box.form-modal{max-width:760px !important;}
   .form-modal .form-grid{display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px 18px !important;}
@@ -9086,10 +9088,11 @@ function EmployeeLeavePage({
       color: "var(--t-muted)"
     }
   }, "Anda belum pernah mengajukan izin/cuti.")) : /*#__PURE__*/React.createElement("div", {
+    className: "leave-grid",
     style: {
       display: "flex",
       flexDirection: "column",
-      gap: 10
+      gap: 12
     }
   }, requests.map(lv => /*#__PURE__*/React.createElement(LeaveRequestCard, {
     key: lv.id,
@@ -13561,7 +13564,10 @@ function LeaveRequestsPage({
     label: "Semua"
   }];
   return /*#__PURE__*/React.createElement("div", {
-    className: "container-lg"
+    className: "container-lg",
+    style: {
+      maxWidth: 1200
+    }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 24
@@ -13611,10 +13617,11 @@ function LeaveRequestsPage({
       fontSize: 14
     }
   }, "Tidak ada pengajuan pada kategori ini.")) : /*#__PURE__*/React.createElement("div", {
+    className: "leave-grid",
     style: {
       display: "flex",
       flexDirection: "column",
-      gap: 10
+      gap: 12
     }
   }, filtered.map(lv => /*#__PURE__*/React.createElement(LeaveRequestCard, {
     key: lv.id,
