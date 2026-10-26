@@ -2074,17 +2074,52 @@ const SCHEDULE_TYPE = {
   // menyimpan leaveId + prevType supaya bisa dikembalikan persis ke jadwal semula kalau persetujuan dibatalkan.
   IZIN: "Izin"
 };
+// Izin yang sudah DISETUJUI selalu menang atas jadwal Masuk/Piket Malam di tanggalnya — dihitung saat
+// jadwal dibaca (overlay), jadi tetap benar apa pun urutannya: jadwal diimpor/diubah sesudah izin
+// disetujui, izin lama yang disetujui sebelum fitur ini ada, atau data yang baru dimuat dari server.
+// Jadwal asli di server tidak diubah; begitu izin dibatalkan/dihapus, overlay hilang sendiri.
+let _leaveIdxKey = null,
+  _leaveIdx = null;
+function approvedLeaveIndex() {
+  if (_leaveIdxKey !== store.leaves) {
+    const m = new Map();
+    store.leaves.forEach(l => {
+      if (l.status !== LEAVE_STATUS.APPROVED) return;
+      if (!m.has(l.userId)) m.set(l.userId, []);
+      m.get(l.userId).push(l);
+    });
+    _leaveIdx = m;
+    _leaveIdxKey = store.leaves;
+  }
+  return _leaveIdx;
+}
+function withLeaveOverlay(sch) {
+  if (!sch || sch.type !== SCHEDULE_TYPE.MASUK && sch.type !== SCHEDULE_TYPE.PIKET_MALAM) return sch;
+  const list = approvedLeaveIndex().get(sch.userId);
+  if (!list) return sch;
+  const lv = list.find(l => l.startDate <= sch.date && sch.date <= l.endDate);
+  if (!lv) return sch;
+  // Sudah check-in di tanggal itu = orangnya hadir, jadwal tidak diubah.
+  if (store.records.some(r => r.userId === sch.userId && r.date === sch.date && r.checkInTime)) return sch;
+  return {
+    ...sch,
+    type: SCHEDULE_TYPE.IZIN,
+    leaveId: lv.id,
+    prevType: sch.type
+  };
+}
 function getSchedules() {
-  return store.schedules;
+  return approvedLeaveIndex().size === 0 ? store.schedules : store.schedules.map(withLeaveOverlay);
 }
 function getScheduleFor(userId, dateStr) {
-  return store.schedules.find(s => s.userId === userId && s.date === dateStr) || null;
+  const sch = store.schedules.find(s => s.userId === userId && s.date === dateStr) || null;
+  return withLeaveOverlay(sch);
 }
 function getSchedulesForDate(dateStr) {
-  return store.schedules.filter(s => s.date === dateStr);
+  return store.schedules.filter(s => s.date === dateStr).map(withLeaveOverlay);
 }
 function getSchedulesForUserMonth(userId, monthKey) {
-  return store.schedules.filter(s => s.userId === userId && s.date.startsWith(monthKey));
+  return store.schedules.filter(s => s.userId === userId && s.date.startsWith(monthKey)).map(withLeaveOverlay);
 }
 
 /* ======================= RIWAYAT LOGIN ======================= */
@@ -9056,37 +9091,12 @@ function EmployeeLeavePage({
       flexDirection: "column",
       gap: 10
     }
-  }, requests.map(lv => /*#__PURE__*/React.createElement("div", {
+  }, requests.map(lv => /*#__PURE__*/React.createElement(LeaveRequestCard, {
     key: lv.id,
-    className: "card",
-    style: {
-      padding: 16
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex",
-    style: {
-      alignItems: "center",
-      justifyContent: "space-between",
-      marginBottom: 8,
-      gap: 8,
-      flexWrap: "wrap"
-    }
-  }, /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontSize: 14,
-      fontWeight: 600,
-      color: "var(--navy-900)"
-    }
-  }, lv.startDate === lv.endDate ? formatDateShortID(lv.startDate) : `${formatDateShortID(lv.startDate)} — ${formatDateShortID(lv.endDate)}`), /*#__PURE__*/React.createElement(LeaveStatusBadge, {
-    status: lv.status
-  })), /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontSize: 13,
-      color: "var(--t-muted)"
-    }
-  }, lv.reason), /*#__PURE__*/React.createElement(LeaveAttachmentChip, {
-    leave: lv
-  })))), showModal && /*#__PURE__*/React.createElement(LeaveRequestModal, {
+    lv: lv,
+    showName: false,
+    canEdit: false
+  }))), showModal && /*#__PURE__*/React.createElement(LeaveRequestModal, {
     user: user,
     onClose: () => setShowModal(false),
     onSaved: () => {
@@ -10360,7 +10370,7 @@ function AdminDashboard({
       });
     });
     return [...real, ...synthetic].sort((a, b) => a.date < b.date ? 1 : -1);
-  }, [users, mk, store.schedules]);
+  }, [users, mk, store.schedules, store.leaves]);
   const filtered = useMemo(() => allRecords.filter(r => {
     if (dateFilter && r.date !== dateFilter) return false;
     if (nameFilter && !r.userName.toLowerCase().includes(nameFilter.toLowerCase())) return false;
@@ -13291,6 +13301,196 @@ function EmployeesPage() {
 }
 
 /* ======================= HALAMAN PENGAJUAN IZIN (ADMIN) ======================= */
+const _h = React.createElement;
+function leaveDaysCount(lv) {
+  const a = new Date(lv.startDate + "T00:00:00"),
+    b = new Date(lv.endDate + "T00:00:00");
+  return Math.max(1, Math.round((b - a) / 86400000) + 1);
+}
+function leaveRangeText(lv) {
+  return lv.startDate === lv.endDate ? formatDateShortID(lv.startDate) : `${formatDateShortID(lv.startDate)} — ${formatDateShortID(lv.endDate)}`;
+}
+// Gambar kecil di kartu, sama seperti thumbnail foto di daftar Laporan Kejadian
+function LeaveThumb({
+  leave,
+  size
+}) {
+  const isImg = !!(leave.attachmentData && leave.attachmentType && leave.attachmentType.startsWith("image/"));
+  const box = {
+    width: size,
+    height: size,
+    borderRadius: 10,
+    flexShrink: 0
+  };
+  if (isImg) return _h("img", {
+    src: leave.attachmentData,
+    alt: "",
+    style: {
+      ...box,
+      objectFit: "cover"
+    }
+  });
+  return _h("div", {
+    style: {
+      ...box,
+      background: "var(--slate-mist)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center"
+    }
+  }, _h(Icon, {
+    name: leave.attachmentData ? "file-text" : "calendar-days",
+    size: 18,
+    style: {
+      color: "var(--t-faint)"
+    }
+  }));
+}
+// Kartu ringkas pengajuan izin (gaya daftar Laporan Kejadian): thumbnail + nama/tanggal + status,
+// alasan 2 baris; ketuk untuk melihat detail & foto lampiran yang lebih besar.
+function LeaveRequestCard({
+  lv,
+  showName,
+  canEdit,
+  busy,
+  onDecide,
+  onRevoke,
+  onRemove
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [viewing, setViewing] = useState(false);
+  const isImg = !!(lv.attachmentData && lv.attachmentType && lv.attachmentType.startsWith("image/"));
+  const days = leaveDaysCount(lv);
+  return _h("div", {
+    className: "card",
+    style: {
+      padding: 16
+    }
+  }, _h("div", {
+    className: "flex",
+    style: {
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      gap: 12
+    }
+  }, _h("div", {
+    className: "flex",
+    style: {
+      gap: 12,
+      alignItems: "center",
+      cursor: "pointer",
+      flex: 1,
+      minWidth: 0
+    },
+    onClick: () => setExpanded(!expanded)
+  }, _h(LeaveThumb, {
+    leave: lv,
+    size: 44
+  }), _h("div", {
+    style: {
+      minWidth: 0
+    }
+  }, _h("p", {
+    style: {
+      fontWeight: 600,
+      color: "var(--navy-900)",
+      fontSize: 14
+    }
+  }, showName ? lv.userName : leaveRangeText(lv)), _h("p", {
+    style: {
+      fontSize: 12,
+      color: "var(--t-faint)"
+    }
+  }, showName ? leaveRangeText(lv) + " · " : "", days, " hari"))), _h(LeaveStatusBadge, {
+    status: lv.status
+  })), _h("p", {
+    style: {
+      fontSize: 13,
+      color: "var(--t-muted)",
+      marginTop: 10,
+      whiteSpace: expanded ? "pre-wrap" : "normal",
+      overflow: expanded ? "visible" : "hidden",
+      display: expanded ? "block" : "-webkit-box",
+      WebkitLineClamp: expanded ? undefined : 2,
+      WebkitBoxOrient: "vertical",
+      overflowWrap: "anywhere"
+    }
+  }, lv.reason), expanded && lv.attachmentData && _h("div", {
+    style: {
+      marginTop: 10
+    }
+  }, isImg ? _h("img", {
+    src: lv.attachmentData,
+    alt: lv.attachmentName || "Lampiran",
+    title: "Ketuk untuk memperbesar",
+    onClick: () => setViewing(true),
+    style: {
+      width: "100%",
+      maxWidth: 360,
+      maxHeight: 240,
+      objectFit: "cover",
+      borderRadius: 10,
+      cursor: "zoom-in",
+      display: "block"
+    }
+  }) : _h(LeaveAttachmentChip, {
+    leave: lv
+  })), viewing && _h(LeaveAttachmentViewer, {
+    data: lv.attachmentData,
+    name: lv.attachmentName,
+    type: lv.attachmentType,
+    onClose: () => setViewing(false)
+  }), canEdit && lv.status === LEAVE_STATUS.PENDING && _h("div", {
+    className: "flex",
+    style: {
+      gap: 8,
+      marginTop: 12
+    }
+  }, _h(Button, {
+    variant: "success",
+    size: "sm",
+    disabled: busy,
+    onClick: () => onDecide(LEAVE_STATUS.APPROVED)
+  }, _h(Icon, {
+    name: "check",
+    size: 14
+  }), " Setujui"), _h(Button, {
+    variant: "outline",
+    size: "sm",
+    disabled: busy,
+    onClick: () => onDecide(LEAVE_STATUS.REJECTED)
+  }, _h(Icon, {
+    name: "x",
+    size: 14
+  }), " Tolak")), canEdit && expanded && _h("div", {
+    className: "flex",
+    style: {
+      gap: 12,
+      marginTop: 12,
+      paddingTop: 10,
+      borderTop: "1px solid var(--line)",
+      alignItems: "center",
+      flexWrap: "wrap"
+    }
+  }, lv.status === LEAVE_STATUS.APPROVED && _h(Button, {
+    variant: "outline",
+    size: "sm",
+    disabled: busy,
+    onClick: onRevoke
+  }, " Batalkan Persetujuan"), _h("button", {
+    disabled: busy,
+    onClick: onRemove,
+    style: {
+      background: "none",
+      border: "none",
+      color: "var(--red)",
+      fontSize: 12,
+      fontWeight: 600,
+      cursor: "pointer",
+      padding: 0
+    }
+  }, "Hapus pengajuan")));
+}
 function LeaveRequestsPage({
   onChanged
 }) {
@@ -13416,112 +13616,16 @@ function LeaveRequestsPage({
       flexDirection: "column",
       gap: 10
     }
-  }, filtered.map(lv => /*#__PURE__*/React.createElement("div", {
+  }, filtered.map(lv => /*#__PURE__*/React.createElement(LeaveRequestCard, {
     key: lv.id,
-    className: "card",
-    style: {
-      padding: 16
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex",
-    style: {
-      alignItems: "flex-start",
-      justifyContent: "space-between",
-      gap: 12,
-      flexWrap: "wrap"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex",
-    style: {
-      gap: 12,
-      alignItems: "center"
-    }
-  }, /*#__PURE__*/React.createElement(Avatar, {
-    name: lv.userName,
-    size: 36
-  }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontWeight: 600,
-      color: "var(--navy-900)",
-      fontSize: 14
-    }
-  }, lv.userName), /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontSize: 12,
-      color: "var(--t-faint)"
-    }
-  }, lv.startDate === lv.endDate ? formatDateShortID(lv.startDate) : `${formatDateShortID(lv.startDate)} — ${formatDateShortID(lv.endDate)}`))), /*#__PURE__*/React.createElement(LeaveStatusBadge, {
-    status: lv.status
-  })), /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontSize: 13,
-      color: "var(--t-muted)",
-      marginTop: 10
-    }
-  }, lv.reason), /*#__PURE__*/React.createElement(LeaveAttachmentChip, {
-    leave: lv
-  }), canEdit && lv.status === LEAVE_STATUS.PENDING && /*#__PURE__*/React.createElement("div", {
-    className: "flex",
-    style: {
-      gap: 8,
-      marginTop: 12
-    }
-  }, /*#__PURE__*/React.createElement(Button, {
-    variant: "success",
-    size: "sm",
-    disabled: busyId === lv.id,
-    onClick: () => decide(lv.id, LEAVE_STATUS.APPROVED)
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "check",
-    size: 14
-  }), " Setujui"), /*#__PURE__*/React.createElement(Button, {
-    variant: "outline",
-    size: "sm",
-    disabled: busyId === lv.id,
-    onClick: () => decide(lv.id, LEAVE_STATUS.REJECTED)
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "x",
-    size: 14
-  }), " Tolak")), canEdit && lv.status === LEAVE_STATUS.APPROVED && /*#__PURE__*/React.createElement("div", {
-    className: "flex",
-    style: {
-      gap: 8,
-      marginTop: 12,
-      alignItems: "center",
-      flexWrap: "wrap"
-    }
-  }, /*#__PURE__*/React.createElement(Button, {
-    variant: "outline",
-    size: "sm",
-    disabled: busyId === lv.id,
-    onClick: () => revoke(lv.id)
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "x",
-    size: 14
-  }), " Batalkan Persetujuan"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 11,
-      color: "var(--t-faint)"
-    }
-  }, "Jadwal & catatan Izin dikembalikan seperti semula.")), canEdit && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginTop: 10,
-      paddingTop: 10,
-      borderTop: "1px solid var(--line)"
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    disabled: busyId === lv.id,
-    onClick: () => removeLeave(lv),
-    style: {
-      background: "none",
-      border: "none",
-      color: "var(--red)",
-      fontSize: 12,
-      fontWeight: 600,
-      cursor: "pointer",
-      padding: 0
-    }
-  }, "Hapus pengajuan"))))));
+    lv: lv,
+    showName: true,
+    canEdit: canEdit,
+    busy: busyId === lv.id,
+    onDecide: d => decide(lv.id, d),
+    onRevoke: () => revoke(lv.id),
+    onRemove: () => removeLeave(lv)
+  }))));
 }
 
 /* ======================= LAPORAN KEJADIAN (ADMIN) ======================= */
@@ -15351,7 +15455,7 @@ function JadwalAdminPage() {
   const [result, setResult] = useState(null); // { written, unmatched }
   const [error, setError] = useState("");
   const employees = useMemo(() => getUsers().filter(u => u.role === ROLES.EMPLOYEE), [store.users]);
-  const todayStatus = useMemo(() => getTodayScheduleStatus(), [store.schedules, store.records, store.users]);
+  const todayStatus = useMemo(() => getTodayScheduleStatus(), [store.schedules, store.leaves, store.records, store.users]);
   const missingToday = todayStatus.filter(s => s.isMissing);
   // Penanda "hari ini" di grid: kolom tanggal disorot + ringkasan siapa saja yang bertugas hari ini
   const todayStr = todayDateStrWITA();
@@ -15363,7 +15467,7 @@ function JadwalAdminPage() {
       if (u) (g[sc.type] = g[sc.type] || []).push(u.name);
     });
     return g;
-  }, [store.schedules, employees, todayStr]);
+  }, [store.schedules, store.leaves, employees, todayStr]);
   const gridWrapRef = useRef(null);
   useEffect(() => {
     const wrap = gridWrapRef.current;
@@ -15894,7 +15998,7 @@ function JadwalSayaPage({
   const [monthKey, setMonthKey] = useState(currentMonthKey());
   const todayStr = todayDateStrWITA(getTrustedNow());
   const todaySchedule = getScheduleFor(user.id, todayStr);
-  const scheds = useMemo(() => getSchedulesForUserMonth(user.id, monthKey), [monthKey, store.schedules, user.id]);
+  const scheds = useMemo(() => getSchedulesForUserMonth(user.id, monthKey), [monthKey, store.schedules, store.leaves, user.id]);
   const [y, m] = monthKey.split("-").map(Number);
   const daysInMonth = new Date(y, m, 0).getDate();
   const byDay = {};
