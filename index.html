@@ -3722,6 +3722,24 @@ function kejadianHistoryEntries(k) {
     return "[" + when + "] " + (title[r.type] || "Update") + " - " + (r.by || "petugas") + (r.note ? ": " + r.note : "") + (r.type === "update" && r.next ? " (lanjut besok)" : "") + (r.photo ? " (+foto)" : "");
   });
 }
+// Riwayat per update dengan hari & jam terpisah (dipakai PDF supaya bisa dikelompokkan per hari).
+// Hari memakai tanggal WITA, sama dengan jam yang ditampilkan.
+function kejadianHistoryItems(k) {
+  const title = { proses: "Diproses", update: "Update", selesai: "Selesai" };
+  return kejadianTimeline(k).map(r => {
+    const d = r.time ? new Date(r.time) : null;
+    return {
+      day: d ? todayDateStrWITA(d) : "",
+      clock: d ? formatClock(d) : "-",
+      body: (title[r.type] || "Update") + " - " + (r.by || "petugas") + (r.note ? ": " + r.note : "") + (r.type === "update" && r.next ? " (lanjut besok)" : "") + (r.photo ? " (+foto)" : "")
+    };
+  });
+}
+function kejadianDayLabel(day) {
+  if (!day) return "Tanpa tanggal";
+  const wd = new Date(day + "T00:00:00").toLocaleDateString("id-ID", { weekday: "long" });
+  return wd.charAt(0).toUpperCase() + wd.slice(1) + ", " + formatDateShortID(day);
+}
 function kejadianHistoryText(k) {
   const e = kejadianHistoryEntries(k);
   return e.length ? e.join("\n") : "-";
@@ -3798,26 +3816,50 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian") {
   const body = [];
   reports.forEach((k, ki) => {
     const fill = ki % 2 === 0 ? [255, 255, 255] : [244, 246, 249];
-    const entries = kejadianHistoryEntries(k);
+    const items = kejadianHistoryItems(k);
     const chunks = [];
-    let cur = [],
-      curLines = 1; // 1 baris untuk judul kelompok
-    entries.forEach(e => {
-      const n = linesOf(e);
-      if (cur.length && curLines + n > MAX_LINES) {
+    // Update dikelompokkan per hari: judul tanggal, lalu update hari itu (hanya jam). Kalau satu hari
+    // terpotong ke baris berikutnya, judul harinya diulang dengan tanda "(lanjutan)".
+    const dayHeader = (day, cont) => "-- " + kejadianDayLabel(day) + (cont ? " (lanjutan)" : "") + " --";
+    let cur = {
+        lines: [],
+        count: 0
+      },
+      curLines = 1,
+      lastDay = null,
+      cont = false;
+    items.forEach(it => {
+      const text = it.clock + "  " + it.body;
+      const need = linesOf(text) + (it.day !== lastDay ? 1 : 0);
+      if (cur.count && curLines + need > MAX_LINES) {
         chunks.push(cur);
-        cur = [];
+        cur = {
+          lines: [],
+          count: 0
+        };
         curLines = 1;
+        cont = it.day === lastDay;
+        lastDay = null;
       }
-      cur.push(e);
-      curLines += n;
+      if (it.day !== lastDay) {
+        cur.lines.push(dayHeader(it.day, cont));
+        curLines++;
+        lastDay = it.day;
+        cont = false;
+      }
+      cur.lines.push(text);
+      cur.count++;
+      curLines += linesOf(text);
     });
-    if (cur.length) chunks.push(cur);
-    if (!chunks.length) chunks.push([]);
+    if (cur.count) chunks.push(cur);
+    if (!chunks.length) chunks.push({
+      lines: [],
+      count: 0
+    });
     let done = 0;
     chunks.forEach((chunk, ci) => {
-      const hist = chunk.length ? `Riwayat Penanganan (update ${done + 1}-${done + chunk.length} dari ${entries.length})\n` + chunk.join("\n") : "-";
-      done += chunk.length;
+      const hist = chunk.count ? `Riwayat Penanganan (update ${done + 1}-${done + chunk.count} dari ${items.length})\n` + chunk.lines.join("\n") : "-";
+      done += chunk.count;
       const first = ci === 0;
       const row = [first ? ticketCell(k) : `${k.ticketId || "-"}\n(lanjutan riwayat)`, formatDateShortID(k.createdAt.slice(0, 10)), formatClock(new Date(k.createdAt)), k.userName, KEJADIAN_STATUS_LABEL[k.status] || k.status, k.darurat ? "Ya" : "Tidak", first ? k.note : "(kronologi: lihat baris pertama tiket ini)", k.address || "-", hist];
       body.push(row.map(c => ({
