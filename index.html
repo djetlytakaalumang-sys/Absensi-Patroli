@@ -3861,7 +3861,7 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian") {
       const hist = chunk.count ? `Riwayat Penanganan (update ${done + 1}-${done + chunk.count} dari ${items.length})\n` + chunk.lines.join("\n") : "-";
       done += chunk.count;
       const first = ci === 0;
-      const row = [first ? ticketCell(k) : `${k.ticketId || "-"}\n(lanjutan riwayat)`, formatDateShortID(k.createdAt.slice(0, 10)), formatClock(new Date(k.createdAt)), k.userName, KEJADIAN_STATUS_LABEL[k.status] || k.status, k.darurat ? "Ya" : "Tidak", first ? k.note : "(kronologi: lihat baris pertama tiket ini)", k.address || "-", hist];
+      const row = [first ? ticketCell(k) : `${k.ticketId || "-"}\n(lanjutan riwayat)`, formatDateShortID(k.createdAt.slice(0, 10)), formatClock(new Date(k.createdAt)), k.userName, KEJADIAN_STATUS_LABEL[k.status] || k.status, k.darurat ? "Ya" : "Tidak", k.note, k.address || "-", hist];
       body.push(row.map(c => ({
         content: pdfSafeText(c),
         styles: {
