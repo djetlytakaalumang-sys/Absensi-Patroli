@@ -2432,13 +2432,31 @@ const KEJADIAN_PRIORITY_STYLE = {
   sedang: { background: "var(--amber-soft)", color: "var(--amber)" },
   tinggi: { background: "var(--red-soft)", color: "var(--red)" }
 };
-// Nomor tiket: NIT-YYYYMMDD-NNN, urut per hari (tanggal WITA)
-function generateTicketId(iso) {
-  const prefix = "NIT-" + todayDateStrWITA(new Date(iso)).replace(/-/g, "") + "-";
-  const used = new Set(store.kejadian.map(k => k.ticketId).filter(Boolean));
-  let n = store.kejadian.filter(k => k.ticketId && k.ticketId.startsWith(prefix)).length + 1;
-  while (used.has(prefix + String(n).padStart(3, "0"))) n++;
-  return prefix + String(n).padStart(3, "0");
+// Nomor tiket: NIT-<KODE KATEGORI>-<NNN>, mis. NIT-OSP-001. Tiap kategori punya nomor urut sendiri yang
+// dimulai dari 001 dan terus berlanjut (002, 003, ...). Tiket lama berformat NIT-YYYYMMDD-NNN tidak diubah.
+// Kategori baru (mis. "FO Cut" kode FOC): tambahkan nama ke KEJADIAN_CATEGORIES dan kodenya di sini.
+const KEJADIAN_TICKET_CODE = {
+  "Gangguan OSP": "OSP",
+  "Gangguan Perangkat": "PRK",
+  "Kabel Laut": "KBL",
+  "Pekerjaan Pihak Ketiga": "PPK",
+  "Lainnya": "LNY"
+};
+function kejadianTicketCode(category) {
+  return KEJADIAN_TICKET_CODE[category] || "LNY";
+}
+function formatKejadianTicketId(code, n) {
+  return "NIT-" + code + "-" + String(n).padStart(3, "0");
+}
+// Nomor terbesar yang sudah dipakai untuk kode ini di data yang sedang dimuat (+1 = kandidat berikutnya)
+function nextLocalTicketSeq(code) {
+  const re = new RegExp("^NIT-" + code + "-(\\d+)$");
+  let max = 0;
+  store.kejadian.forEach(k => {
+    const m = re.exec(k.ticketId || "");
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  });
+  return max + 1;
 }
 // Judul tiket; laporan lama (tanpa judul) memakai baris pertama catatannya
 function kejadianTitle(k) {
@@ -2485,9 +2503,8 @@ function getKejadianReportsByUser(userId) {
 // penting, jadi WAJIB dipastikan benar2 tersimpan di server sebelum dianggap berhasil.
 async function addKejadianReport(user, data) {
   const nowIso = new Date().toISOString();
-  const report = {
-    id: generateKejadianId(),
-    ticketId: generateTicketId(nowIso),
+  const code = kejadianTicketCode(data.category);
+  const base = {
     title: (data.title || "").trim() || null,
     category: data.category || null,
     priority: data.priority || null,
@@ -2503,18 +2520,53 @@ async function addKejadianReport(user, data) {
     status: KEJADIAN_STATUS.BARU,
     handledBy: null,
     handledNote: null,
-    updatedAt: new Date().toISOString()
+    updatedAt: nowIso
   };
-  store.kejadian = [...store.kejadian, report];
-  _notifyStore();
+  const col = db.collection(COL.KEJADIAN);
+  let seq = nextLocalTicketSeq(code);
+  // Data HP hanya memuat laporan terbaru, jadi cek juga nomor tertinggi di server (best effort).
   try {
-    await withTimeout(db.collection(COL.KEJADIAN).doc(report.id).set(report), 20000, "Gagal mengirim laporan kejadian ke server");
-    return report;
-  } catch (err) {
-    store.kejadian = store.kejadian.filter(k => k.id !== report.id);
-    _notifyStore();
-    throw err;
+    const top = await withTimeout(col.where(firebase.firestore.FieldPath.documentId(), ">=", "NIT-" + code + "-").where(firebase.firestore.FieldPath.documentId(), "<", "NIT-" + code + "-\uf8ff").orderBy(firebase.firestore.FieldPath.documentId(), "desc").limit(1).get(), 8000, "cek nomor tiket");
+    top.forEach(d => {
+      const m = /-(\d+)$/.exec(d.id);
+      if (m) seq = Math.max(seq, parseInt(m[1], 10) + 1);
+    });
+  } catch (e) {/* abaikan: nomor tetap dijaga transaksi di bawah */}
+  let report = null;
+  // Dokumen diberi ID = nomor tiket, dibuat lewat transaksi "buat kalau belum ada": kalau dua orang
+  // mengirim bersamaan dan mengambil nomor yang sama, hanya satu yang berhasil; yang lain otomatis
+  // pindah ke nomor berikutnya. Jadi nomor tiket tidak pernah duplikat.
+  for (let tries = 0; tries < 60 && !report; tries++) {
+    const ticketId = formatKejadianTicketId(code, seq);
+    const candidate = {
+      ...base,
+      id: ticketId,
+      ticketId,
+      ticketCode: code,
+      ticketSeq: seq
+    };
+    const ref = col.doc(ticketId);
+    let created;
+    try {
+      created = await withTimeout(db.runTransaction(async tx => {
+        const snap = await tx.get(ref);
+        if (snap.exists) return false;
+        tx.set(ref, candidate);
+        return true;
+      }), 20000, "Gagal mengirim laporan kejadian ke server");
+    } catch (err) {
+      if (err && err.code === "permission-denied" && tries === 0) {
+        // Aturan akses tidak mengizinkan membaca dokumen kosong: simpan biasa dengan nomor yang sudah dicek.
+        await withTimeout(ref.set(candidate), 20000, "Gagal mengirim laporan kejadian ke server");
+        created = true;
+      } else throw err;
+    }
+    if (created) report = candidate;else seq++;
   }
+  if (!report) throw new Error("Gagal membuat nomor tiket. Coba kirim ulang.");
+  store.kejadian = [...store.kejadian.filter(k => k.id !== report.id), report];
+  _notifyStore();
+  return report;
 }
 async function updateKejadianStatus(id, status, extra = {}) {
   const idx = store.kejadian.findIndex(k => k.id === id);
