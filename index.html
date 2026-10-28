@@ -3736,47 +3736,45 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian") {
   doc.setTextColor(100, 116, 139);
   doc.text(`Dibuat pada ${new Date().toLocaleString("id-ID")}`, 14, 21);
   const ticketCell = k => [k.ticketId || "-", k.title || "", [k.category, KEJADIAN_PRIORITY_LABEL[k.priority] ? "Prioritas " + KEJADIAN_PRIORITY_LABEL[k.priority] : ""].filter(Boolean).join(" \u00b7 ")].filter(Boolean).join("\n");
-  // Tiap tiket = satu blok: baris data (8 kolom) lalu "Riwayat Penanganan" selebar tabel, satu baris per
-  // update. Dulu riwayat jadi kolom ke-9 yang sempit & sangat tinggi, sehingga saat melewati halaman
-  // kolom lain tampak kosong. Sekarang baris data tidak pernah terpotong dan riwayat boleh lanjut
-  // ke halaman berikutnya tanpa kolom kosong.
+  // Tabel 9 kolom seperti semula. Riwayat Penanganan yang panjang dipecah per kelompok update (batas tinggi
+  // baris), dan SETIAP baris lanjutan mengulang info tiket (tiket, tanggal, waktu, pelapor, status, darurat,
+  // lokasi) — jadi tidak ada kolom kosong. Baris tidak pernah terpotong di tengah halaman (rowPageBreak).
+  const HIST_COL_W = 67; // mm, harus sama dengan columnStyles[8]
+  const MAX_LINES = 20; // batas tinggi satu baris riwayat
+  doc.setFontSize(8);
+  const linesOf = txt => doc.splitTextToSize(pdfSafeText(txt), HIST_COL_W - 5).length;
   const body = [];
-  reports.forEach(k => {
-    const main = [ticketCell(k), formatDateShortID(k.createdAt.slice(0, 10)), formatClock(new Date(k.createdAt)), k.userName, KEJADIAN_STATUS_LABEL[k.status] || k.status, k.darurat ? "Ya" : "Tidak", k.note, k.address || "-"];
-    body.push(main.map(c => ({
-      content: pdfSafeText(c),
-      styles: {
-        fillColor: [232, 238, 247]
-      }
-    })));
+  reports.forEach((k, ki) => {
+    const fill = ki % 2 === 0 ? [255, 255, 255] : [244, 246, 249];
     const entries = kejadianHistoryEntries(k);
-    const histPad = {
-      top: 1.3,
-      bottom: 1.3,
-      left: 6,
-      right: 2.5
-    };
-    body.push([{
-      content: pdfSafeText(entries.length ? `Riwayat Penanganan - ${k.ticketId || "-"} (${entries.length} update)` : `Riwayat Penanganan - ${k.ticketId || "-"}: belum ada riwayat`),
-      colSpan: 8,
-      styles: {
-        fontStyle: "bold",
-        fontSize: 7.5,
-        fillColor: [248, 250, 252],
-        textColor: [15, 27, 51],
-        cellPadding: histPad
+    const chunks = [];
+    let cur = [],
+      curLines = 1; // 1 baris untuk judul kelompok
+    entries.forEach(e => {
+      const n = linesOf(e);
+      if (cur.length && curLines + n > MAX_LINES) {
+        chunks.push(cur);
+        cur = [];
+        curLines = 1;
       }
-    }]);
-    entries.forEach(e => body.push([{
-      content: pdfSafeText(e),
-      colSpan: 8,
-      styles: {
-        fontSize: 7.5,
-        fillColor: [255, 255, 255],
-        textColor: [51, 65, 85],
-        cellPadding: histPad
-      }
-    }]));
+      cur.push(e);
+      curLines += n;
+    });
+    if (cur.length) chunks.push(cur);
+    if (!chunks.length) chunks.push([]);
+    let done = 0;
+    chunks.forEach((chunk, ci) => {
+      const hist = chunk.length ? `Riwayat Penanganan (update ${done + 1}-${done + chunk.length} dari ${entries.length})\n` + chunk.join("\n") : "-";
+      done += chunk.length;
+      const first = ci === 0;
+      const row = [first ? ticketCell(k) : `${k.ticketId || "-"}\n(lanjutan riwayat)`, formatDateShortID(k.createdAt.slice(0, 10)), formatClock(new Date(k.createdAt)), k.userName, KEJADIAN_STATUS_LABEL[k.status] || k.status, k.darurat ? "Ya" : "Tidak", first ? k.note : "(kronologi: lihat baris pertama tiket ini)", k.address || "-", hist];
+      body.push(row.map(c => ({
+        content: pdfSafeText(c),
+        styles: {
+          fillColor: fill
+        }
+      })));
+    });
   });
   doc.autoTable({
     startY: 27,
@@ -3784,7 +3782,7 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian") {
       left: 14,
       right: 14
     },
-    head: [["Tiket", "Tanggal", "Waktu", "Pelapor", "Status", "Darurat", "Kronologi", "Lokasi"]],
+    head: [["Tiket", "Tanggal", "Waktu", "Pelapor", "Status", "Darurat", "Kronologi", "Lokasi", "Riwayat Penanganan"]],
     body,
     rowPageBreak: "avoid",
     styles: {
@@ -3800,28 +3798,31 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian") {
     },
     columnStyles: {
       0: {
-        cellWidth: 44
+        cellWidth: 34
       },
       1: {
-        cellWidth: 20
+        cellWidth: 22
       },
       2: {
-        cellWidth: 18
-      },
-      3: {
-        cellWidth: 28
-      },
-      4: {
-        cellWidth: 18
-      },
-      5: {
         cellWidth: 17
       },
+      3: {
+        cellWidth: 22
+      },
+      4: {
+        cellWidth: 17
+      },
+      5: {
+        cellWidth: 16
+      },
       6: {
-        cellWidth: 60
+        cellWidth: 42
       },
       7: {
-        cellWidth: 64
+        cellWidth: 32
+      },
+      8: {
+        cellWidth: HIST_COL_W
       }
     }
   });
@@ -16437,7 +16438,7 @@ function PanduanPage() {
         "Riwayat dikelompokkan per hari (Hari 1, Hari 2, dst). Hari terakhir terbuka, hari sebelumnya dilipat dengan ringkasan jumlah update dan foto; klik judul harinya untuk membuka. Laporan yang akan dilanjutkan besok punya lencana \"Lanjut besok\", dan yang belum diupdate sejak kemarin punya lencana \"Belum ada update hari ini\".",
         "Di tampilan ringkas, tiap laporan yang sudah diproses punya satu baris ringkasan, mis. \"Update terakhir 2 hari lalu oleh Budi · 3 update\". Buka kartu laporan untuk melihat riwayat lengkap berurutan dari yang terlama; klik foto untuk memperbesar atau mengecilkan.",
         "Admin bisa menghapus laporan kejadian: buka kartu laporannya lalu tekan \"Hapus Laporan\" dan konfirmasi. Laporan beserta foto dan seluruh riwayat updatenya terhapus permanen dan tidak bisa dikembalikan. Kalau perlu arsip, ekspor ke Excel atau PDF dulu.",
-        "Ekspor Excel memuat kolom Ticket ID, Kategori, Prioritas, Judul, Kronologi, dan \"Riwayat Penanganan\" (semua update: tanggal, jam, petugas, catatan). PDF memuat kolom Tiket (nomor, judul, kategori, prioritas); Riwayat Penanganan tampil selebar halaman tepat di bawah tiap tiket, satu baris per update. Entri yang punya foto diberi tanda (+foto); fotonya sendiri tidak ikut diekspor maupun di-backup.",
+        "Ekspor Excel memuat kolom Ticket ID, Kategori, Prioritas, Judul, Kronologi, dan \"Riwayat Penanganan\" (semua update: tanggal, jam, petugas, catatan). PDF memuat kolom Tiket (nomor, judul, kategori, prioritas) dan Riwayat Penanganan; riwayat yang panjang dipecah ke beberapa baris dan tiap baris lanjutan mengulang info tiket supaya tidak ada kolom kosong. Entri yang punya foto diberi tanda (+foto); fotonya sendiri tidak ikut diekspor maupun di-backup.",
         "Tab \"Baru & Diproses\" berisi laporan yang masih berjalan, tab \"Selesai\" berisi yang sudah tuntas.",
         "Urutan daftar bawaannya mengikuti status: Baru, lalu Diproses (yang Darurat paling atas), dan Selesai di paling bawah. Pilihan \"Urutkan\" bisa diganti ke Tanggal terbaru atau Tanggal terlama, dan kolom \"Tanggal\" menyaring laporan pada satu hari tertentu (tekan \"Reset tanggal\" untuk menampilkan semua). Leader Team punya pilihan urutan yang sama di kartu \"Laporan Kejadian Tim\".",
         "Laporan yang ditandai Darurat memunculkan kartu merah di akun admin disertai nada notifikasi lembut dua nada yang berulang tiap beberapa detik, getar singkat, dan judul tab berkedip pelan. Bunyinya berhenti setelah Anda menekan \"Matikan Bunyi Alarm\" atau menutup laporannya, dan otomatis berhenti sendiri setelah 30 detik (kartunya tetap tampil sampai ditutup).",
