@@ -15604,8 +15604,8 @@ function downloadScheduleTemplate() {
 }
 /* ===== Pemilih bulan sendiri (pengganti <input type="month">) =====
    Input bulan bawaan browser/WebView Android sering tidak bisa maju ke bulan berikutnya atau tampil
-   berbeda-beda antar perangkat. Komponen ini memakai tombol ‹ › + daftar pilihan bulan biasa sehingga
-   pasti jalan di semua perangkat. value/onChange memakai format "YYYY-MM" seperti input aslinya. */
+   berbeda-beda antar perangkat. Komponen ini tampil seperti kotak input bulan biasa tetapi memakai daftar pilihan
+   bulan (<select>) sehingga pasti jalan di semua perangkat. value/onChange memakai format "YYYY-MM" seperti input aslinya. */
 const _BULAN_ID = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 function monthKeyShift(key, delta) {
   const [y, m] = key.split("-").map(Number);
@@ -15616,7 +15616,8 @@ function monthKeyLabel(key) {
   const [y, m] = key.split("-").map(Number);
   return _BULAN_ID[m - 1] + " " + y;
 }
-function MonthStepper({ value, onChange }) {
+const _KALENDER_ICON = "url(\"data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>') + "\")";
+function MonthStepper({ value, onChange, auto }) {
   const base = currentMonthKey();
   const current = /^\d{4}-\d{2}$/.test(value || "") ? value : base;
   const options = useMemo(() => {
@@ -15625,34 +15626,26 @@ function MonthStepper({ value, onChange }) {
     if (!arr.includes(current)) arr.push(current);
     return arr.sort();
   }, [base, current]);
-  const btnStyle = {
-    border: "1px solid var(--line)",
-    background: "var(--navy-50)",
-    color: "var(--navy-900)",
-    borderRadius: 8,
-    padding: "10px 14px",
-    fontSize: 16,
-    lineHeight: 1,
-    cursor: "pointer"
-  };
-  return React.createElement("div", {
-    style: { display: "flex", alignItems: "center", gap: 6 }
-  }, React.createElement("button", {
-    type: "button",
-    "aria-label": "Bulan sebelumnya",
-    style: btnStyle,
-    onClick: () => onChange(monthKeyShift(current, -1))
-  }, "\u2039"), React.createElement("select", {
+  // Tampilan dibuat seperti kotak input bulan biasa (teks bulan + ikon kalender di kanan);
+  // pilihan bulannya tetap memakai daftar <select> supaya bisa pilih bulan berikutnya di semua perangkat.
+  return React.createElement("select", {
     className: "input",
     value: current,
     onChange: e => onChange(e.target.value),
-    style: { width: "auto", minWidth: 150, flex: 1 }
-  }, options.map(k => React.createElement("option", { key: k, value: k }, monthKeyLabel(k)))), React.createElement("button", {
-    type: "button",
-    "aria-label": "Bulan berikutnya",
-    style: btnStyle,
-    onClick: () => onChange(monthKeyShift(current, 1))
-  }, "\u203A"));
+    style: {
+      appearance: "none",
+      WebkitAppearance: "none",
+      MozAppearance: "none",
+      backgroundImage: _KALENDER_ICON,
+      backgroundRepeat: "no-repeat",
+      backgroundPosition: "right 14px center",
+      backgroundSize: "18px 18px",
+      paddingRight: 42,
+      cursor: "pointer",
+      width: auto ? "auto" : undefined,
+      minWidth: auto ? 190 : undefined
+    }
+  }, options.map(k => React.createElement("option", { key: k, value: k }, monthKeyLabel(k))));
 }
 function JadwalAdminPage() {
   useStoreSync();
@@ -15949,7 +15942,8 @@ function JadwalAdminPage() {
     }
   }, "Grid Jadwal Bulanan"), /*#__PURE__*/React.createElement(MonthStepper, {
     value: viewMonth,
-    onChange: setViewMonth
+    onChange: setViewMonth,
+    auto: true
   })), employees.length === 0 ? /*#__PURE__*/React.createElement("p", {
     style: {
       color: "var(--t-faint)",
