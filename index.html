@@ -15602,6 +15602,58 @@ function downloadScheduleTemplate() {
   XLSX.utils.book_append_sheet(wb, wsPetunjuk, "Petunjuk");
   XLSX.writeFile(wb, "Template_Import_Jadwal_Kerja.xlsx");
 }
+/* ===== Pemilih bulan sendiri (pengganti <input type="month">) =====
+   Input bulan bawaan browser/WebView Android sering tidak bisa maju ke bulan berikutnya atau tampil
+   berbeda-beda antar perangkat. Komponen ini memakai tombol ‹ › + daftar pilihan bulan biasa sehingga
+   pasti jalan di semua perangkat. value/onChange memakai format "YYYY-MM" seperti input aslinya. */
+const _BULAN_ID = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+function monthKeyShift(key, delta) {
+  const [y, m] = key.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+}
+function monthKeyLabel(key) {
+  const [y, m] = key.split("-").map(Number);
+  return _BULAN_ID[m - 1] + " " + y;
+}
+function MonthStepper({ value, onChange }) {
+  const base = currentMonthKey();
+  const current = /^\d{4}-\d{2}$/.test(value || "") ? value : base;
+  const options = useMemo(() => {
+    const arr = [];
+    for (let i = -24; i <= 24; i++) arr.push(monthKeyShift(base, i));
+    if (!arr.includes(current)) arr.push(current);
+    return arr.sort();
+  }, [base, current]);
+  const btnStyle = {
+    border: "1px solid var(--line)",
+    background: "var(--navy-50)",
+    color: "var(--navy-900)",
+    borderRadius: 8,
+    padding: "10px 14px",
+    fontSize: 16,
+    lineHeight: 1,
+    cursor: "pointer"
+  };
+  return React.createElement("div", {
+    style: { display: "flex", alignItems: "center", gap: 6 }
+  }, React.createElement("button", {
+    type: "button",
+    "aria-label": "Bulan sebelumnya",
+    style: btnStyle,
+    onClick: () => onChange(monthKeyShift(current, -1))
+  }, "\u2039"), React.createElement("select", {
+    className: "input",
+    value: current,
+    onChange: e => onChange(e.target.value),
+    style: { width: "auto", minWidth: 150, flex: 1 }
+  }, options.map(k => React.createElement("option", { key: k, value: k }, monthKeyLabel(k)))), React.createElement("button", {
+    type: "button",
+    "aria-label": "Bulan berikutnya",
+    style: btnStyle,
+    onClick: () => onChange(monthKeyShift(current, 1))
+  }, "\u203A"));
+}
 function JadwalAdminPage() {
   useStoreSync();
   const {
@@ -15669,7 +15721,7 @@ function JadwalAdminPage() {
       }
     } catch (err) {
       console.error(err);
-      setError("Gagal membaca file. Pastikan file berformat .xlsx sesuai template.");
+      setError("Gagal memproses file: " + (err && (err.message || err.code) ? err.message || err.code : String(err)) + '. Pastikan file berformat .xlsx sesuai template dan koneksi internet aktif.');
     } finally {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -15719,11 +15771,9 @@ function JadwalAdminPage() {
     }
   }, /*#__PURE__*/React.createElement("label", {
     className: "label"
-  }, "Berlaku untuk bulan"), /*#__PURE__*/React.createElement("input", {
-    type: "month",
+  }, "Berlaku untuk bulan"), /*#__PURE__*/React.createElement(MonthStepper, {
     value: importMonth,
-    onChange: e => setImportMonth(e.target.value),
-    className: "input"
+    onChange: setImportMonth
   })), /*#__PURE__*/React.createElement(Button, {
     variant: "outline",
     size: "sm",
@@ -15897,14 +15947,9 @@ function JadwalAdminPage() {
       fontWeight: 700,
       color: "var(--navy-900)"
     }
-  }, "Grid Jadwal Bulanan"), /*#__PURE__*/React.createElement("input", {
-    type: "month",
+  }, "Grid Jadwal Bulanan"), /*#__PURE__*/React.createElement(MonthStepper, {
     value: viewMonth,
-    onChange: e => setViewMonth(e.target.value),
-    className: "input",
-    style: {
-      width: "auto"
-    }
+    onChange: setViewMonth
   })), employees.length === 0 ? /*#__PURE__*/React.createElement("p", {
     style: {
       color: "var(--t-faint)",
