@@ -2068,6 +2068,7 @@ function getRitRecap(dateStr, checkpointId) {
    type salah satu dari SCHEDULE_TYPE. Dipakai untuk:
    1) Menentukan apakah karyawan seharusnya presensi pada tanggal tsb (Masuk/Piket Malam) atau libur (Off).
    2) Menandai siapa yang belum presensi padahal terjadwal Masuk/Piket Malam (lihat getTodayScheduleStatus). */
+const HARI_SINGKAT = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
 const SCHEDULE_TYPE = {
   MASUK: "Masuk",
   PIKET_MALAM: "Piket Malam",
@@ -16132,7 +16133,15 @@ function JadwalAdminPage() {
       borderBottom: "1px solid var(--line)",
       minWidth: d === todayDay ? 38 : 30
     }
-  }, d, d === todayDay && /*#__PURE__*/React.createElement("div", {
+  }, d, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 8,
+      fontWeight: 600,
+      lineHeight: 1,
+      marginTop: 2,
+      color: d !== todayDay && [0, 6].includes(new Date(y, m - 1, d).getDay()) ? "#e4142b" : undefined
+    }
+  }, HARI_SINGKAT[new Date(y, m - 1, d).getDay()]), d === todayDay && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 7,
       fontWeight: 800,
@@ -16383,6 +16392,12 @@ function JadwalSayaPage({
         marginBottom: 2
       }
     }, d), /*#__PURE__*/React.createElement("p", {
+      style: {
+        fontSize: 10,
+        color: [0, 6].includes(new Date(y, m - 1, d).getDay()) ? "#e4142b" : "var(--t-muted)",
+        marginBottom: 2
+      }
+    }, HARI_SINGKAT[new Date(y, m - 1, d).getDay()]), /*#__PURE__*/React.createElement("p", {
       style: {
         fontSize: 10,
         fontWeight: 700,
