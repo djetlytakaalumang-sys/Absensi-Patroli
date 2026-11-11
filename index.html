@@ -7,8 +7,8 @@
 <script>window.Capacitor||document.write('<script src="https://unpkg.com/@capacitor/core@6.1.2/dist/capacitor.js"><\/script>')</script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#e4142b" />
-<script>(function(){try{var t=localStorage.getItem("app_theme");if(!t)t=(window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light";document.documentElement.setAttribute("data-theme",t);if(t==="dark"){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content","#14101a")}}catch(e){document.documentElement.setAttribute("data-theme","light")}})();</script>
+<meta name="theme-color" content="#2f78ee" />
+<script>(function(){try{var t=localStorage.getItem("app_theme");if(!t)t=(window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light";document.documentElement.setAttribute("data-theme",t);if(t==="dark"){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content","#0e1116")}}catch(e){document.documentElement.setAttribute("data-theme","light")}})();</script>
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -430,6 +430,113 @@ main{min-width:0; max-width:100%;}
   .form-modal .form-grid{display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px 18px !important;}
   .form-modal .form-grid > .fg-full{grid-column:1 / -1;}
 }
+
+/* =====================================================================
+   TEMA "CLEAN DASHBOARD" — kartu putih, sudut membulat, bayangan halus, aksen biru.
+   Hanya mengubah tampilan (CSS). Untuk kembali ke aksen merah, ubah 5 variabel
+   --accent-* pada blok :root di bawah ini menjadi: 900:#7a0d17 700:#e4142b 600:#ef2338 500:#f5495c.
+   ===================================================================== */
+:root{
+  --accent-900:#1c4fb8; --accent-700:#2b6fe3; --accent-600:#2f78ee; --accent-500:#5b9af5;
+  --accent-100:#2f78ee26; --accent-50:#2f78ee12;
+  --page-bg:#f3f4f7; --card-line:#eceef3;
+  --navy-950:#f3f4f7; --navy-900:#141a26; --navy-800:#3a4457; --navy-700:#5b667a; --navy-600:#8a94a6;
+  --navy-100:#ffffff; --navy-50:#f5f7fa; --slate-mist:#f1f3f7; --line:#e8ebf1;
+  --t-muted:#667085; --t-faint:#98a2b3;
+  --shadow-card:0 1px 2px rgba(16,24,40,.04), 0 8px 24px rgba(16,24,40,.05);
+}
+html[data-theme="dark"]{
+  --accent-100:#2f78ee33; --accent-50:#2f78ee1f;
+  --page-bg:#0e1116; --card-line:#ffffff14; --glass-bg:#171b23;
+  --navy-950:#0e1116; --navy-900:#eef1f6; --navy-800:#d5dbe6; --navy-700:#aab3c2; --navy-600:#7f8a9c;
+  --navy-100:#171b23; --navy-50:#ffffff0d; --slate-mist:#ffffff0f; --line:#ffffff1a;
+  --t-muted:#aab3c2; --t-faint:#7f8a9c;
+  --shadow-card:0 1px 2px rgba(0,0,0,.3);
+}
+::selection{background:var(--accent-600); color:#fff;}
+::-webkit-scrollbar-thumb{background:#d5dae3;}
+::-webkit-scrollbar-thumb:hover{background:#bcc3d0;}
+
+/* Latar halaman: abu-abu lembut polos (tanpa foto) */
+html:not([data-theme="dark"]) body{background:#f3f4f7 !important; background-image:none !important;}
+html[data-theme="dark"] body{background:#0e1116 !important; background-image:none !important;}
+
+/* Kartu */
+.card{border-radius:18px;}
+html:not([data-theme="dark"]) .card{background:#ffffff !important; border:1px solid var(--card-line) !important; box-shadow:var(--shadow-card) !important; backdrop-filter:none !important; -webkit-backdrop-filter:none !important;}
+html[data-theme="dark"] .card{background:#171b23 !important; border:1px solid #ffffff14 !important; box-shadow:var(--shadow-card) !important;}
+
+/* Sidebar melayang seperti kartu */
+.sidebar{padding:14px 0 14px 14px; gap:10px; box-sizing:border-box;}
+.sidebar-rail, .sidebar-panel{border:1px solid var(--card-line); border-radius:20px; box-shadow:var(--shadow-card);}
+html:not([data-theme="dark"]) .sidebar-rail, html:not([data-theme="dark"]) .sidebar-panel{background:#ffffff !important;}
+html[data-theme="dark"] .sidebar-rail, html[data-theme="dark"] .sidebar-panel{background:#171b23 !important;}
+.sidebar-rail-item{border-radius:12px; transition:background .15s,color .15s;}
+.sidebar-rail-item:hover{background:var(--navy-50);}
+.sidebar-rail-item.active{background:var(--accent-50); color:var(--accent-600);}
+.sidebar-rail-item.active::before{display:none;}
+.nav-item{border-radius:12px; padding:10px 12px; font-weight:500; color:var(--navy-700); border:1px solid transparent;}
+.nav-item:hover{background:var(--navy-50); color:var(--navy-900);}
+.nav-item.active{background:#ffffff; color:var(--accent-600); font-weight:600; border-color:var(--line); box-shadow:0 1px 3px rgba(16,24,40,.08);}
+html[data-theme="dark"] .nav-item.active{background:#202633; border-color:#ffffff1a; box-shadow:none;}
+
+/* Bilah atas & bawah (mobile) */
+.topbar-mobile{background:#ffffff; border-bottom:1px solid var(--card-line);}
+.bottomnav-mobile{background:#ffffff; border-top:1px solid var(--card-line); box-shadow:0 -4px 20px rgba(16,24,40,.05);}
+html[data-theme="dark"] .topbar-mobile, html[data-theme="dark"] .bottomnav-mobile{background:#171b23 !important;}
+.bottomnav-item{font-weight:500;}
+.bottomnav-item.active{color:var(--accent-600); font-weight:600;}
+
+/* Tombol */
+.btn{border-radius:12px; letter-spacing:0;}
+.btn-sm{border-radius:10px;}
+.btn-primary{background:var(--accent-600); box-shadow:0 6px 16px rgba(47,120,238,.28);}
+.btn-primary:hover:not(:disabled){background:var(--accent-700);}
+.btn-outline{background:#ffffff; border:1px solid var(--line); color:var(--navy-900);}
+.btn-outline:hover:not(:disabled){background:var(--navy-50); border-color:#d5dae3;}
+html[data-theme="dark"] .btn-outline{background:#1c212b;}
+
+/* Input & label */
+.input{background:#ffffff; border:1px solid #e3e7ee; border-radius:12px;}
+html[data-theme="dark"] .input{background:#1c212b; border-color:#ffffff1f;}
+.input:focus{border-color:var(--accent-600); box-shadow:0 0 0 4px rgba(47,120,238,.14);}
+.label{font-size:12.5px; font-weight:600; text-transform:none; letter-spacing:0; color:var(--navy-700);}
+
+/* Badge & chip */
+.badge{border-radius:999px; padding:4px 10px;}
+.chip-active{background:var(--accent-600); box-shadow:0 4px 12px rgba(47,120,238,.25);}
+.chip-inactive{background:#ffffff; border:1px solid var(--line); color:var(--navy-700);}
+html[data-theme="dark"] .chip-inactive{background:#1c212b;}
+
+/* Tabel */
+thead tr{background:#f7f8fb; color:#667085; font-size:11px; letter-spacing:.05em;}
+html[data-theme="dark"] thead tr{background:#ffffff0d; color:#aab3c2;}
+td{border-top:1px solid #eef0f4;}
+html[data-theme="dark"] td{border-top-color:#ffffff12;}
+tbody tr:hover{background:#fafbfd;}
+html[data-theme="dark"] tbody tr:hover{background:#ffffff08;}
+
+/* Jendela dialog */
+.modal-box{border-radius:22px; box-shadow:0 24px 60px rgba(16,24,40,.22);}
+.modal-backdrop, .modal-overlay{background:rgba(16,24,40,.5);}
+
+/* Kartu presensi utama & ikon statistik */
+.att-card{border-radius:24px; background:linear-gradient(135deg,#1c4fb8 0%,#2f78ee 62%,#35b8e0 100%); box-shadow:0 16px 36px rgba(47,120,238,.28);}
+.stat-icon{border-radius:12px;}
+.spinner{border-color:var(--accent-100); border-top-color:var(--accent-600);}
+
+/* Halaman login: gradasi biru + kaca (teks putih tetap terbaca) */
+.login-glass-wrap{background-color:#2f78ee !important; background-image:linear-gradient(135deg,#1c4fb8 0%,#2f78ee 55%,#35b8e0 100%) !important;}
+.login-glass-wrap::before{background:radial-gradient(ellipse 60% 40% at 20% 8%, rgba(255,255,255,.22), transparent 60%), radial-gradient(ellipse 50% 40% at 92% 100%, rgba(255,255,255,.14), transparent 60%);}
+.login-glass-card{background:rgba(255,255,255,.14); border-color:rgba(255,255,255,.35); box-shadow:0 24px 60px rgba(10,30,90,.35), inset 0 1px 0 rgba(255,255,255,.3);}
+.login-glass-btn{background:#ffffff; color:#1c4fb8; border:none; box-shadow:0 10px 24px rgba(10,30,90,.28);}
+.login-glass-btn:hover:not(:disabled){filter:none; background:#f3f7ff;}
+html[data-theme="dark"] .login-glass-wrap{background-color:#0e1116 !important; background-image:linear-gradient(135deg,#0f1b3a 0%,#16346f 60%,#0e1116 100%) !important;}
+html[data-theme="dark"] .login-glass-card{background:rgba(255,255,255,.07) !important;}
+html[data-theme="dark"] .login-glass-btn{background:#2f78ee; color:#fff;}
+
+/* Ruang napas halaman */
+.container-app, .container-md, .container-lg{padding-top:26px;}
 </style>
 </head>
 <body>
@@ -5064,7 +5171,7 @@ function applyTheme(t) {
   document.documentElement.setAttribute("data-theme", t);
   try { localStorage.setItem("app_theme", t); } catch (e) {}
   const m = document.querySelector('meta[name="theme-color"]');
-  if (m) m.setAttribute("content", t === "dark" ? "#14101a" : "#e4142b");
+  if (m) m.setAttribute("content", t === "dark" ? "#0e1116" : "#2f78ee");
 }
 function ThemeToggle({ className = "sidebar-rail-item", style, size = 18 }) {
   const [theme, setTheme] = useState(() => document.documentElement.getAttribute("data-theme") || "light");
