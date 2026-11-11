@@ -25,7 +25,7 @@
 <link rel="preconnect" href="https://cdn.jsdelivr.net" />
 <link rel="preconnect" href="https://cdnjs.cloudflare.com" />
 <link rel="preconnect" href="https://www.gstatic.com" />
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
 
 <!-- Firebase SDK (compat — bekerja bersama Babel standalone tanpa bundler) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -537,6 +537,103 @@ html[data-theme="dark"] .login-glass-btn{background:#2f78ee; color:#fff;}
 
 /* Ruang napas halaman */
 .container-app, .container-md, .container-lg{padding-top:26px;}
+
+/* =====================================================================
+   TAMPILAN "SOCIALNEST" — dasbor terang: latar abu lembut, kartu putih membulat,
+   sidebar tunggal, bilah atas (cari menu, notifikasi, profil), aksen biru + cyan.
+   Blok ini sengaja diletakkan paling akhir supaya menimpa tema sebelumnya.
+   ===================================================================== */
+:root{
+  --page-bg:#f4f5f7; --card-line:#eceef2; --line:#e9ecf1;
+  --navy-900:#111827; --navy-800:#374151; --navy-700:#4b5563; --navy-600:#9ca3af;
+  --navy-50:#f6f7f9; --slate-mist:#f3f4f6;
+  --accent-900:#1d4fc2; --accent-700:#2563e8; --accent-600:#2f78ee; --accent-500:#5b9af5;
+  --cyan:#35bde0;
+  --shadow-card:0 1px 2px rgba(17,24,39,.04), 0 6px 20px rgba(17,24,39,.04);
+  --font-display:"Inter","Manrope",sans-serif;
+}
+html:not([data-theme="dark"]) body{background:var(--page-bg) !important;}
+h1,h2,h3,h4{letter-spacing:-.02em;}
+main h1{font-size:clamp(24px,2.1vw,30px) !important; font-weight:700 !important; letter-spacing:-.025em; line-height:1.15 !important;}
+.card{border-radius:20px;}
+html:not([data-theme="dark"]) .card{box-shadow:var(--shadow-card) !important;}
+.card h2{font-size:16px !important; font-weight:600 !important; letter-spacing:-.01em;}
+
+/* Transisi halus pada elemen interaktif */
+.nav-item, .btn, .chip, .tb-icon-btn, .tb-profile, .tb-pop-item, .input, .sidebar-rail-item{transition:background-color .18s ease, color .18s ease, border-color .18s ease, box-shadow .18s ease, transform .12s ease;}
+
+/* ---------- Sidebar tunggal (rail ikon disembunyikan; tema & keluar pindah ke bilah atas / bawah sidebar) ---------- */
+@media (min-width:1024px){
+  .sidebar{padding:14px 0 14px 14px; gap:0;}
+  .sidebar-rail{display:none;}
+  .sidebar-panel{width:264px;}
+}
+.sidebar-panel > nav{padding:6px 12px !important; gap:2px !important;}
+.nav-item{font-size:14px; font-weight:500; gap:12px; padding:10px 12px; border-radius:12px; color:var(--navy-700);}
+.nav-item:hover{background:var(--navy-50); color:var(--navy-900);}
+.nav-item.active{background:#fff; color:var(--accent-600); font-weight:600; border-color:#e5e7eb; box-shadow:0 1px 2px rgba(17,24,39,.06);}
+.nav-logout{color:#e5484d; margin-top:2px;}
+.nav-logout:hover{background:var(--red-soft); color:#d92d33;}
+html[data-theme="dark"] .nav-item.active{background:#202633; border-color:#ffffff1a; box-shadow:none;}
+
+/* ---------- Bilah atas desktop ---------- */
+.lg-flex{background:transparent !important;}
+.app-topbar{display:none;}
+@media (min-width:1024px){
+  .app-topbar{display:block; position:sticky; top:0; z-index:25; padding:14px clamp(20px,2.4vw,44px) 10px; background:linear-gradient(var(--page-bg) 72%, transparent);}
+  .container-app, .container-md, .container-lg{padding-top:14px;}
+}
+.tb-card{display:flex; align-items:center; gap:12px; min-height:64px; padding:10px 14px 10px 14px; background:#fff; border:1px solid var(--card-line); border-radius:20px; box-shadow:var(--shadow-card);}
+.tb-search{position:relative; flex:1; max-width:460px;}
+.tb-search-ic{position:absolute; left:14px; top:50%; transform:translateY(-50%); color:var(--navy-600); pointer-events:none;}
+.tb-search-input{width:100%; height:42px; border:1px solid transparent; background:var(--navy-50); border-radius:12px; padding:0 74px 0 40px; font-size:14px; color:var(--navy-900); transition:background-color .18s ease, border-color .18s ease, box-shadow .18s ease;}
+.tb-search-input::placeholder{color:var(--navy-600);}
+.tb-search-input:focus{outline:none; background:#fff; border-color:var(--accent-600); box-shadow:0 0 0 4px rgba(47,120,238,.12);}
+.tb-kbd{position:absolute; right:10px; top:50%; transform:translateY(-50%); font-size:11px; font-weight:600; color:var(--navy-700); background:#fff; border:1px solid var(--line); border-radius:7px; padding:3px 7px; pointer-events:none;}
+.tb-actions{margin-left:auto; display:flex; align-items:center; gap:10px;}
+.tb-icon-btn{position:relative; width:42px; height:42px; border-radius:12px; border:1px solid var(--line); background:#fff; color:var(--navy-800); display:inline-flex; align-items:center; justify-content:center;}
+.tb-icon-btn:hover{background:var(--navy-50);}
+.tb-badge{position:absolute; top:-5px; right:-5px; min-width:18px; height:18px; padding:0 5px; border-radius:999px; background:var(--red); color:#fff; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; border:2px solid #fff;}
+.tb-profile-wrap{position:relative;}
+.tb-profile{display:flex; align-items:center; gap:10px; padding:3px 8px 3px 3px; border-radius:14px; color:var(--navy-700); text-align:left;}
+.tb-profile:hover{background:var(--navy-50);}
+.tb-profile-text{display:flex; flex-direction:column; min-width:0; max-width:170px; line-height:1.25;}
+.tb-profile-text strong{font-size:14px; font-weight:600; color:var(--navy-900); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.tb-profile-text small{font-size:12px; color:var(--t-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.tb-pop{position:absolute; top:calc(100% + 8px); left:0; right:0; z-index:40; background:#fff; border:1px solid var(--card-line); border-radius:16px; box-shadow:0 16px 40px rgba(17,24,39,.14); padding:6px;}
+.tb-menu{left:auto; right:0; min-width:190px;}
+.tb-pop-item{display:flex; align-items:center; gap:10px; width:100%; padding:9px 10px; border-radius:10px; font-size:14px; font-weight:500; color:var(--navy-800); text-align:left;}
+.tb-pop-item:hover{background:var(--navy-50); color:var(--navy-900);}
+.tb-danger{color:#e5484d;}
+.tb-danger:hover{background:var(--red-soft); color:#d92d33;}
+.tb-empty{margin:0; padding:10px; font-size:13px; color:var(--t-muted);}
+html[data-theme="dark"] .tb-card, html[data-theme="dark"] .tb-pop{background:#171b23; border-color:#ffffff14;}
+html[data-theme="dark"] .tb-icon-btn{background:#1c212b; border-color:#ffffff1a;}
+html[data-theme="dark"] .tb-search-input:focus{background:#1c212b;}
+html[data-theme="dark"] .tb-kbd{background:#1c212b; border-color:#ffffff1a;}
+html[data-theme="dark"] .tb-badge{border-color:#171b23;}
+html[data-theme="dark"] .app-topbar{background:linear-gradient(#0e1116 72%, transparent);}
+
+/* ---------- Kotak statistik dasbor admin ---------- */
+.container-app > .grid-6{gap:14px;}
+.container-app > .grid-6 > div{background:#fff !important; border:1px solid var(--card-line) !important; border-radius:20px !important; padding:18px !important; box-shadow:var(--shadow-card);}
+html[data-theme="dark"] .container-app > .grid-6 > div{background:#171b23 !important; border-color:#ffffff14 !important; box-shadow:none;}
+.container-app > .grid-6 > div > div:first-child{width:40px !important; height:40px !important; border-radius:12px !important; margin-bottom:14px !important;}
+.container-app > .grid-6 > div > .flex > p{font-size:clamp(22px,1.9vw,28px) !important; font-weight:700 !important; letter-spacing:-.025em;}
+.container-app > .grid-6 > div > p{font-size:13px !important; color:var(--t-muted) !important;}
+
+/* ---------- Tabel, tombol, chip, input ---------- */
+thead tr{background:#f7f8fa; color:var(--t-muted); font-size:12px; text-transform:none; letter-spacing:0;}
+th{font-weight:600;}
+tbody tr:hover{background:#fafbfc;}
+.btn{border-radius:12px; font-weight:600;}
+.btn-primary{background:var(--accent-600); box-shadow:0 6px 16px rgba(47,120,238,.26);}
+.btn-primary:hover:not(:disabled){background:var(--accent-700); box-shadow:0 8px 20px rgba(47,120,238,.32);}
+.btn-outline{background:#fff; border:1px solid var(--line);}
+.chip{font-weight:600;}
+.badge{font-weight:600;}
+.att-card{background:linear-gradient(135deg,#1d4fc2 0%,#2f78ee 60%,#35bde0 100%);}
+
 </style>
 </head>
 <body>
@@ -7809,56 +7906,14 @@ function Sidebar({
       borderRadius: 999,
       background: "var(--red)"
     }
-  })), emergencyCount, " laporan darurat aktif"), /*#__PURE__*/React.createElement("div", {
-    className: "flex",
-    style: {
-      alignItems: "center",
-      gap: 12,
-      padding: "10px 12px",
-      borderRadius: 12,
-      marginBottom: 4
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: "relative"
-    }
-  }, /*#__PURE__*/React.createElement(Avatar, {
-    name: user.name,
-    color: user.avatarColor,
-    size: 36
-  }), emergencyCount > 0 && /*#__PURE__*/React.createElement("span", {
-    style: {
-      position: "absolute",
-      top: -2,
-      right: -2,
-      width: 14,
-      height: 14,
-      borderRadius: 999,
-      background: "var(--red)",
-      border: "2px solid var(--navy-100)"
-    }
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      minWidth: 0
-    }
-  }, /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontSize: 14,
-      fontWeight: 600,
-      whiteSpace: "nowrap",
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-      color: "var(--navy-900)"
-    }
-  }, user.name), /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontSize: 12,
-      color: "var(--navy-700)",
-      whiteSpace: "nowrap",
-      overflow: "hidden",
-      textOverflow: "ellipsis"
-    }
-  }, user.position)))))), /*#__PURE__*/React.createElement("header", {
+  })), emergencyCount, " laporan darurat aktif"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: onLogout,
+    className: "nav-item nav-logout"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "log-out",
+    size: 18
+  }), " Keluar")))), /*#__PURE__*/React.createElement("header", {
     className: "topbar-mobile"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex",
@@ -10585,9 +10640,9 @@ function buildAttendanceHeatmap(monthKey, allRecords, totalUsers) {
 function heatCellColor(pct) {
   if (pct == null) return "transparent";
   if (pct === 0) return "var(--navy-50)";
-  if (pct <= 0.25) return "rgba(228,20,43,.18)";
-  if (pct <= 0.5) return "rgba(228,20,43,.38)";
-  if (pct <= 0.75) return "rgba(228,20,43,.62)";
+  if (pct <= 0.25) return "rgba(47,120,238,.16)";
+  if (pct <= 0.5) return "rgba(47,120,238,.36)";
+  if (pct <= 0.75) return "rgba(47,120,238,.62)";
   return "var(--accent-700)";
 }
 // Data harian untuk grafik garis "Analitik Kehadiran": khusus bulan berjalan (monthKey),
@@ -11055,11 +11110,11 @@ function AdminDashboard({
     y2: "1"
   }, /*#__PURE__*/React.createElement("stop", {
     offset: "5%",
-    stopColor: "#16A34A",
+    stopColor: "#2F78EE",
     stopOpacity: 0.45
   }), /*#__PURE__*/React.createElement("stop", {
     offset: "95%",
-    stopColor: "#16A34A",
+    stopColor: "#2F78EE",
     stopOpacity: 0.03
   })), /*#__PURE__*/React.createElement("linearGradient", {
     id: "gradTerlambat",
@@ -11069,11 +11124,11 @@ function AdminDashboard({
     y2: "1"
   }, /*#__PURE__*/React.createElement("stop", {
     offset: "5%",
-    stopColor: "#D97706",
+    stopColor: "#35BDE0",
     stopOpacity: 0.45
   }), /*#__PURE__*/React.createElement("stop", {
     offset: "95%",
-    stopColor: "#D97706",
+    stopColor: "#35BDE0",
     stopOpacity: 0.03
   }))), /*#__PURE__*/React.createElement(Recharts.CartesianGrid, {
     vertical: false,
@@ -11123,7 +11178,7 @@ function AdminDashboard({
   }), /*#__PURE__*/React.createElement(Recharts.Area, {
     type: "monotone",
     dataKey: "Masuk",
-    stroke: "#16A34A",
+    stroke: "#2F78EE",
     strokeWidth: 2.5,
     fill: "url(#gradMasuk)",
     activeDot: {
@@ -11132,11 +11187,11 @@ function AdminDashboard({
   }), /*#__PURE__*/React.createElement(Recharts.Line, {
     type: "monotone",
     dataKey: "Terlambat",
-    stroke: "#D97706",
+    stroke: "#35BDE0",
     strokeWidth: 2.75,
     dot: {
       r: 3.5,
-      fill: "#D97706",
+      fill: "#35BDE0",
       strokeWidth: 0
     },
     activeDot: {
@@ -19719,6 +19774,116 @@ function EmergencyAlertBanner({
     size: 16
   })))));
 }
+/* ======================= BILAH ATAS DESKTOP (cari menu, notifikasi, profil) ======================= */
+function DesktopTopbar({
+  user,
+  navItems,
+  onNavigate,
+  onLogout,
+  emergencyCount = 0,
+  showBell = false
+}) {
+  const h = React.createElement;
+  const flat = useMemo(() => navItems.flatMap(i => i.children ? i.children : [i]), [navItems]);
+  const [q, setQ] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const searchRef = useRef(null);
+  const inputRef = useRef(null);
+  const profileRef = useRef(null);
+  const term = q.trim().toLowerCase();
+  const results = term ? flat.filter(i => String(i.label).toLowerCase().includes(term)).slice(0, 6) : [];
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || "");
+  useEffect(() => {
+    function onKey(e) {
+      if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === "k") {
+        e.preventDefault();
+        if (inputRef.current) inputRef.current.focus();
+      }
+    }
+    function onDown(e) {
+      if (searchRef.current && !searchRef.current.contains(e.target)) setSearchOpen(false);
+      if (profileRef.current && !profileRef.current.contains(e.target)) setMenuOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onDown);
+    };
+  }, []);
+  function go(key) {
+    setQ("");
+    setSearchOpen(false);
+    if (inputRef.current) inputRef.current.blur();
+    onNavigate(key);
+  }
+  const hasProfilePage = flat.some(i => i.key === "profile");
+  return h("div", { className: "app-topbar" }, h("div", { className: "tb-card" },
+    h("div", { className: "tb-search", ref: searchRef },
+      h(Icon, { name: "search", size: 16, className: "tb-search-ic" }),
+      h("input", {
+        ref: inputRef,
+        type: "text",
+        className: "tb-search-input",
+        placeholder: "Cari menu…",
+        "aria-label": "Cari menu",
+        autoComplete: "off",
+        value: q,
+        onChange: e => { setQ(e.target.value); setSearchOpen(true); },
+        onFocus: () => setSearchOpen(true),
+        onKeyDown: e => {
+          if (e.key === "Enter" && results[0]) go(results[0].key);
+          if (e.key === "Escape") { setQ(""); setSearchOpen(false); e.target.blur(); }
+        }
+      }),
+      !q && h("span", { className: "tb-kbd" }, isMac ? "⌘ K" : "Ctrl K"),
+      searchOpen && !!term && h("div", { className: "tb-pop", role: "listbox" },
+        results.length ? results.map(i => h("button", {
+          key: i.key,
+          type: "button",
+          className: "tb-pop-item",
+          onClick: () => go(i.key)
+        }, h(Icon, { name: i.icon, size: 16 }), i.label)) : h("p", { className: "tb-empty" }, "Menu tidak ditemukan"))
+    ),
+    h("div", { className: "tb-actions" },
+      h(ThemeToggle, { className: "tb-icon-btn", size: 18 }),
+      showBell && h("button", {
+        type: "button",
+        className: "tb-icon-btn",
+        title: emergencyCount > 0 ? emergencyCount + " laporan darurat aktif" : "Laporan kejadian",
+        "aria-label": "Laporan kejadian",
+        onClick: () => onNavigate("kejadian")
+      }, h(Icon, { name: "bell", size: 18 }), emergencyCount > 0 && h("span", { className: "tb-badge" }, emergencyCount)),
+      h("div", { className: "tb-profile-wrap", ref: profileRef },
+        h("button", {
+          type: "button",
+          className: "tb-profile",
+          "aria-haspopup": "menu",
+          "aria-expanded": menuOpen,
+          onClick: () => setMenuOpen(v => !v)
+        },
+          h(Avatar, { name: user.name, color: user.avatarColor, size: 38 }),
+          h("span", { className: "tb-profile-text" }, h("strong", null, user.name), h("small", null, user.position || "")),
+          h(Icon, { name: "chevron-down", size: 16 })),
+        menuOpen && h("div", { className: "tb-pop tb-menu", role: "menu" },
+          hasProfilePage && h("button", {
+            type: "button",
+            className: "tb-pop-item",
+            role: "menuitem",
+            onClick: () => { setMenuOpen(false); onNavigate("profile"); }
+          }, h(Icon, { name: "user", size: 16 }), "Profil saya"),
+          h("button", {
+            type: "button",
+            className: "tb-pop-item tb-danger",
+            role: "menuitem",
+            onClick: () => { setMenuOpen(false); onLogout(); }
+          }, h(Icon, { name: "log-out", size: 16 }), "Keluar"))
+      )
+    )
+  ));
+}
+
 function App() {
   const {
     user,
@@ -19919,7 +20084,14 @@ function App() {
       flex: 1,
       paddingBottom: 80
     }
-  }, renderPage()));
+  }, /*#__PURE__*/React.createElement(DesktopTopbar, {
+    user: user,
+    navItems: navItems,
+    onNavigate: setPage,
+    onLogout: logout,
+    emergencyCount: canViewAdmin ? emergencyActiveCount : 0,
+    showBell: canViewAdmin
+  }), renderPage()));
 }
 
 /* ======================= RENDER ROOT ======================= */
