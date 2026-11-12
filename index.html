@@ -1605,7 +1605,10 @@ function getRecordsByUser(userId) {
   return Array.from(byId.values());
 }
 function getTodayRecordForUser(userId, dateStr) {
-  return store.records.find(r => r.userId === userId && r.date === dateStr) || null;
+  // Kalau (karena sebab apa pun) ada lebih dari satu record di tanggal yang sama, utamakan yang SUDAH
+  // punya jam masuk — supaya record kosong/placeholder tidak menutupi presensi yang sebenarnya.
+  const matches = store.records.filter(r => r.userId === userId && r.date === dateStr);
+  return matches.find(r => r.checkInTime) || matches[0] || null;
 }
 function getSettings() {
   return {
@@ -3671,16 +3674,27 @@ function smoothLatLngs(latlngs, iterations = 1) {
 function getSmoothedRouteCached(cache, rawLatlngs, opts = {}) {
   const { window = 220, iterations = 1 } = opts;
   if (!rawLatlngs || rawLatlngs.length < 3) return rawLatlngs || [];
-  // Rute lebih pendek dari cache (mis. sesi baru dimulai) → reset total.
-  if (rawLatlngs.length < cache.frozenCount) {
-    cache.frozen = [];
-    cache.frozenCount = 0;
+  // Cache beku hanya boleh dipakai kalau titik-titik "penanda"-nya (titik pertama + 2 titik terakhir
+  // yang ikut dibekukan) masih PERSIS sama di posisi indeks yang sama. Kalau tidak — rute lebih
+  // pendek (sesi baru), atau ada titik arsip yang telat masuk dan menyisip di tengah daftar —
+  // indeks bergeser dan bagian ekor akan dipotong dari titik yang salah, sehingga garis tampak
+  // melompat jauh / sebagian rute hilang. Dalam kasus itu: reset dan hitung ulang dari awal.
+  if (cache.frozenCount > 0) {
+    const sig = cache.sig;
+    const same = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
+    const ok = rawLatlngs.length >= cache.frozenCount && sig && same(rawLatlngs[0], sig[0]) && same(rawLatlngs[cache.frozenCount - 1], sig[2]) && (cache.frozenCount < 2 || same(rawLatlngs[cache.frozenCount - 2], sig[1]));
+    if (!ok) {
+      cache.frozen = [];
+      cache.frozenCount = 0;
+      cache.sig = null;
+    }
   }
   // Ekor yang belum dibekukan sudah cukup panjang → bekukan bagian lama sekali saja.
   if (rawLatlngs.length - cache.frozenCount > window * 1.5) {
     const newBoundary = rawLatlngs.length - window;
     cache.frozen = smoothLatLngs(rawLatlngs.slice(0, newBoundary), iterations);
     cache.frozenCount = newBoundary;
+    cache.sig = [rawLatlngs[0], rawLatlngs[Math.max(0, newBoundary - 2)], rawLatlngs[newBoundary - 1]];
   }
   const tailRaw = rawLatlngs.slice(Math.max(0, cache.frozenCount - 1)); // -1 = 1 titik overlap utk sambungan mulus
   const tailSmoothed = smoothLatLngs(tailRaw, iterations);
@@ -5846,15 +5860,52 @@ function assignDistinctColors(userIds) {
 // handleNewPosition/heartbeat) dengan titik ARSIP (pathChunks) yang sudah masuk lewat listener
 // onSnapshot (lihat effect pemantau arsip di AdminLivePatrolMap) — fungsi ini murni MENGGABUNGKAN
 // data yang sudah ada di cache, TIDAK melakukan pengambilan apapun ke server sendiri.
+// Tambahkan titik ke cache sebuah sesi patroli: KUNCI = waktu+koordinat, jadi titik yang sama
+// (mis. potongan arsip yang tertulis dobel) tidak pernah masuk dua kali, dan titik yang sudah
+// pernah terlihat TIDAK PERNAH dibuang — walau titik itu sudah dipangkas dari `path` live karena
+// diarsipkan, dan dokumen arsipnya belum sempat sampai. Inilah yang mencegah garis rute
+// "hilang sebagian" / melompat jauh pada jeda singkat antara pemangkasan dan kedatangan arsip.
+function addPointsToPatrolCache(cache, pts) {
+  if (!cache.seen) {
+    cache.seen = new Map();
+    cache.latlngs = [];
+    cache.dirty = false;
+  }
+  if (!pts) return;
+  for (const pt of pts) {
+    if (!pt || !Number.isFinite(pt.lat) || !Number.isFinite(pt.lng)) continue;
+    const key = pt.t + "|" + pt.lat + "|" + pt.lng;
+    if (cache.seen.has(key)) continue;
+    cache.seen.set(key, pt);
+    cache.dirty = true;
+  }
+}
+// Gabungkan titik "live" (p.path) dengan titik ARSIP (pathChunks) yang sudah masuk lewat listener
+// onSnapshot — murni menggabungkan data di cache (tanpa pengambilan ke server), hasilnya selalu
+// terurut menurut waktu dan bebas duplikat.
 function getFullPatrolLatLngs(patrol, chunkCacheRef) {
   const cache = chunkCacheRef.current[patrol.id] || (chunkCacheRef.current[patrol.id] = {
     points: []
   });
-  const combined = [...cache.points, ...(patrol.path || [])];
-  // Buang titik yang koordinatnya kosong/tidak valid (mis. GPS sempat gagal fix, atau
-  // penyimpanan titik itu sempat gagal separuh) — kalau ikut dimasukkan, Leaflet bisa crash
-  // total saat menggambar garis rute (Invalid LatLng object).
-  return combined.filter(pt => pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng)).map(pt => [pt.lat, pt.lng]);
+  addPointsToPatrolCache(cache, patrol.path);
+  if (cache.dirty) {
+    const arr = Array.from(cache.seen.values());
+    arr.sort((a, b) => (Date.parse(a.t) || 0) - (Date.parse(b.t) || 0));
+    cache.latlngs = arr.map(pt => [pt.lat, pt.lng]);
+    cache.dirty = false;
+  }
+  return cache.latlngs;
+}
+// Gabung dua daftar titik jalur (dedupe waktu+koordinat, urut waktu) — dipakai HP petugas
+// untuk memulihkan rute lengkap dari arsip setelah aplikasi dibuka ulang.
+function mergePathPoints(a, b) {
+  const seen = new Map();
+  [...(a || []), ...(b || [])].forEach(pt => {
+    if (!pt || !Number.isFinite(pt.lat) || !Number.isFinite(pt.lng)) return;
+    const key = pt.t + "|" + pt.lat + "|" + pt.lng;
+    if (!seen.has(key)) seen.set(key, pt);
+  });
+  return Array.from(seen.values()).sort((p, q) => (Date.parse(p.t) || 0) - (Date.parse(q.t) || 0));
 }
 function colorForUserId(userId) {
   let hash = 0;
@@ -5947,12 +5998,11 @@ function AdminLivePatrolMap({
         let changed = false;
         snap.docChanges().forEach(change => {
           if (change.type === "added") {
-            cache.points.push(...(change.doc.data().points || []));
+            addPointsToPatrolCache(cache, change.doc.data().points || []);
             changed = true;
           }
         });
         if (!changed) return;
-        cache.points.sort((a, b) => new Date(a.t) - new Date(b.t));
         // Redraw garis rute petugas ini saja begitu arsip barunya masuk, tanpa perlu nunggu
         // titik live berikutnya atau render ulang seluruh peta.
         if (!smoothCacheRef.current[p.userId]) smoothCacheRef.current[p.userId] = {
@@ -7136,7 +7186,13 @@ function AttendanceCard({
   onUpdated
 }) {
   const [now, setNow] = useState(new Date());
-  const [record, setRecord] = useState(null);
+  const [, setRecord] = useState(null);
+  useStoreSync(); // re-render tiap data presensi dari server berubah / baru masuk
+  // PENTING: record presensi hari ini DIHITUNG ULANG di setiap render (bukan disimpan sekali saat komponen
+  // dibuka). Sebelumnya record hanya diambil sekali saat kartu pertama muncul — kalau data presensi dari
+  // server baru masuk sesudahnya (mis. absen masuk dilakukan dari HP/perangkat lain, atau data baru
+  // selesai tersinkron), kartu tetap menampilkan "belum absen masuk" padahal sudah absen.
+  const record = getTodayRecordForUser(user.id, todayDateStrWITA(getTrustedNow()));
   const [step, setStep] = useState(STEP.IDLE);
   const [mode, setMode] = useState(null);
   const [locationData, setLocationData] = useState(null);
@@ -12238,6 +12294,20 @@ function PatrolTracker({
         gpsError: store.tracker.gpsError
       };
       _notifyStore();
+      // `path` di sesi hanya ekor live yang kecil — titik lama ada di arsip (pathChunks). Tarik
+      // arsipnya SEKALI saja supaya garis rute di HP petugas kembali utuh setelah aplikasi dibuka ulang.
+      const _pid = activePatrol.id;
+      db.collection(`${COL.PATROLS}/${_pid}/pathChunks`).get().then(snap => {
+        const archived = [];
+        snap.forEach(d => archived.push(...(d.data().points || [])));
+        if (!archived.length) return;
+        if (!getActivePatrolForUser(user.id) || getActivePatrolForUser(user.id).id !== _pid) return;
+        store.tracker = {
+          ...store.tracker,
+          path: mergePathPoints(archived, store.tracker.path)
+        };
+        _notifyStore();
+      }).catch(() => {});
     }
     if (!activePatrol && store.tracker.path.length > 0) {
       store.tracker = {
@@ -12319,32 +12389,45 @@ function PatrolTracker({
   // celah salah satu jalur penulisan lupa dipangkas seperti sebelumnya.
   const PATH_LIVE_MAX = 15;
   const PATH_ARCHIVE_CHUNK = 12;
+  // Ekor "live" yang ditulis ke Firestore dipegang LOKAL di sini (bukan dihitung dari jalur lengkap
+  // di HP). `fullPath` yang dikirim pemanggil adalah jalur LENGKAP lokal untuk peta di HP petugas —
+  // kalau itu yang dipangkas, tiap update posisi akan mengarsipkan 12 titik PERTAMA yang SAMA
+  // berulang-ulang (ribuan dokumen arsip kembar) dan `path` di Firestore ikut membengkak. Di sini
+  // hanya titik terbaru yang diambil, ditambahkan ke ekor live; begitu ekor > PATH_LIVE_MAX,
+  // 12 titik tertua diarsipkan SEKALI lalu dibuang dari ekor.
+  const liveTailRef = useRef(null);
   function trimAndArchivePatrolPath(patrol, fullPath) {
-    let pathForWrite = fullPath;
-    // pathChunkCount cuma "hint" buat peta admin tahu ada arsip baru yang perlu diambil —
-    // BUKAN kunci pengambilan arsip (arsip diambil dengan get() seluruh subcollection,
-    // diurutkan pakai waktu tiap titik). Jadi walau hint ini sesekali meleset 1 angka
-    // (karena ada 2 penulis: handleNewPosition & heartbeat jalan hampir bersamaan),
-    // TIDAK menyebabkan data hilang — cuma telat kelihatan sebentar, akan menyusul benar
-    // sendiri di update berikutnya.
-    let nextChunkCount = (patrol?.pathChunkCount || 0) + (fullPath.length > PATH_LIVE_MAX ? 1 : 0);
-    if (patrol && fullPath.length > PATH_LIVE_MAX) {
-      const toArchive = fullPath.slice(0, PATH_ARCHIVE_CHUNK);
-      pathForWrite = fullPath.slice(PATH_ARCHIVE_CHUNK);
-      // ID arsip pakai waktu+acak (BUKAN nomor urut 1,2,3,...) — supaya walau
-      // handleNewPosition & heartbeat kebetulan jalan bersamaan, ID-nya PASTI beda,
-      // tidak akan saling menimpa/menghapus arsip satu sama lain.
+    const point = fullPath && fullPath[fullPath.length - 1];
+    if (!patrol || !point) return {
+      pathForWrite: fullPath,
+      nextChunkCount: patrol?.pathChunkCount || 0
+    };
+    let tailRef = liveTailRef.current;
+    if (!tailRef || tailRef.patrolId !== patrol.id) {
+      tailRef = liveTailRef.current = {
+        patrolId: patrol.id,
+        points: [...(patrol.path || [])]
+      };
+    }
+    const tail = [...tailRef.points, point];
+    let pathForWrite = tail;
+    let nextChunkCount = patrol.pathChunkCount || 0;
+    if (tail.length > PATH_LIVE_MAX) {
+      const toArchive = tail.slice(0, PATH_ARCHIVE_CHUNK);
+      pathForWrite = tail.slice(PATH_ARCHIVE_CHUNK);
+      nextChunkCount += 1;
+      // ID arsip pakai waktu+acak supaya tidak pernah saling menimpa.
       const chunkId = "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
       firestoreSetNative(`${COL.PATROLS}/${patrol.id}/pathChunks`, chunkId, {
         points: toArchive
       });
     }
+    tailRef.points = pathForWrite;
     return {
       pathForWrite,
       nextChunkCount
     };
   }
-
   // Heartbeat: kirim titik posisi terakhir ke Firestore secara berkala walau petugas belum
   // berpindah 15m (mis. sesi Piket Malam yang stasioner di satu pos).
   useEffect(() => {
@@ -12412,11 +12495,6 @@ function PatrolTracker({
     const currentPatrol = getActivePatrolForUser(user.id);
     activePatrolRef.current = currentPatrol;
 
-    const {
-      pathForWrite,
-      nextChunkCount
-    } = trimAndArchivePatrolPath(currentPatrol, nextPath);
-
     // PENTING: kalau titik ini berada di dalam radius checkpoint manapun, PAKSA titik ini ikut
     // tersimpan ke jalur (path) — walau belum bergeser 8m dari titik tersimpan terakhir. Tanpa ini,
     // titik yang justru MEMICU checkpoint/rit tercatat bisa saja tidak pernah masuk ke `path` yang
@@ -12431,6 +12509,11 @@ function PatrolTracker({
     const movedFar = !lastSaved || distanceMeters(lastSaved.lat, lastSaved.lng, lat, lng) >= 8 || nearAnyCheckpoint;
     if (movedFar && currentPatrol) {
       lastSavedRef.current = point;
+      // Titik ini benar-benar ditulis → baru sekarang ditambahkan ke ekor live (& arsip bila perlu).
+      const {
+        pathForWrite,
+        nextChunkCount
+      } = trimAndArchivePatrolPath(currentPatrol, nextPath);
       let totalDist = currentPatrol.totalDistanceMeters || 0;
       if (prevPath.length > 0) totalDist += distanceMeters(prevPath[prevPath.length - 1].lat, prevPath[prevPath.length - 1].lng, lat, lng);
       updatePatrolSession(currentPatrol.id, {
