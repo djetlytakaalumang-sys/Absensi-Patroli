@@ -689,8 +689,8 @@ html[data-theme="dark"] .lpm-leg-row{color:#e5e7eb;}
 .lpm-av-in img{width:100%;height:100%;object-fit:cover;display:block;}
 .lpm-dir-big svg{top:50%;margin:0;transform:translate(-50%,-50%);left:50%;}
 .lpm-ini{color:#fff;font-size:14px;font-weight:700;letter-spacing:-.3px;font-family:var(--font-body),Inter,sans-serif;}
-.lpm-pill{position:absolute;left:50px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:6px;background:#12123a;color:#fff;border-radius:999px;padding:4px 10px 4px 12px;font-size:12px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.35);font-family:var(--font-body),Inter,sans-serif;}
-.lpm-pill i{width:9px;height:9px;border-radius:50%;border:1.5px solid #fff;display:block;}
+.lpm-pill{position:absolute;left:46px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:7px;background:var(--c);color:#fff;border:2px solid #fff;border-radius:999px;padding:3px 8px 3px 12px;font-size:12px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4);font-family:var(--font-body),Inter,sans-serif;}
+.lpm-pill i{width:10px;height:10px;border-radius:50%;border:2px solid #fff;display:block;flex-shrink:0;box-sizing:content-box;}
 @media (max-width:640px){
   .lpm-sync{display:none;}
   .lpm-card{max-width:calc(100% - 24px);padding:7px 16px 7px 8px;}
@@ -5900,7 +5900,21 @@ function AdminLivePatrolMap({
   const tileRef = useRef(null);
   const [mapType, setMapType] = useState("peta");
   const [layerMenu, setLayerMenu] = useState(false);
-  const colorMap = useMemo(() => assignDistinctColors(patrols.filter(p => p.path?.length).map(p => p.userId)), [patrols.filter(p => p.path?.length).map(p => p.userId).join(",")]);
+  const colorMap = useMemo(() => {
+    // Palet khusus peta live: TANPA hijau (hijau dipakai untuk status & checkpoint terlewati), tiap petugas aktif dijamin beda warna.
+    const MAP_COLORS = ["#2563EB", "#DC2626", "#7C3AED", "#D97706", "#DB2777", "#0891B2", "#EA580C", "#4F46E5", "#C026D3", "#0369A1", "#BE123C", "#6D28D9"];
+    const ids = [...new Set(patrols.filter(p => p.path?.length).map(p => p.userId))].sort();
+    const used = new Set(), out = {};
+    ids.forEach(id => {
+      let hsh = 0;
+      for (let i = 0; i < id.length; i++) hsh = hsh * 31 + id.charCodeAt(i) >>> 0;
+      let c = MAP_COLORS[hsh % MAP_COLORS.length];
+      if (used.has(c)) c = MAP_COLORS.find(x => !used.has(x)) || c;
+      used.add(c);
+      out[id] = c;
+    });
+    return out;
+  }, [patrols.filter(p => p.path?.length).map(p => p.userId).join(",")]);
 
   // Pantau arsip jejak (pathChunks) tiap sesi patroli yang sedang tampil secara REAL-TIME lewat
   // onSnapshot, GANTI dari cara lama yang menarik ULANG SELURUH arsip pakai .get() tiap kali ada
@@ -6087,15 +6101,14 @@ function AdminLivePatrolMap({
       // saling tumpang tindih seperti sebelumnya.
       const _esc = t => String(t).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
       const _ageSec = (Date.now() - new Date(p.lastSeen || last.t).getTime()) / 1000;
-      const _dot = _ageSec > 300 ? "#9CA3AF" : speed > 1 ? "#16A34A" : "#F59E0B";
+      // Titik status: HIJAU = sedang bergerak (patroli), MERAH = tidak bergerak (diam / lama tidak ada titik baru)
+      const _moveAge = (Date.now() - new Date(last.t || p.lastSeen).getTime()) / 1000;
+      const _dot = speed > 1 && _moveAge < 120 ? "#16A34A" : "#DC2626";
       const _firstName = _esc((p.userName || "").split(" ")[0] || "Petugas");
       const _arrowPath = `<path d="M9 1 L16.5 15.5 L9 11.8 L1.5 15.5 Z" fill="${color}" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>`;
       // Punya foto: foto dalam cincin putih + panah arah berwarna di luar cincin.
       // Tanpa foto: panah navigasi besar berwarna (satu warna per petugas).
-      const _body = _photo
-        ? `<div class="lpm-dir" style="transform:rotate(${heading}deg);"><svg width="22" height="21" viewBox="0 0 18 17">${_arrowPath}</svg></div>
-          <div class="lpm-av"><div class="lpm-av-in"><img src="${_photo}" alt=""></div></div>`
-        : `<div class="lpm-dir lpm-dir-big" style="transform:rotate(${heading}deg);"><svg width="42" height="40" viewBox="0 0 18 17">${_arrowPath}</svg></div>`;
+      const _body = `<div class="lpm-dir lpm-dir-big" style="transform:rotate(${heading}deg);"><svg width="42" height="40" viewBox="0 0 18 17">${_arrowPath}</svg></div>`;
       const icon = window.L.divIcon({
         className: "",
         html: `<div class="lpm-off" style="--c:${color};--c2:${hexToRgba(color, .35)};">
