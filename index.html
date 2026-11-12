@@ -5898,6 +5898,11 @@ function AdminLivePatrolMap({
   const smoothCacheRef = useRef({}); // { [userId]: { frozen, frozenCount } } — cache penghalusan per-petugas, biar biaya hitung tidak membesar seiring rute makin panjang / makin banyak petugas aktif
   const redrawThrottleRef = useRef({ lastRun: 0, timeoutId: null }); // batasi frekuensi rebuild marker+garis, biar tidak rebutan CPU dgn gesture zoom
   const tileRef = useRef(null);
+  const [statusTick, setStatusTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setStatusTick(n => n + 1), 20000);
+    return () => clearInterval(t);
+  }, []);
   const [mapType, setMapType] = useState("peta");
   const [layerMenu, setLayerMenu] = useState(false);
   const colorStoreRef = useRef({}); // warna yang sudah dipakai tiap petugas — dipertahankan selama petugas itu masih aktif, supaya tidak berganti-ganti
@@ -6108,9 +6113,9 @@ function AdminLivePatrolMap({
       // saling tumpang tindih seperti sebelumnya.
       const _esc = t => String(t).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
       const _ageSec = (Date.now() - new Date(p.lastSeen || last.t).getTime()) / 1000;
-      // Titik status: HIJAU = sedang bergerak (patroli), MERAH = tidak bergerak (diam / lama tidak ada titik baru)
-      const _moveAge = (Date.now() - new Date(last.t || p.lastSeen).getTime()) / 1000;
-      const _dot = speed > 1 && _moveAge < 120 ? "#16A34A" : "#DC2626";
+      // Titik status — SAMA dengan status "● Live" di daftar bawah (berdasarkan sinyal terakhir `lastSeen`):
+      // HIJAU = sedang live/patroli (ada sinyal < 90 detik), MERAH = tidak ada sinyal / tidak bergerak (>= 90 detik).
+      const _dot = _ageSec < 90 ? "#16A34A" : "#DC2626";
       const _firstName = _esc((p.userName || "").split(" ")[0] || "Petugas");
       const _arrowPath = `<path d="M9 1 L16.5 15.5 L9 11.8 L1.5 15.5 Z" fill="${color}" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>`;
       // Punya foto: foto dalam cincin putih + panah arah berwarna di luar cincin.
@@ -6215,7 +6220,7 @@ function AdminLivePatrolMap({
         redrawThrottleRef.current.timeoutId = null;
       }
     };
-  }, [patrols]);
+  }, [patrols, statusTick]);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !window.L) return;
