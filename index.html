@@ -5900,20 +5900,27 @@ function AdminLivePatrolMap({
   const tileRef = useRef(null);
   const [mapType, setMapType] = useState("peta");
   const [layerMenu, setLayerMenu] = useState(false);
+  const colorStoreRef = useRef({}); // warna yang sudah dipakai tiap petugas — dipertahankan selama petugas itu masih aktif, supaya tidak berganti-ganti
   const colorMap = useMemo(() => {
-    // Palet khusus peta live: TANPA hijau (hijau dipakai untuk status & checkpoint terlewati), tiap petugas aktif dijamin beda warna.
-    const MAP_COLORS = ["#2563EB", "#DC2626", "#7C3AED", "#D97706", "#DB2777", "#0891B2", "#EA580C", "#4F46E5", "#C026D3", "#0369A1", "#BE123C", "#6D28D9"];
+    // Palet khusus peta live: warna dipilih yang JAUH BEDA satu sama lain (hue & terang-gelap), tanpa hijau
+    // (hijau dipakai untuk status & checkpoint). 8 warna pertama dipakai dulu; sisanya cadangan kalau petugas aktif > 8.
+    const MAIN = ["#2563EB", "#DC2626", "#7C3AED", "#CA8A04", "#EC4899", "#0891B2", "#78350F", "#334155"];
+    const EXTRA = ["#EA580C", "#4F46E5", "#C026D3", "#0369A1"];
+    const ALL = [...MAIN, ...EXTRA];
     const ids = [...new Set(patrols.filter(p => p.path?.length).map(p => p.userId))].sort();
-    const used = new Set(), out = {};
+    const store = colorStoreRef.current;
+    Object.keys(store).forEach(id => { if (!ids.includes(id)) delete store[id]; });
+    const used = new Set(Object.values(store));
     ids.forEach(id => {
+      if (store[id]) return;
       let hsh = 0;
       for (let i = 0; i < id.length; i++) hsh = hsh * 31 + id.charCodeAt(i) >>> 0;
-      let c = MAP_COLORS[hsh % MAP_COLORS.length];
-      if (used.has(c)) c = MAP_COLORS.find(x => !used.has(x)) || c;
+      let c = MAIN[hsh % MAIN.length];
+      if (used.has(c)) c = ALL.find(x => !used.has(x)) || c;
+      store[id] = c;
       used.add(c);
-      out[id] = c;
     });
-    return out;
+    return { ...store };
   }, [patrols.filter(p => p.path?.length).map(p => p.userId).join(",")]);
 
   // Pantau arsip jejak (pathChunks) tiap sesi patroli yang sedang tampil secara REAL-TIME lewat
