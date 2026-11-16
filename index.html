@@ -5571,6 +5571,110 @@ function lucideNodeToSvgString(node, overrideAttrs) {
   const childStr = children.map(child => lucideNodeToSvgString(child)).join("");
   return `<${tag} ${attrStr}>${childStr}</${tag}>`;
 }
+// ===== Bahasa / Language (ID default, EN) =====
+// Terjemahan dijalankan di DOM: teks yang persis sama dengan kunci kamus diganti, sisanya tetap Bahasa Indonesia.
+// Tambah bahasa baru: buat kamus baru di I18N_DICTS (mis. { en: {...}, ms: {...} }) dan masukkan kodenya ke I18N_LANGS.
+const I18N_LANGS = ["id", "en"];
+const I18N_DICTS = { en: {
+"Dashboard":"Dashboard","Operasional Lapangan":"Field Operations","Pengajuan":"Requests","Pengajuan Izin":"Leave Requests","Pengaturan":"Settings","Jam & Presensi":"Hours & Attendance","Checkpoint & Lokasi":"Checkpoints & Locations","Hak Akses":"Access Rights","Backup & Arsip":"Backup & Archive","Panduan":"Guide","Presensi":"Attendance","Presensi Patroli Team":"Patrol Team Attendance","Patroli":"Patrol","Jadwal":"Schedule","Jadwal Kerja":"Work Schedule","Penilaian":"Scoring","Riwayat":"History","Profil":"Profile","Profil Saya":"My Profile","Izin / Cuti":"Leave","Izin/Cuti":"Leave","Lembur":"Overtime","Keluar":"Log out","Login":"Log in","User Name":"User Name","Password":"Password","Remember me":"Remember me","Memeriksa...":"Checking...","Lupa kata sandi? Hubungi administrator.":"Forgot your password? Contact the administrator.","Username atau kata sandi salah.":"Incorrect username or password.","Username dan kata sandi wajib diisi.":"Username and password are required.","Menghubungkan ke server…":"Connecting to server…","Menghubungkan ke server...":"Connecting to server...","Tampilkan kata sandi":"Show password","Sembunyikan kata sandi":"Hide password","Tema gelap":"Dark theme","Tema terang":"Light theme","Ganti ke tema gelap":"Switch to dark theme","Ganti ke tema terang":"Switch to light theme","Cari menu…":"Search menu…","Menu tidak ditemukan":"Menu not found","Notifikasi":"Notifications","Tidak ada notifikasi baru.":"No new notifications.","Profil saya":"My profile",
+"Hadir":"Present","Terlambat":"Late","Alpa":"Absent","Izin":"Leave","Piket Malam":"Night Duty","Piket Mlm":"Night Duty","Masuk":"In","Off":"Off","Standby On Call":"Standby On Call","Super Admin":"Super Admin","Karyawan":"Employee","Menunggu":"Pending","Disetujui":"Approved","Ditolak":"Rejected","Semua":"All","Baru":"New","Diproses":"In progress","Selesai":"Done","Baru & Diproses":"New & In progress","Belum Absen":"Not Checked In","Belum":"Not yet",
+"Halo,":"Hello,","Berikut ringkasan kehadiran Anda hari ini.":"Here is your attendance summary for today.","Absen Masuk":"Check In","Absen Pulang":"Check Out","Presensi hari ini selesai":"Today's attendance is complete","Anda sedang izin/cuti hari ini":"You are on leave today","Menyimpan data presensi…":"Saving attendance data…","Memverifikasi lokasi GPS (mengambil 3 sampel)…":"Verifying GPS location (taking 3 samples)…","Selfie Absen Masuk":"Check-in Selfie","Selfie Absen Pulang":"Check-out Selfie","Jam Masuk":"Check-in Time","Jam Pulang":"Check-out Time","Lokasi Masuk":"Check-in Location","Lokasi Pulang":"Check-out Location","Belum absen pulang":"Not checked out yet","Bulan ini":"This month","Riwayat Presensi":"Attendance History","Grafik Kehadiran Bulan Ini":"Attendance Chart This Month","Tidak ada catatan pada periode ini.":"No records in this period.","Tidak ada catatan":"No records","Tidak ada":"None","Buka di Google Maps":"Open in Google Maps","Lihat detail":"View details","Detail":"Details","Tanggal":"Date","Nama":"Name","Status":"Status","Pulang":"Out","Jabatan":"Position","Departemen":"Department","Total":"Total","Bulan":"Month","Hari":"Day","Hari ini":"Today","Jam":"Time","Waktu":"Time","Lokasi":"Location","Aksi":"Actions",
+"Total Karyawan":"Total Employees","Hadir Hari Ini":"Present Today","Terlambat Hari Ini":"Late Today","Piket Malam Hari Ini":"Night Duty Today","Alpa Bulan Ini":"Absent This Month","Analitik Kehadiran":"Attendance Analytics","Presensi & Patroli Tim":"Team Attendance & Patrol","Aktivitas Terkini":"Recent Activity","Tambah Pengguna":"Add User","Cari nama karyawan…":"Search employee name…","Reset filter":"Reset filter","Rekap PDF":"PDF Recap","Excel":"Excel","Unduh Excel":"Download Excel","Unduh PDF":"Download PDF","Cetak PDF":"Print PDF","Feed Laporan Kejadian":"Incident Report Feed","Lihat semua laporan →":"View all reports →","Lihat peta lengkap →":"View full map →","Statistik & Skor Tim":"Team Statistics & Score","Papan Peringkat":"Leaderboard","Papan Peringkat Tim":"Team Leaderboard","Rata-rata Skor":"Average Score","Skor Tertinggi":"Highest Score","Rasio Kehadiran":"Attendance Ratio","Kehadiran":"Attendance","Penilaian Tim":"Team Scoring","Belum ada data karyawan.":"No employee data yet.",
+"Mulai Patroli":"Start Patrol","Selesai Patroli":"End Patrol","Patroli Aktif":"Active Patrol","Belum Ada Patroli Aktif":"No Active Patrol","Sedang patroli":"On patrol","Sedang Patroli":"On Patrol","Patroli selesai":"Patrol finished","Patroli sedang berjalan":"Patrol in progress","Belum ada patroli berjalan":"No patrol in progress","Peta Live Patroli":"Live Patrol Map","Petugas Sedang Patroli":"Officers on Patrol","Daftar Checkpoint":"Checkpoint List","Checklist Checkpoint":"Checkpoint Checklist","Dikunjungi":"Visited","Mode Piket Malam":"Night Duty Mode","Mengambil lokasi…":"Getting location…","Satelit":"Satellite","Peta":"Map","Perbesar":"Zoom in","Perkecil":"Zoom out","Live":"Live","Update real-time":"Real-time update","Akhiri Paksa":"Force End","Checkpoint":"Checkpoint","Rekap Checkpoint (CP)":"Checkpoint (CP) Recap",
+"Lapor Kejadian":"Report Incident","Laporan Kejadian":"Incident Reports","Laporan Kejadian Saya":"My Incident Reports","Laporan Kejadian Tim":"Team Incident Reports","Kirim Laporan":"Submit Report","Judul":"Title","Kategori":"Category","Prioritas":"Priority","Rendah":"Low","Sedang":"Medium","Tinggi":"High","Darurat":"Emergency","Lainnya":"Other","Kronologi":"Chronology","Pelapor":"Reporter","Foto Kejadian":"Incident Photo","Tandai sebagai Darurat":"Mark as Emergency","Admin akan mendapat notifikasi prioritas.":"Admins will receive a priority notification.","Tandai Diproses":"Mark In Progress","Update Progres":"Update Progress","Selesaikan":"Complete","Simpan Update":"Save Update","Riwayat Penanganan":"Handling History","Detail Laporan Kejadian":"Incident Report Details","Laporan kejadian berhasil dikirim ke admin.":"Incident report sent to admin.","Hapus Laporan":"Delete Report","Lihat Detail":"View Details","Tanggal terbaru":"Newest date","Tanggal terlama":"Oldest date","Urutkan":"Sort",
+"Ajukan Izin/Cuti":"Request Leave","Dari tanggal":"From date","Sampai tanggal":"To date","Alasan":"Reason","Kirim Pengajuan":"Submit Request","Anda belum pernah mengajukan izin/cuti.":"You have not requested any leave yet.","Alasan izin/cuti wajib diisi.":"Leave reason is required.","Pengajuan Izin/Cuti":"Leave Requests","Setujui":"Approve","Tolak":"Reject","Batalkan Persetujuan":"Cancel Approval","Hapus pengajuan":"Delete request","Lampiran":"Attachment","Lampiran (opsional)":"Attachment (optional)","Tidak ada pengajuan pada kategori ini.":"No requests in this category.",
+"Input Lembur":"Add Overtime","Input Lembur Karyawan":"Add Employee Overtime","Kirim Lembur":"Submit Overtime","Simpan Lembur":"Save Overtime","Tanggal lembur":"Overtime date","Jam mulai":"Start time","Jam selesai":"End time","Keterangan pekerjaan":"Work description","Foto Pekerjaan":"Work Photo","Detail Lembur":"Overtime Details","Catat jam lembur kamu dan pantau persetujuannya.":"Log your overtime hours and track their approval.","Total lembur disetujui":"Total approved overtime","Menunggu persetujuan":"Awaiting approval","Belum ada data lembur di bulan ini.":"No overtime data this month.","Lembur Karyawan":"Employee Overtime","Rekap per Karyawan":"Summary per Employee","Batalkan pengajuan":"Cancel request","Batalkan pengajuan lembur ini?":"Cancel this overtime request?","Pengajuan lembur ditolak: Anda memiliki jadwal Piket Malam pada tanggal tersebut. Karyawan dengan jadwal Piket Malam tidak dapat mengajukan lembur di tanggal yang sama.":"Overtime request rejected: you are scheduled for Night Duty on that date. Employees with a Night Duty schedule cannot request overtime on the same date.","Ada jadwal Piket Malam pada tanggal ini. Lembur tidak dapat diajukan di tanggal yang sama.":"There is a Night Duty schedule on this date. Overtime cannot be requested on the same date.","Tanggal lembur hanya boleh dari 31 hari lalu sampai hari ini.":"Overtime date must be within the last 31 days up to today.","Durasi lembur minimal 15 menit.":"Minimum overtime duration is 15 minutes.","Durasi lembur maksimal 16 jam per input.":"Maximum overtime duration is 16 hours per entry.","Keterangan pekerjaan wajib diisi.":"Work description is required.","Foto pekerjaan wajib dilampirkan (minimal 1).":"A work photo is required (at least 1).","Tanggal lembur wajib diisi.":"Overtime date is required.","Jam mulai dan jam selesai wajib diisi.":"Start and end times are required.",
+"Jadwal Saya":"My Schedule","Jadwal Bulan Ini":"This Month's Schedule","Jadwal hari ini":"Today's schedule","Jadwal Masuk":"In Schedule","Jadwal Piket Malam":"Night Duty Schedule","Jadwal Standby / Libur":"Standby / Off Schedule","Grid Jadwal Bulanan":"Monthly Schedule Grid","Jadwal & Presensi Hari Ini":"Today's Schedule & Attendance","Import Jadwal dari Excel":"Import Schedule from Excel","Unduh Template":"Download Template","Belum ada jadwal untuk hari ini.":"No schedule for today.","Jadwal belum diinput admin untuk bulan ini.":"Admin has not entered the schedule for this month.",
+"Edit Profil":"Edit Profile","Nama lengkap":"Full name","Nomor HP":"Phone number","Alamat":"Address","Simpan Perubahan":"Save Changes","Simpan":"Save","Menyimpan…":"Saving…","Ubah Kata Sandi":"Change Password","Kata sandi saat ini":"Current password","Kata sandi baru":"New password","Konfirmasi kata sandi baru":"Confirm new password","Kata sandi":"Password","Profil berhasil diperbarui.":"Profile updated successfully.","Kata sandi berhasil diubah.":"Password changed successfully.","Informasi akun dan kepegawaian Anda.":"Your account and employment information.",
+"Edit Pengguna":"Edit User","Tambah Karyawan":"Add Employee","Hapus karyawan?":"Delete employee?","Ya, Hapus":"Yes, Delete","Hak Akses Pengguna":"User Access Rights","Pengguna":"User","Ganti Foto":"Change Photo","Pilih Foto":"Choose Photo","Hapus":"Delete","Edit":"Edit","Batal":"Cancel","Tutup":"Close","Kembali":"Back","Coba lagi":"Try again","Coba Lagi":"Try Again","Ya":"Yes","Tidak":"No","Lihat":"View","Cari":"Search","Mengirim…":"Sending…","Memproses…":"Processing…","Menghapus…":"Deleting…","Membuat PDF…":"Generating PDF…",
+"Kamera":"Camera","Galeri":"Gallery","Ambil foto":"Take photo","Ambil ulang":"Retake","Gunakan foto":"Use photo","Ganti kamera":"Switch camera","Kamera Depan":"Front Camera","Kamera Belakang":"Rear Camera","Mengaktifkan kamera…":"Starting camera…","Posisikan wajah Anda di dalam bingkai":"Position your face inside the frame","Tidak dapat mengakses kamera.":"Cannot access the camera.","Perangkat ini tidak mendukung GPS.":"This device does not support GPS.","Harap matikan aplikasi fake GPS dan coba lagi.":"Please turn off any fake GPS app and try again.","Gunakan Lokasi Saat Ini":"Use Current Location",
+"Ketentuan Jam Presensi":"Attendance Hour Rules","Presensi Masuk (Shift Pagi)":"Check-in (Morning Shift)","Batas jam masuk":"Check-in deadline","Jam pulang normal":"Normal check-out time","Presensi Piket Malam":"Night Duty Attendance","Mulai piket malam":"Night duty start","Selesai piket malam":"Night duty end","Lokasi Kantor":"Office Locations","Tambah Lokasi":"Add Location","Simpan Lokasi Ini":"Save This Location","Wajibkan absen dalam radius kantor":"Require check-in within office radius","Backup ke Excel":"Backup to Excel","Import Data dari Excel":"Import Data from Excel","Riwayat Login":"Login History","Lihat Riwayat Login":"View Login History","Waktu Login":"Login Time","Perangkat":"Device",
+"Januari":"January","Februari":"February","Maret":"March","Mei":"May","Juni":"June","Juli":"July","Agustus":"August","Oktober":"October","Desember":"December","Agu":"Aug","Okt":"Oct","Des":"Dec","Min":"Sun","Sen":"Mon","Sel":"Tue","Rab":"Wed","Kam":"Thu","Jum":"Fri","Sab":"Sat"
+}};
+const I18N_PAT = { en: [
+  [/^(\d+) notifikasi$/, (n) => n + " notifications"],
+  [/^Hari ini · (.+)$/, (d) => "Today · " + d],
+  [/^Lembur menunggu · (\d+)$/, (n) => "Overtime pending · " + n],
+  [/^Laporan darurat · (\d+)$/, (n) => "Emergency reports · " + n]
+] };
+let _lang = "id";
+try { const sv = localStorage.getItem("app_lang"); if (sv && I18N_LANGS.includes(sv)) _lang = sv; } catch (e) {}
+const _i18nTxt = new WeakMap(), _i18nAtt = new WeakMap();
+const I18N_ATTRS = ["placeholder", "title", "aria-label", "alt"];
+function i18nT(str) {
+  if (_lang === "id" || !str) return str;
+  const t = str.trim(); if (!t) return str;
+  const d = I18N_DICTS[_lang]; if (!d) return str;
+  if (Object.prototype.hasOwnProperty.call(d, t)) return str.replace(t, d[t]);
+  const pats = I18N_PAT[_lang] || [];
+  for (let i = 0; i < pats.length; i++) { const m = t.match(pats[i][0]); if (m) return str.replace(t, pats[i][1].apply(null, m.slice(1))); }
+  return str;
+}
+function _i18nSync(rec, cur, setter) {
+  if (rec && cur === rec.s) { const x = _lang === "id" ? rec.o : i18nT(rec.o); if (x !== cur) { setter(x); rec.s = x; } return rec; }
+  const x = i18nT(cur); if (x !== cur) { setter(x); return { o: cur, s: x }; }
+  return null;
+}
+function i18nNode(n) {
+  const r = _i18nSync(_i18nTxt.get(n), n.nodeValue, v => { n.nodeValue = v; });
+  if (r) _i18nTxt.set(n, r); else _i18nTxt.delete(n);
+}
+function i18nEl(el) {
+  let m = _i18nAtt.get(el); if (!m) { m = {}; _i18nAtt.set(el, m); }
+  I18N_ATTRS.forEach(a => {
+    if (!el.hasAttribute(a)) return;
+    const r = _i18nSync(m[a], el.getAttribute(a), v => el.setAttribute(a, v));
+    if (r) m[a] = r; else delete m[a];
+  });
+}
+function i18nWalk(root) {
+  if (!root) return;
+  if (root.nodeType === 3) return i18nNode(root);
+  if (root.nodeType !== 1) return;
+  const tag = root.tagName;
+  if (tag === "SCRIPT" || tag === "STYLE" || tag === "TEXTAREA") return;
+  i18nEl(root);
+  const w = document.createTreeWalker(root, 1 | 4);
+  let n;
+  while ((n = w.nextNode())) {
+    if (n.nodeType === 3) { const p = n.parentNode && n.parentNode.tagName; if (p !== "SCRIPT" && p !== "STYLE" && p !== "TEXTAREA") i18nNode(n); }
+    else if (n.tagName !== "SCRIPT" && n.tagName !== "STYLE") i18nEl(n);
+  }
+}
+function setLang(l) {
+  if (!I18N_LANGS.includes(l)) return;
+  _lang = l;
+  try { localStorage.setItem("app_lang", l); } catch (e) {}
+  document.documentElement.setAttribute("lang", l);
+  i18nWalk(document.body);
+  window.dispatchEvent(new Event("app-lang"));
+}
+(function startI18n() {
+  const wrap = fn => { const o = window[fn]; if (typeof o === "function") window[fn] = function (m) { return o.call(window, i18nT(String(m == null ? "" : m))); }; };
+  wrap("alert"); wrap("confirm");
+  document.documentElement.setAttribute("lang", _lang);
+  const mo = new MutationObserver(muts => {
+    if (_lang === "id") return;
+    muts.forEach(m => {
+      if (m.type === "childList") m.addedNodes.forEach(i18nWalk);
+      else if (m.type === "characterData") i18nNode(m.target);
+      else if (m.type === "attributes") i18nEl(m.target);
+    });
+  });
+  mo.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: I18N_ATTRS });
+  if (_lang !== "id") setTimeout(() => i18nWalk(document.body), 0);
+})();
+function LangToggle({ className = "sidebar-rail-item", style }) {
+  const [lang, setL] = useState(_lang);
+  useEffect(() => { const f = () => setL(_lang); window.addEventListener("app-lang", f); return () => window.removeEventListener("app-lang", f); }, []);
+  const next = I18N_LANGS[(I18N_LANGS.indexOf(lang) + 1) % I18N_LANGS.length];
+  return React.createElement("button", {
+    type: "button", className, style,
+    title: "Bahasa / Language: " + lang.toUpperCase() + " → " + next.toUpperCase(),
+    "aria-label": "Bahasa / Language",
+    onClick: () => setLang(next)
+  }, React.createElement("span", { style: { fontSize: 11, fontWeight: 800, letterSpacing: ".02em" } }, lang.toUpperCase()));
+}
 // ===== Tema gelap/terang =====
 function applyTheme(t) {
   document.documentElement.setAttribute("data-theme", t);
@@ -5581,12 +5685,13 @@ function applyTheme(t) {
 function ThemeToggle({ className = "sidebar-rail-item", style, size = 18 }) {
   const [theme, setTheme] = useState(() => document.documentElement.getAttribute("data-theme") || "light");
   const next = theme === "dark" ? "light" : "dark";
-  return React.createElement("button", {
+  const themeBtn = React.createElement("button", {
     type: "button", className, style,
     title: next === "dark" ? "Tema gelap" : "Tema terang",
     "aria-label": next === "dark" ? "Ganti ke tema gelap" : "Ganti ke tema terang",
     onClick: () => { applyTheme(next); setTheme(next); }
   }, React.createElement(Icon, { name: theme === "dark" ? "sun" : "moon", size }));
+  return React.createElement(React.Fragment, null, React.createElement(LangToggle, { className, style }), themeBtn);
 }
 function Icon({
   name,
@@ -7922,13 +8027,25 @@ function LoginPage() {
   }, /*#__PURE__*/React.createElement(LogoMark, {
     size: 36,
     className: "logo-fade-in"
-  }), /*#__PURE__*/React.createElement("span", {
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 13,
-      fontWeight: 700,
-      color: "rgba(255,255,255,.9)"
+      minWidth: 0
     }
-  }, "Network Indonesia Timur")), /*#__PURE__*/React.createElement("h1", {
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 14,
+      fontWeight: 800,
+      lineHeight: 1.25,
+      color: "#fff"
+    }
+  }, "Presensi Patroli Team"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12,
+      fontWeight: 600,
+      lineHeight: 1.25,
+      color: "rgba(255,255,255,.85)"
+    }
+  }, "Network Indonesia Timur"))), /*#__PURE__*/React.createElement("h1", {
     style: {
       fontSize: 32,
       fontWeight: 800,
@@ -8129,7 +8246,7 @@ function Sidebar({
       lineHeight: 1.25,
       color: "var(--navy-900)"
     }
-  }, "Presensi"), /*#__PURE__*/React.createElement("p", {
+  }, "Presensi Patroli Team"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontWeight: 600,
       fontSize: 11,
