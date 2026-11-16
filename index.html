@@ -20362,7 +20362,10 @@ function EmployeeOvertimePage({
       h("div", null,
         h("h1", { style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Lembur"),
         h("p", { style: { color: "var(--t-muted)", fontSize: 14, marginTop: 2 } }, "Catat jam lembur kamu dan pantau persetujuannya.")),
-      h(Button, { variant: "primary", onClick: () => setShowModal(true) }, h(Icon, { name: "plus", size: 16 }), " Input Lembur")),
+      h("div", { className: "flex", style: { gap: 8, flexWrap: "wrap" } },
+        h(Button, { variant: "outline", disabled: mine.length === 0, onClick: () => { try { exportOvertimeToExcel(mine, month, user.name); } catch (err) { setError("Gagal membuat file Excel: " + (err && err.message || err)); } } }, h(Icon, { name: "download", size: 16 }), " Excel"),
+        h(Button, { variant: "outline", disabled: mine.length === 0, onClick: () => { try { exportOvertimeToPDF(mine, month, user.name); } catch (err) { setError("Gagal membuat file PDF: " + (err && err.message || err)); } } }, h(Icon, { name: "download", size: 16 }), " PDF"),
+        h(Button, { variant: "primary", onClick: () => setShowModal(true) }, h(Icon, { name: "plus", size: 16 }), " Input Lembur"))),
     error && h("div", { style: { marginBottom: 16, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, error),
     h("div", { className: "flex", style: { gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 14 } },
       h("div", null,
@@ -20376,6 +20379,127 @@ function EmployeeOvertimePage({
       h("p", { style: { fontSize: 14, color: "var(--t-muted)" } }, "Belum ada data lembur di bulan ini.")) : h("div", { className: "leave-grid", style: { display: "flex", flexDirection: "column", gap: 12 } },
       mine.map(ot => h(OvertimeCard, { key: ot.id, ot, showName: false, canDecide: false, canRemove: ot.status === LEAVE_STATUS.PENDING, busy: busyId === ot.id, onRemove: () => cancel(ot) }))),
     showModal && h(OvertimeFormModal, { user, adminMode: false, onClose: () => setShowModal(false), onSaved: () => setShowModal(false) }));
+}
+/* ===== EKSPOR LEMBUR (Excel & PDF) ===== */
+const OVERTIME_STATUS_LABEL = { pending: "Menunggu", approved: "Disetujui", rejected: "Ditolak" };
+function overtimeMonthLabel(month) {
+  try {
+    return new Date(month + "-01T00:00:00").toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+  } catch (e) {
+    return month;
+  }
+}
+function overtimeSortedList(list) {
+  return [...list].sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.startTime || "").localeCompare(b.startTime || "") || (a.userName || "").localeCompare(b.userName || ""));
+}
+// Rekap per karyawan: total jam hanya dari lembur DISETUJUI; jumlah menunggu/ditolak ditampilkan terpisah.
+function overtimeRecapRows(list) {
+  const map = {};
+  list.forEach(o => {
+    const r = map[o.userId] || (map[o.userId] = { name: o.userName || "-", approved: 0, minutes: 0, pending: 0, rejected: 0 });
+    if (o.status === LEAVE_STATUS.APPROVED) { r.approved += 1; r.minutes += o.minutes || 0; }
+    else if (o.status === LEAVE_STATUS.REJECTED) r.rejected += 1;
+    else r.pending += 1;
+  });
+  return Object.values(map).sort((a, b) => b.minutes - a.minutes || a.name.localeCompare(b.name));
+}
+function overtimeFileStamp() {
+  return new Date().toISOString().slice(0, 10);
+}
+function exportOvertimeToExcel(list, month, who) {
+  const sorted = overtimeSortedList(list);
+  const recap = overtimeRecapRows(list);
+  const rows = sorted.map((o, i) => ({
+    No: i + 1,
+    Tanggal: formatDateShortID(o.date),
+    Nama: o.userName || "-",
+    "Jam Mulai": o.startTime,
+    "Jam Selesai": o.endTime,
+    "Durasi (jam)": Number(((o.minutes || 0) / 60).toFixed(2)),
+    "Durasi (menit)": o.minutes || 0,
+    "Keterangan Pekerjaan": o.task || "",
+    Status: OVERTIME_STATUS_LABEL[o.status] || o.status,
+    "Diinput Oleh": o.createdBy === "admin" ? "Admin" : "Karyawan",
+    "Diputuskan Oleh": o.decidedBy || "-",
+    "Jumlah Foto": o.photoCount || 0
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws["!cols"] = [{ wch: 5 }, { wch: 14 }, { wch: 24 }, { wch: 10 }, { wch: 11 }, { wch: 12 }, { wch: 13 }, { wch: 46 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 11 }];
+  const totalApprovedMin = recap.reduce((a, r) => a + r.minutes, 0);
+  const recapRows = recap.map((r, i) => ({
+    No: i + 1,
+    Nama: r.name,
+    "Lembur Disetujui (x)": r.approved,
+    "Total Jam Disetujui": Number((r.minutes / 60).toFixed(2)),
+    "Total Menit Disetujui": r.minutes,
+    "Total (jam & menit)": formatOvertimeDuration(r.minutes),
+    "Menunggu (x)": r.pending,
+    "Ditolak (x)": r.rejected
+  }));
+  recapRows.push({
+    No: "",
+    Nama: "TOTAL",
+    "Lembur Disetujui (x)": recap.reduce((a, r) => a + r.approved, 0),
+    "Total Jam Disetujui": Number((totalApprovedMin / 60).toFixed(2)),
+    "Total Menit Disetujui": totalApprovedMin,
+    "Total (jam & menit)": formatOvertimeDuration(totalApprovedMin),
+    "Menunggu (x)": recap.reduce((a, r) => a + r.pending, 0),
+    "Ditolak (x)": recap.reduce((a, r) => a + r.rejected, 0)
+  });
+  const ws2 = XLSX.utils.json_to_sheet(recapRows);
+  ws2["!cols"] = [{ wch: 5 }, { wch: 26 }, { wch: 20 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 13 }, { wch: 12 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws2, "Rekap per Karyawan");
+  XLSX.utils.book_append_sheet(wb, ws, "Rincian Lembur");
+  XLSX.writeFile(wb, `lembur${who ? "-" + String(who).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") : ""}-${month}-${overtimeFileStamp()}.xlsx`);
+}
+function exportOvertimeToPDF(list, month, who) {
+  const sorted = overtimeSortedList(list);
+  const recap = overtimeRecapRows(list);
+  const totalApprovedMin = recap.reduce((a, r) => a + r.minutes, 0);
+  const doc = new jspdf.jsPDF({ orientation: "landscape" });
+  doc.setFontSize(14);
+  doc.setTextColor(15, 27, 51);
+  doc.text(pdfSafeText("Laporan Lembur" + (who ? " - " + who : " Karyawan")), 14, 15);
+  doc.setFontSize(9);
+  doc.setTextColor(100, 116, 139);
+  doc.text(pdfSafeText(`Periode: ${overtimeMonthLabel(month)}  |  Total lembur disetujui: ${totalApprovedMin ? formatOvertimeDuration(totalApprovedMin) : "0 jam"}  |  Dibuat pada ${new Date().toLocaleString("id-ID")}`), 14, 21);
+  const common = {
+    margin: { left: 14, right: 14 },
+    styles: { fontSize: 8, cellPadding: 2.5, lineColor: [214, 220, 229], lineWidth: 0.1 },
+    headStyles: { fillColor: [15, 27, 51], textColor: 255, fontStyle: "bold" },
+    alternateRowStyles: { fillColor: [244, 246, 249] },
+    rowPageBreak: "avoid"
+  };
+  if (!who) {
+    doc.autoTable({
+      ...common,
+      startY: 26,
+      head: [["No", "Nama", "Disetujui (x)", "Total Jam Disetujui", "Menunggu (x)", "Ditolak (x)"]],
+      body: [...recap.map((r, i) => [i + 1, pdfSafeText(r.name), r.approved, formatOvertimeDuration(r.minutes), r.pending, r.rejected]), ["", "TOTAL", recap.reduce((a, r) => a + r.approved, 0), totalApprovedMin ? formatOvertimeDuration(totalApprovedMin) : "0 jam", recap.reduce((a, r) => a + r.pending, 0), recap.reduce((a, r) => a + r.rejected, 0)]],
+      columnStyles: { 0: { cellWidth: 12 }, 2: { halign: "center" }, 4: { halign: "center" }, 5: { halign: "center" } },
+      didParseCell: d => { if (d.section === "body" && d.row.index === recap.length) d.cell.styles.fontStyle = "bold"; }
+    });
+  }
+  const startY = (!who && doc.lastAutoTable ? doc.lastAutoTable.finalY + 8 : 26);
+  doc.autoTable({
+    ...common,
+    startY,
+    head: [["No", "Tanggal", "Nama", "Jam", "Durasi", "Keterangan Pekerjaan", "Status", "Diputuskan Oleh"]],
+    body: sorted.map((o, i) => {
+      const cross = timeToMinutes(o.endTime) <= timeToMinutes(o.startTime);
+      return [i + 1, formatDateShortID(o.date), pdfSafeText(o.userName || "-"), `${o.startTime} - ${o.endTime}${cross ? " (+1)" : ""}`, formatOvertimeDuration(o.minutes || 0), pdfSafeText(o.task || ""), OVERTIME_STATUS_LABEL[o.status] || o.status, pdfSafeText(o.decidedBy || "-")];
+    }),
+    columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 24 }, 2: { cellWidth: 38 }, 3: { cellWidth: 32 }, 4: { cellWidth: 24 }, 6: { cellWidth: 22 }, 7: { cellWidth: 32 } }
+  });
+  const pages = doc.getNumberOfPages();
+  for (let i = 1; i <= pages; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(120, 130, 145);
+    doc.text(`Halaman ${i} dari ${pages}`, doc.internal.pageSize.getWidth() - 14, doc.internal.pageSize.getHeight() - 8, { align: "right" });
+  }
+  doc.save(`lembur${who ? "-" + String(who).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") : ""}-${month}-${overtimeFileStamp()}.pdf`);
 }
 function OvertimeAdminPage() {
   const h = React.createElement;
@@ -20414,20 +20538,12 @@ function OvertimeAdminPage() {
     if (!window.confirm(`Hapus data lembur ${ot.userName} tanggal ${formatDateShortID(ot.date)}?`)) return;
     run(ot.id, () => deleteOvertime(ot.id), "Gagal menghapus data lembur. Coba lagi.");
   }
-  function exportCsv() {
-    const q = v => '"' + String(v ?? "").replace(/"/g, '""') + '"';
-    const label = { pending: "Menunggu", approved: "Disetujui", rejected: "Ditolak" };
-    const rows = [["Tanggal", "Nama", "Jam Mulai", "Jam Selesai", "Durasi (menit)", "Durasi (jam)", "Keterangan", "Status", "Diinput Oleh", "Jumlah Foto"]];
-    [...filtered].sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : a.userName.localeCompare(b.userName)).forEach(o => rows.push([o.date, o.userName, o.startTime, o.endTime, o.minutes, (o.minutes / 60).toFixed(2), o.task, label[o.status] || o.status, o.createdBy === "admin" ? "Admin" : "Karyawan", o.photoCount || 0]));
-    const csv = "\ufeff" + rows.map(r => r.map(q).join(",")).join("\r\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `lembur-${month}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  // Ekspor mencakup SEMUA status (menunggu, disetujui, ditolak) pada bulan yang dipilih, tidak terpengaruh tab.
+  function exportExcel() {
+    try { exportOvertimeToExcel(inMonth, month); } catch (err) { setError("Gagal membuat file Excel: " + (err && err.message || err)); }
+  }
+  function exportPdf() {
+    try { exportOvertimeToPDF(inMonth, month); } catch (err) { setError("Gagal membuat file PDF: " + (err && err.message || err)); }
   }
   const TABS = [{ key: "pending", label: "Menunggu" }, { key: "approved", label: "Disetujui" }, { key: "rejected", label: "Ditolak" }, { key: "all", label: "Semua" }];
   return h("div", { className: "container-lg" },
@@ -20436,7 +20552,8 @@ function OvertimeAdminPage() {
         h("h1", { style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Lembur Karyawan"),
         h("p", { style: { color: "var(--t-muted)", fontSize: 14, marginTop: 2 } }, "Tinjau pengajuan lembur, input langsung untuk karyawan, dan lihat rekap jam per bulan.")),
       h("div", { className: "flex", style: { gap: 8, flexWrap: "wrap" } },
-        h(Button, { variant: "outline", onClick: exportCsv, disabled: filtered.length === 0 }, h(Icon, { name: "download", size: 16 }), " Unduh CSV"),
+        h(Button, { variant: "outline", onClick: exportExcel, disabled: inMonth.length === 0 }, h(Icon, { name: "download", size: 16 }), " Unduh Excel"),
+        h(Button, { variant: "outline", onClick: exportPdf, disabled: inMonth.length === 0 }, h(Icon, { name: "download", size: 16 }), " Unduh PDF"),
         canEdit && h(Button, { variant: "primary", onClick: () => setShowForm(true) }, h(Icon, { name: "plus", size: 16 }), " Input Lembur"))),
     error && h("div", { style: { marginBottom: 16, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, error),
     h("div", { style: { marginBottom: 14 } },
