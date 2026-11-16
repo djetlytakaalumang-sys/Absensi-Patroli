@@ -141,7 +141,7 @@ body{
   -webkit-font-smoothing:antialiased; overscroll-behavior-y:none;
   -webkit-tap-highlight-color:transparent; -webkit-touch-callout:none;
   background-color:#dde5cf;
-  background-image:linear-gradient(rgba(255,255,255,.4),rgba(255,255,255,.4)), url('https://images.pexels.com/photos/691041/pexels-photo-691041.jpeg?auto=compress&cs=tinysrgb&w=1920');
+  background-image:linear-gradient(rgba(255,255,255,.4),rgba(255,255,255,.4));
   background-size:cover; background-position:center; background-attachment:fixed; background-repeat:no-repeat;
 }
 h1,h2,h3,h4{font-family:var(--font-display); letter-spacing:-0.01em; margin:0;}
@@ -228,7 +228,7 @@ img{max-width:100%; display:block;}
 
 .login-glass-wrap{min-height:100vh; min-height:100dvh; width:100%; display:flex; align-items:center; justify-content:center; padding:32px 20px; position:relative; overflow:hidden;
   background-color:#5e7f45;
-  background-image:url('https://images.pexels.com/photos/691041/pexels-photo-691041.jpeg?auto=compress&cs=tinysrgb&w=1920');
+  background-image:none;
   background-size:cover; background-position:center; background-repeat:no-repeat;}
 .login-glass-wrap::before{content:""; position:absolute; inset:0; background:
   radial-gradient(ellipse 60% 30% at 20% 8%, rgba(255,255,255,.15), transparent 60%),
@@ -358,8 +358,8 @@ html,body{overflow-x:hidden; width:100%;}
 @media (max-width:1023px), (pointer:coarse){
   *, *::before, *::after{backdrop-filter:none !important; -webkit-backdrop-filter:none !important;}
   body{background-attachment:scroll !important;
-    background-image:linear-gradient(rgba(255,255,255,.4),rgba(255,255,255,.4)), url('https://images.pexels.com/photos/691041/pexels-photo-691041.jpeg?auto=compress&cs=tinysrgb&w=800') !important;}
-  .login-glass-wrap{background-image:url('https://images.pexels.com/photos/691041/pexels-photo-691041.jpeg?auto=compress&cs=tinysrgb&w=800') !important;}
+    background-image:linear-gradient(rgba(255,255,255,.4),rgba(255,255,255,.4)) !important;}
+  .login-glass-wrap{background-image:none !important;}
   .login-glass-card{background:linear-gradient(160deg, rgba(255,255,255,.34), rgba(255,255,255,.16)) !important;}
   .card{background:rgba(255,255,255,.9) !important;}
 }
@@ -374,12 +374,12 @@ html[data-theme="dark"]{color-scheme:dark;
 html[data-theme="dark"] .leaflet-popup-content-wrapper, html[data-theme="dark"] .leaflet-popup-tip{background:#2a232f !important; color:#f3eef1 !important;}
 /* Logo (hitam transparan) -> putih di mode gelap; halaman login ikut gelap */
 html[data-theme="dark"] img[alt^="Logo"]{filter:invert(1);}
-html[data-theme="dark"] .login-glass-wrap{background-color:#14101a !important; background-image:linear-gradient(rgba(14,10,18,.8),rgba(14,10,18,.8)), url('https://images.pexels.com/photos/691041/pexels-photo-691041.jpeg?auto=compress&cs=tinysrgb&w=800') !important;}
+html[data-theme="dark"] .login-glass-wrap{background-color:#14101a !important; background-image:linear-gradient(rgba(14,10,18,.8),rgba(14,10,18,.8)) !important;}
 html[data-theme="dark"] .login-glass-wrap::before{background:radial-gradient(ellipse 60% 30% at 20% 8%, rgba(239,35,56,.14), transparent 60%) !important;}
 html[data-theme="dark"] .login-glass-card{background:linear-gradient(160deg, rgba(44,37,52,.72), rgba(24,20,30,.6)) !important; border-color:rgba(255,255,255,.16) !important;}
 html[data-theme="dark"] .leaflet-popup-close-button{color:#b8adb3 !important;}
 html[data-theme="dark"] .leaflet-bar a{background:#2a232f !important; color:#f3eef1 !important; border-color:rgba(255,255,255,.12) !important;}
-html[data-theme="dark"] body{background-color:#14101a !important; background-image:linear-gradient(rgba(14,10,18,.84),rgba(14,10,18,.84)), url('https://images.pexels.com/photos/691041/pexels-photo-691041.jpeg?auto=compress&cs=tinysrgb&w=800') !important;}
+html[data-theme="dark"] body{background-color:#14101a !important; background-image:linear-gradient(rgba(14,10,18,.84),rgba(14,10,18,.84)) !important;}
 html[data-theme="dark"] .card{background:linear-gradient(160deg, rgba(44,37,52,.86), rgba(32,27,40,.78)) !important; border-color:rgba(255,255,255,.1) !important;}
 html[data-theme="dark"] .sidebar-rail, html[data-theme="dark"] .sidebar-panel{background:rgba(20,16,26,.88) !important;}
 html[data-theme="dark"] .topbar-mobile{background:rgba(20,16,26,.94) !important;}
@@ -392,7 +392,7 @@ html[data-theme="dark"] .leaflet-control-zoom a{background:#2a232f !important;}
 html[data-theme="dark"] .leaflet-container .leaflet-control-attribution{background:rgba(20,16,26,.75) !important; color:#b8adb3 !important;}
 html[data-theme="dark"] .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.9);}
 /* Penanda versi di halaman login (memastikan versi terbaru yang terpasang, bukan cache lama) */
-.login-glass-wrap::after{content:"Versi 2026-10-08.32"; position:absolute; left:0; right:0; bottom:calc(8px + env(safe-area-inset-bottom)); text-align:center; font-size:11px; color:rgba(255,255,255,.7); pointer-events:none;}
+.login-glass-wrap::after{content:"Versi 2026-11-16.33"; position:absolute; left:0; right:0; bottom:calc(8px + env(safe-area-inset-bottom)); text-align:center; font-size:11px; color:rgba(255,255,255,.7); pointer-events:none;}
 /* Form ringkas (mis. pengajuan izin/cuti): jarak & ukuran input dirapatkan supaya tidak terlalu panjang */
 .compact-form .label{font-size:11px; margin-bottom:4px;}
 .compact-form .input{padding:9px 12px; font-size:15px;}
