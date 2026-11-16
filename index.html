@@ -706,6 +706,11 @@ html[data-theme="dark"] .lpm-leg-row{color:#e5e7eb;}
   html[data-theme="dark"] .login-glass-wrap{background-size:100% 100%, auto 60vh !important; background-size:100% 100%, auto 60dvh !important; background-position:0 0, 58% top !important; background-color:#070f14 !important;}
   html[data-theme="dark"] .login-glass-wrap::before{background:linear-gradient(180deg, rgba(0,0,0,.1) 0%, rgba(7,15,20,.88) 52%, #070f14 62%) !important;}
 }
+
+/* Menu bawah (HP): kalau item banyak, bisa digeser ke samping & tiap item tidak terlalu sempit */
+.bottomnav-mobile{overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch;}
+.bottomnav-mobile::-webkit-scrollbar{display:none;}
+.bottomnav-item{flex:1 0 auto; min-width:62px; padding-left:6px; padding-right:6px;}
 </style>
 </head>
 <body>
@@ -1005,7 +1010,9 @@ const COL = {
   KEJADIAN: "laporan_kejadian",
   SCHEDULES: "schedules",
   LOGIN_LOGS: "loginLogs",
-  CHECKPOINT_PASSES: "checkpointPasses"
+  CHECKPOINT_PASSES: "checkpointPasses",
+  OVERTIMES: "overtimes",
+  OVERTIME_PHOTOS: "overtimePhotos" // foto pekerjaan lembur, 1 dokumen per lembur (id sama) — dimuat hanya saat dibuka
 };
 const store = {
   users: [],
@@ -1018,6 +1025,7 @@ const store = {
   schedules: [],
   loginLogs: [],
   checkpointPasses: [],
+  overtimes: [],
   ready: false,
   tracker: {
     position: null,
@@ -1163,6 +1171,8 @@ async function _initFirestoreOnce() {
       store.checkpoints = docs.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     } else if (key === "leaves") {
       store.leaves = docs.sort((a, b) => a.createdAt < b.createdAt ? 1 : -1);
+    } else if (key === "overtimes") {
+      store.overtimes = docs.sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : a.createdAt < b.createdAt ? 1 : -1);
     } else if (key === "checkpointPasses") {
       store.checkpointPasses = docs.sort((a, b) => a.time < b.time ? 1 : -1);
     } else {
@@ -1339,6 +1349,42 @@ async function _initFirestoreOnce() {
     }
     subscribeSettings();
   });
+  // LEMBUR: koleksi kecil & terpisah. Dipasang SETELAH login (tidak menahan layar login, tidak ikut
+  // listener utama), di semua perangkat. Admin/Viewer memantau semua data lembur (400 terbaru);
+  // karyawan hanya data miliknya sendiri. Kalau akun berganti, listener dipasang ulang.
+  (function watchOvertimes() {
+    let curKey = null, unsub = null, timer = null, retry = 3000;
+    function connect(sess) {
+      const u = store.users.find(x => x.id === sess.userId);
+      const wide = u && (u.role === ROLES.ADMIN || u.role === ROLES.VIEWER);
+      const ref = wide ? db.collection(COL.OVERTIMES).orderBy("createdAt", "desc").limit(400) : db.collection(COL.OVERTIMES).where("userId", "==", sess.userId);
+      const sub = () => {
+        unsub = ref.onSnapshot(snap => {
+          applySnapshot("overtimes", snap);
+          retry = 3000;
+          _notifyStore();
+        }, err => {
+          console.warn(`Listener "overtimes" terputus (${err.message}) — mencoba sambung ulang…`);
+          timer = setTimeout(sub, retry);
+          retry = Math.min(retry * 2, 60000);
+        });
+      };
+      sub();
+    }
+    setInterval(() => {
+      const sess = getSession();
+      const key = sess ? sess.userId : null;
+      if (key === curKey) return;
+      if (key && !store.users.find(x => x.id === key)) return; // data karyawan belum siap — coba lagi sebentar lagi
+      if (unsub) { unsub(); unsub = null; }
+      if (timer) { clearTimeout(timer); timer = null; }
+      curKey = key;
+      retry = 3000;
+      store.overtimes = [];
+      if (key) connect(sess);
+      _notifyStore();
+    }, 1000);
+  })();
   if (deferredSpecs.length) {
     let started = false;
     const tryStart = () => {
@@ -1660,6 +1706,16 @@ function getSession() {
 function clearSession() {
   localStorage.removeItem(SESSION_KEY);
 }
+// Akun View Only tidak boleh menulis data apa pun — termasuk perbaikan otomatis di latar belakang.
+function isReadOnlySession() {
+  try {
+    const sess = getSession();
+    const u = sess && store.users.find(x => x.id === sess.userId);
+    return !!u && u.role === ROLES.VIEWER;
+  } catch (e) {
+    return false;
+  }
+}
 function findUserByCredentials(username, password) {
   return store.users.find(u => u.username.toLowerCase() === username.trim().toLowerCase() && u.password === password) || null;
 }
@@ -1841,7 +1897,7 @@ function autoCloseStaleAttendance() {
   // kalau jam/tanggal device kebetulan ngaco, presensi hari ini bisa keliru ditutup paksa.
   // Lebih aman menunda auto-close sampai sinkronisasi berikutnya berhasil (dicoba tiap 5 menit)
   // daripada bertindak berdasarkan jam yang belum terverifikasi.
-  if (!_serverTimeSyncedOnce) return 0;
+  if (!_serverTimeSyncedOnce || isReadOnlySession()) return 0;
   const todayStr = todayDateStrWITA(getTrustedNow());
   const stale = store.records.filter(r => r.date !== todayStr && r.checkInTime && !r.checkOutTime);
   stale.forEach(r => saveCheckOut(r.id, {
@@ -1905,6 +1961,137 @@ async function addLeaveRequest(data) {
     return newLeave;
   } catch (err) {
     store.leaves = store.leaves.filter(l => l.id !== newLeave.id);
+    _notifyStore();
+    throw err;
+  }
+}
+/* ===== LEMBUR =====
+   Status memakai nilai yang sama dengan izin (pending / approved / rejected) supaya lencana & warnanya konsisten.
+   Karyawan mengajukan -> status "pending"; admin menyetujui/menolak. Admin juga bisa menginput langsung
+   untuk karyawan (langsung "approved", ditandai createdBy: "admin"). */
+function generateOvertimeId() {
+  return "ot-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+function getOvertimes() {
+  return store.overtimes;
+}
+function getOvertimesByUser(userId) {
+  return store.overtimes.filter(o => o.userId === userId);
+}
+function timeToMinutes(t) {
+  const [hh, mm] = String(t || "").split(":").map(Number);
+  return isNaN(hh) || isNaN(mm) ? null : hh * 60 + mm;
+}
+// Durasi (menit). Jam selesai <= jam mulai dianggap lewat tengah malam (selesai keesokan harinya).
+function overtimeMinutes(startTime, endTime) {
+  const a = timeToMinutes(startTime), b = timeToMinutes(endTime);
+  if (a === null || b === null) return 0;
+  return b > a ? b - a : b + 1440 - a;
+}
+function formatOvertimeDuration(min) {
+  const hh = Math.floor(min / 60), mm = min % 60;
+  if (!hh) return mm + " menit";
+  return mm ? hh + " jam " + mm + " menit" : hh + " jam";
+}
+const OVERTIME_MAX_PHOTOS = 3;
+const OVERTIME_PHOTO_REQUIRED = true; // true = karyawan wajib melampirkan minimal 1 foto pekerjaan (admin tetap opsional)
+const OVERTIME_PHOTO_MAX_CHARS = 850000; // batas aman total foto per lembur (limit dokumen Firestore ~1MB)
+const _otPhotoCache = {};
+// Foto disimpan di dokumen TERPISAH (overtimePhotos/<id lembur>) — bukan di dokumen lembur — supaya daftar
+// lembur yang dipantau real-time tetap ringan; foto baru diunduh saat "Lihat foto" ditekan.
+function otCompressDataUrl(dataUrl, maxDim = 900, quality = 0.6) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let w = img.width, hh = img.height;
+      if (w > maxDim || hh > maxDim) {
+        if (w >= hh) { hh = Math.round(hh * (maxDim / w)); w = maxDim; } else { w = Math.round(w * (maxDim / hh)); hh = maxDim; }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = hh;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, hh);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => reject(new Error("Gagal memproses foto. Coba foto lain (format JPG/PNG)."));
+    img.src = dataUrl;
+  });
+}
+async function getOvertimePhotos(id) {
+  if (_otPhotoCache[id]) return _otPhotoCache[id];
+  const snap = await withTimeout(db.collection(COL.OVERTIME_PHOTOS).doc(id).get(), 15000, "Gagal memuat foto lembur");
+  const arr = snap.exists ? snap.data().photos || [] : [];
+  _otPhotoCache[id] = arr;
+  return arr;
+}
+async function addOvertime(data) {
+  const nowIso = new Date().toISOString();
+  const auto = data.autoApprove === true;
+  const photos = Array.isArray(data.photos) ? data.photos.slice(0, OVERTIME_MAX_PHOTOS) : [];
+  const item = {
+    id: generateOvertimeId(),
+    userId: data.userId,
+    userName: data.userName,
+    date: data.date,
+    startTime: data.startTime,
+    endTime: data.endTime,
+    minutes: overtimeMinutes(data.startTime, data.endTime),
+    task: (data.task || "").trim(),
+    photoCount: photos.length,
+    status: auto ? LEAVE_STATUS.APPROVED : LEAVE_STATUS.PENDING,
+    createdAt: nowIso,
+    decidedAt: auto ? nowIso : null,
+    decidedBy: auto ? data.byName || null : null,
+    createdBy: auto ? "admin" : "employee"
+  };
+  store.overtimes = [item, ...store.overtimes];
+  if (photos.length) _otPhotoCache[item.id] = photos;
+  _notifyStore();
+  try {
+    const batch = db.batch();
+    batch.set(db.collection(COL.OVERTIMES).doc(item.id), item);
+    if (photos.length) batch.set(db.collection(COL.OVERTIME_PHOTOS).doc(item.id), { id: item.id, userId: item.userId, photos, createdAt: nowIso });
+    await withTimeout(batch.commit(), 30000, "Gagal menyimpan data lembur ke server");
+    return item;
+  } catch (err) {
+    store.overtimes = store.overtimes.filter(o => o.id !== item.id);
+    delete _otPhotoCache[item.id];
+    _notifyStore();
+    throw err;
+  }
+}
+// decision: "approved" | "rejected" | "pending" (mengembalikan ke Menunggu)
+async function decideOvertime(id, decision, byName) {
+  const previous = store.overtimes.find(o => o.id === id);
+  if (!previous) throw new Error("Data lembur tidak ditemukan.");
+  const patch = {
+    status: decision,
+    decidedAt: decision === LEAVE_STATUS.PENDING ? null : new Date().toISOString(),
+    decidedBy: decision === LEAVE_STATUS.PENDING ? null : byName || null
+  };
+  store.overtimes = store.overtimes.map(o => o.id === id ? { ...o, ...patch } : o);
+  _notifyStore();
+  try {
+    await withTimeout(db.collection(COL.OVERTIMES).doc(id).update(patch), 20000, "Gagal menyimpan keputusan lembur ke server");
+  } catch (err) {
+    store.overtimes = store.overtimes.map(o => o.id === id ? previous : o);
+    _notifyStore();
+    throw err;
+  }
+}
+async function deleteOvertime(id) {
+  const previous = store.overtimes.find(o => o.id === id);
+  if (!previous) return;
+  store.overtimes = store.overtimes.filter(o => o.id !== id);
+  _notifyStore();
+  try {
+    const batch = db.batch();
+    batch.delete(db.collection(COL.OVERTIMES).doc(id));
+    if (previous.photoCount) batch.delete(db.collection(COL.OVERTIME_PHOTOS).doc(id));
+    await withTimeout(batch.commit(), 20000, "Gagal menghapus data lembur di server");
+    delete _otPhotoCache[id];
+  } catch (err) {
+    store.overtimes = [previous, ...store.overtimes];
     _notifyStore();
     throw err;
   }
@@ -2446,6 +2633,7 @@ function normalizeScheduleType(raw) {
 // selesai sinkron pertama kali, tiap kali jadwal diimpor/diubah, dan berkala tiap beberapa
 // menit (jaga-jaga kalau percobaan sebelumnya sempat gagal krn koneksi/kuota).
 async function reconcileRecordStatuses() {
+  if (isReadOnlySession()) return 0;
   const mismatched = store.records.filter(r => r.checkInTime && (r.status === STATUS.HADIR || r.status === STATUS.TERLAMBAT || r.status === STATUS.PIKET_MALAM) && effectiveRecordStatus(r) !== r.status);
   if (mismatched.length === 0) return 0;
   const previousByIdx = new Map(mismatched.map(r => [r.id, r]));
@@ -2675,7 +2863,7 @@ function endPatrolSession(id, data) {
 function autoCloseStalePatrols() {
   // Sama seperti autoCloseStaleAttendance() — jangan tutup paksa sesi patroli berdasarkan
   // jam yang belum terverifikasi ke server. Kalau belum pernah sinkron, tunda dulu.
-  if (!_serverTimeSyncedOnce) return 0;
+  if (!_serverTimeSyncedOnce || isReadOnlySession()) return 0;
   const todayStr = todayDateStrWITA(getTrustedNow());
   const stale = store.patrols.filter(p => p.status === PATROL_STATUS.ACTIVE && p.date !== todayStr);
   stale.forEach(p => endPatrolSession(p.id, {
@@ -10450,6 +10638,9 @@ function AdminRecordDetail({
   record,
   onClose
 }) {
+  const {
+    canEdit
+  } = useAuth();
   const [status, setStatus] = useState(record.status);
   const [fixBusy, setFixBusy] = useState(false);
   const [fixMsg, setFixMsg] = useState("");
@@ -10528,7 +10719,7 @@ function AdminRecordDetail({
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "x",
     size: 18
-  })))), (status === STATUS.HADIR || status === STATUS.TERLAMBAT || status === STATUS.PIKET_MALAM) && record.checkInTime && /*#__PURE__*/React.createElement("div", {
+  })))), canEdit && (status === STATUS.HADIR || status === STATUS.TERLAMBAT || status === STATUS.PIKET_MALAM) && record.checkInTime && /*#__PURE__*/React.createElement("div", {
     style: {
       padding: "12px 20px 0"
     }
@@ -10879,6 +11070,8 @@ function AdminDashboard({
     return aktif.slice(0, 4);
   }, [store.kejadian]);
   const kejadianBaruCount = useMemo(() => getKejadianReports().filter(k => k.status === KEJADIAN_STATUS.BARU).length, [store.kejadian]);
+  const [feedDetailId, setFeedDetailId] = useState(null);
+  const feedDetailK = feedDetailId ? getKejadianReports().find(x => x.id === feedDetailId) || null : null;
   const teamLeaderboard = useMemo(() => getLeaderboard(mk), [mk, store.records, store.leaves, store.patrols, store.users, store.checkpoints]);
   const teamScored = teamLeaderboard.filter(r => r.total != null);
   const teamAvgScore = teamScored.length ? Math.round(teamScored.reduce((s, r) => s + r.total, 0) / teamScored.length) : null;
@@ -11379,12 +11572,18 @@ function AdminDashboard({
   }, kejadianFeed.map(k => /*#__PURE__*/React.createElement("div", {
     key: k.id,
     className: "flex",
+    role: "button",
+    tabIndex: 0,
+    title: "Lihat detail laporan",
+    onClick: () => setFeedDetailId(k.id),
+    onKeyDown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setFeedDetailId(k.id); } },
     style: {
       alignItems: "center",
       gap: 10,
       padding: "8px 10px",
       borderRadius: 10,
-      background: "var(--slate-mist)"
+      background: "var(--slate-mist)",
+      cursor: "pointer"
     }
   }, k.photo ? /*#__PURE__*/React.createElement("img", {
     src: k.photo,
@@ -11460,7 +11659,10 @@ function AdminDashboard({
       color: "var(--accent-700)",
       textDecoration: "underline"
     }
-  }, "Lihat semua laporan →")))), /*#__PURE__*/React.createElement("div", {
+  }, "Lihat semua laporan →"), feedDetailK && /*#__PURE__*/React.createElement(KejadianDetailModal, {
+    k: feedDetailK,
+    onClose: () => setFeedDetailId(null)
+  })))), /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: 20,
@@ -14222,6 +14424,7 @@ function MyKejadianItem({ k, user }) {
   const [photo, setPhoto] = useState(null); // foto opsional untuk entri ini
   const [next, setNext] = useState(true); // khusus Update Progres: dilanjutkan besok?
   const [showCamera, setShowCamera] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
   async function submit(kind) {
     if (kind === "update" && !note.trim() && !photo) {
       setError("Tulis perkembangan terbarunya dulu.");
@@ -14265,6 +14468,8 @@ function MyKejadianItem({ k, user }) {
         kejadianContinueBadge(k),
         h("span", { className: `badge ${KEJADIAN_STATUS_CLASS[k.status]}` }, KEJADIAN_STATUS_LABEL[k.status]))),
     k.title ? h("p", { style: { fontSize: 12, color: "var(--t-muted)", marginTop: 8, whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, k.note) : null,
+    h("div", { style: { marginTop: 8 } },
+      h("button", { type: "button", onClick: () => setShowDetail(true), style: { background: "none", border: "none", color: "var(--accent-700)", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0, display: "inline-flex", alignItems: "center", gap: 6 } }, h(Icon, { name: "eye", size: 14 }), "Lihat detail")),
     kejadianUpdateBox(k),
     canAct && open == null ? h("div", { className: "flex", style: { marginTop: 10, gap: 8, flexWrap: "wrap" } },
       k.status === KEJADIAN_STATUS.BARU
@@ -14294,7 +14499,8 @@ function MyKejadianItem({ k, user }) {
       requireFace: false,
       onClose: () => setShowCamera(false),
       onCapture: dataUrl => { setPhoto(dataUrl); setShowCamera(false); }
-    }) : null);
+    }) : null,
+    showDetail ? h(KejadianDetailModal, { k, onClose: () => setShowDetail(false) }) : null);
 }
 function KejadianPage() {
   useStoreSync();
@@ -14309,7 +14515,9 @@ function KejadianPage() {
   const [busyId, setBusyId] = useState(null);
   const [sortMode, setSortMode] = useState("status");
   const [dateFilter, setDateFilter] = useState("");
+  const [detailId, setDetailId] = useState(null);
   const all = useMemo(() => getKejadianReports(), [store.kejadian]);
+  const detailK = detailId ? all.find(x => x.id === detailId) || null : null;
   const baruCount = all.filter(k => k.status === KEJADIAN_STATUS.BARU).length;
   const filtered = dateFilter ? all.filter(k => todayDateStrWITA(new Date(k.createdAt)) === dateFilter) : all;
   const aktif = sortKejadianReports(filtered.filter(k => k.status === KEJADIAN_STATUS.BARU || k.status === KEJADIAN_STATUS.DITANGANI), sortMode);
@@ -14596,7 +14804,18 @@ function KejadianPage() {
         WebkitBoxOrient: "vertical",
         overflowWrap: "anywhere"
       }
-    }, k.note), !expanded && kejadianLastUpdateLine(k), expanded && /*#__PURE__*/React.createElement("div", {
+    }, k.note), !expanded && kejadianLastUpdateLine(k), /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 10
+      }
+    }, /*#__PURE__*/React.createElement(Button, {
+      variant: "outline",
+      size: "sm",
+      onClick: () => setDetailId(k.id)
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "eye",
+      size: 14
+    }), " Lihat Detail")), expanded && /*#__PURE__*/React.createElement("div", {
       style: {
         marginTop: 12
       }
@@ -14633,7 +14852,10 @@ function KejadianPage() {
       name: "trash-2",
       size: 14
     }), busyId === k.id ? " Menghapus\u2026" : " Hapus Laporan"))));
-  })));
+  })), detailK && /*#__PURE__*/React.createElement(KejadianDetailModal, {
+    k: detailK,
+    onClose: () => setDetailId(null)
+  }));
 }
 
 /* ======================= PETA LIVE PATROLI (HALAMAN ADMIN) ======================= */
@@ -19742,6 +19964,496 @@ function PatrolCheckpointSettings() {
   }), " Simpan Checkpoint Ini"))))));
 }
 
+/* ======================= HALAMAN DETAIL (KEJADIAN & LEMBUR) ======================= */
+function DetailRow({
+  label,
+  children
+}) {
+  const h = React.createElement;
+  return h("div", { style: { display: "flex", gap: 12, padding: "9px 0", borderBottom: "1px solid var(--line)", fontSize: 13 } },
+    h("span", { style: { width: 108, flexShrink: 0, color: "var(--t-faint)" } }, label),
+    h("div", { style: { flex: 1, minWidth: 0, color: "var(--navy-900)", overflowWrap: "anywhere" } }, children));
+}
+function DetailShell({
+  title,
+  subtitle,
+  onClose,
+  children
+}) {
+  const h = React.createElement;
+  return h("div", { className: "modal-backdrop", onClick: onClose },
+    h("div", { className: "modal-box fade-up", style: { maxWidth: 520 }, onClick: e => e.stopPropagation() },
+      h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", gap: 10, padding: "16px 20px", borderBottom: "1px solid var(--line)", position: "sticky", top: 0, background: "inherit", zIndex: 2 } },
+        h("div", { style: { minWidth: 0 } },
+          h("h3", { style: { fontSize: 16, fontWeight: 700, color: "var(--navy-900)" } }, title),
+          subtitle ? h("p", { style: { fontSize: 12, color: "var(--t-faint)", marginTop: 2 } }, subtitle) : null),
+        h("button", { type: "button", onClick: onClose, "aria-label": "Tutup", style: { color: "var(--t-faint)", padding: 4, flexShrink: 0 } }, h(Icon, { name: "x", size: 20 }))),
+      h("div", { style: { padding: "6px 20px 20px" } }, children)));
+}
+function detailDurationText(ms) {
+  const mins = Math.max(0, Math.round(ms / 60000));
+  const d = Math.floor(mins / 1440), hh = Math.floor(mins % 1440 / 60), mm = mins % 60;
+  const parts = [];
+  if (d) parts.push(d + " hari");
+  if (hh) parts.push(hh + " jam");
+  if (mm || !parts.length) parts.push(mm + " menit");
+  return parts.join(" ");
+}
+function detailDateTime(iso) {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  return formatDateShortID(todayDateStrWITA(d)) + " · " + formatClock(d);
+}
+function KejadianDetailModal({
+  k,
+  onClose
+}) {
+  const h = React.createElement;
+  const [zoom, setZoom] = useState(false);
+  const rows = kejadianTimeline(k).filter(r => r.time);
+  const handledAt = k.handledAt || (rows.find(r => r.type === "proses") || {}).time;
+  const handledBy = k.handledBy || (rows.find(r => r.type === "proses") || {}).by;
+  const finishedAt = k.finishedAt || (rows.find(r => r.type === "selesai") || {}).time;
+  const finishedBy = k.finishedBy || (rows.find(r => r.type === "selesai") || {}).by;
+  const created = new Date(k.createdAt);
+  const hasLoc = k.lat != null && k.lng != null;
+  return h(React.Fragment, null,
+    h(DetailShell, { title: "Detail Laporan Kejadian", subtitle: k.ticketId || null, onClose },
+      h("div", { style: { marginTop: 14 } },
+        h("p", { style: { fontSize: 16, fontWeight: 700, color: "var(--navy-900)", overflowWrap: "anywhere" } }, kejadianTitle(k)),
+        kejadianTicketChips(k),
+        h("div", { className: "flex", style: { gap: 6, flexWrap: "wrap", marginTop: 8 } },
+          k.darurat && h("span", { className: "badge badge-alpha" }, "Darurat"),
+          h("span", { className: `badge ${KEJADIAN_STATUS_CLASS[k.status]}` }, KEJADIAN_STATUS_LABEL[k.status]),
+          kejadianContinueBadge(k))),
+      h("div", { style: { marginTop: 10 } },
+        h(DetailRow, { label: "Pelapor" }, k.userName || "-"),
+        h(DetailRow, { label: "Waktu lapor" }, detailDateTime(k.createdAt)),
+        k.category && h(DetailRow, { label: "Kategori" }, k.category),
+        k.priority && KEJADIAN_PRIORITY_LABEL[k.priority] && h(DetailRow, { label: "Prioritas" }, KEJADIAN_PRIORITY_LABEL[k.priority]),
+        handledAt && h(DetailRow, { label: "Mulai diproses" }, detailDateTime(handledAt) + (handledBy ? " · " + handledBy : "")),
+        finishedAt && h(DetailRow, { label: "Diselesaikan" }, detailDateTime(finishedAt) + (finishedBy ? " · " + finishedBy : "")),
+        finishedAt && h(DetailRow, { label: "Lama penanganan" }, detailDurationText(new Date(finishedAt) - created))),
+      h("p", { style: { fontSize: 12, fontWeight: 700, color: "var(--navy-700)", marginTop: 16 } }, "Deskripsi"),
+      h("p", { style: { fontSize: 14, color: "var(--navy-900)", marginTop: 4, whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, k.note || "-"),
+      k.photo && h("div", { style: { marginTop: 16 } },
+        h("p", { style: { fontSize: 12, fontWeight: 700, color: "var(--navy-700)", marginBottom: 6 } }, "Foto kejadian"),
+        h("img", { src: k.photo, alt: "Foto kejadian", title: "Ketuk untuk memperbesar", onClick: () => setZoom(true), style: { width: "100%", borderRadius: 12, cursor: "zoom-in", display: "block" } })),
+      h("div", { style: { marginTop: 16 } },
+        h("p", { style: { fontSize: 12, fontWeight: 700, color: "var(--navy-700)", marginBottom: 6 } }, "Lokasi"),
+        hasLoc ? h(React.Fragment, null,
+          h(MiniMap, { lat: k.lat, lng: k.lng, height: 200, label: `Lokasi laporan ${k.userName}` }),
+          k.address && h("p", { style: { fontSize: 13, color: "var(--navy-900)", marginTop: 8, overflowWrap: "anywhere" } }, k.address),
+          h("p", { className: "flex", style: { gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 12, color: "var(--t-faint)", marginTop: 4 } },
+            h("span", null, Number(k.lat).toFixed(5) + ", " + Number(k.lng).toFixed(5)),
+            h("a", { href: `https://www.google.com/maps?q=${k.lat},${k.lng}`, target: "_blank", rel: "noopener noreferrer", style: { color: "var(--accent-700)", fontWeight: 600, textDecoration: "none" } }, "Buka di Google Maps"))) : h("p", { style: { fontSize: 13, color: "var(--t-faint)" } }, "Lokasi tidak tercatat pada laporan ini.")),
+      h("div", { style: { marginTop: 16 } },
+        h("p", { style: { fontSize: 12, fontWeight: 700, color: "var(--navy-700)" } }, "Riwayat penanganan"),
+        kejadianTimeline(k).length ? kejadianUpdateBox(k) : h("p", { style: { fontSize: 13, color: "var(--t-faint)", marginTop: 4 } }, "Belum ada update."))),
+    zoom && k.photo && h(LeaveAttachmentViewer, { data: k.photo, name: "Foto kejadian", type: "image/jpeg", onClose: () => setZoom(false) }));
+}
+function OvertimeDetailModal({
+  ot,
+  canDecide,
+  busy,
+  onDecide,
+  onClose
+}) {
+  const h = React.createElement;
+  const [photos, setPhotos] = useState(_otPhotoCache[ot.id] || null);
+  const [photoError, setPhotoError] = useState("");
+  const [zoomIdx, setZoomIdx] = useState(null);
+  useEffect(() => {
+    if (!ot.photoCount || photos) return;
+    let alive = true;
+    getOvertimePhotos(ot.id).then(arr => { if (alive) setPhotos(arr); }).catch(err => { if (alive) setPhotoError(err.message || "Gagal memuat foto."); });
+    return () => { alive = false; };
+  }, [ot.id]);
+  const cross = timeToMinutes(ot.endTime) <= timeToMinutes(ot.startTime);
+  const decisionLabel = ot.status === LEAVE_STATUS.REJECTED ? "Ditolak" : "Disetujui";
+  return h(React.Fragment, null,
+    h(DetailShell, { title: "Detail Lembur", subtitle: ot.userName, onClose },
+      h("div", { className: "flex", style: { alignItems: "center", gap: 8, marginTop: 14 } },
+        h(LeaveStatusBadge, { status: ot.status }),
+        ot.createdBy === "admin" && h("span", { style: { fontSize: 12, color: "var(--t-faint)" } }, "Diinput oleh admin")),
+      h("div", { style: { marginTop: 10 } },
+        h(DetailRow, { label: "Karyawan" }, ot.userName || "-"),
+        h(DetailRow, { label: "Tanggal" }, formatDateID(ot.date)),
+        h(DetailRow, { label: "Jam" }, ot.startTime + " – " + ot.endTime + (cross ? " (selesai keesokan harinya)" : "")),
+        h(DetailRow, { label: "Durasi" }, formatOvertimeDuration(ot.minutes)),
+        h(DetailRow, { label: ot.createdBy === "admin" ? "Diinput" : "Diajukan" }, detailDateTime(ot.createdAt)),
+        ot.status !== LEAVE_STATUS.PENDING && h(DetailRow, { label: decisionLabel }, detailDateTime(ot.decidedAt) + (ot.decidedBy ? " · " + ot.decidedBy : ""))),
+      h("p", { style: { fontSize: 12, fontWeight: 700, color: "var(--navy-700)", marginTop: 16 } }, "Keterangan pekerjaan"),
+      h("p", { style: { fontSize: 14, color: "var(--navy-900)", marginTop: 4, whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, ot.task || "-"),
+      h("div", { style: { marginTop: 16 } },
+        h("p", { style: { fontSize: 12, fontWeight: 700, color: "var(--navy-700)", marginBottom: 6 } }, "Foto pekerjaan" + (ot.photoCount ? ` (${ot.photoCount})` : "")),
+        !ot.photoCount ? h("p", { style: { fontSize: 13, color: "var(--t-faint)" } }, "Tidak ada foto dilampirkan.") : photoError ? h("p", { style: { fontSize: 13, color: "var(--red)" } }, photoError) : !photos ? h("p", { style: { fontSize: 13, color: "var(--t-faint)" } }, "Memuat foto…") : h("div", { style: { display: "flex", flexDirection: "column", gap: 10 } },
+          photos.map((src, i) => h("img", { key: i, src, alt: "Foto pekerjaan " + (i + 1), title: "Ketuk untuk memperbesar", onClick: () => setZoomIdx(i), style: { width: "100%", borderRadius: 12, cursor: "zoom-in", display: "block" } })))),
+      canDecide && ot.status === LEAVE_STATUS.PENDING && h("div", { className: "flex", style: { gap: 8, marginTop: 18 } },
+        h(Button, { variant: "success", size: "sm", disabled: busy, onClick: () => { onDecide(LEAVE_STATUS.APPROVED); onClose(); } }, h(Icon, { name: "check", size: 14 }), " Setujui"),
+        h(Button, { variant: "outline", size: "sm", disabled: busy, onClick: () => { onDecide(LEAVE_STATUS.REJECTED); onClose(); } }, h(Icon, { name: "x", size: 14 }), " Tolak"))),
+    zoomIdx !== null && photos && photos[zoomIdx] && h(LeaveAttachmentViewer, { data: photos[zoomIdx], name: "Foto lembur", type: "image/jpeg", onClose: () => setZoomIdx(null) }));
+}
+/* ======================= LEMBUR (KARYAWAN & ADMIN) ======================= */
+function OvertimePhotoField({
+  photos,
+  onPick,
+  onCamera,
+  onRemove,
+  disabled,
+  required
+}) {
+  const h = React.createElement;
+  const inputRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+  async function onFile(e) {
+    const files = [...(e.target.files || [])];
+    e.target.value = "";
+    if (!files.length) return;
+    setBusy(true);
+    try {
+      for (const f of files) {
+        if (!f.type.startsWith("image/")) continue;
+        await onPick(await readFileAsDataURL(f));
+      }
+    } catch (err) {
+      await onPick(null, err);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const full = photos.length >= OVERTIME_MAX_PHOTOS;
+  return h("div", null,
+    h("label", { className: "label" }, "Foto pekerjaan " + (required ? "(wajib, maks. " : "(opsional, maks. ") + OVERTIME_MAX_PHOTOS + ")"),
+    h("div", { className: "flex", style: { gap: 10, flexWrap: "wrap", alignItems: "center" } },
+      photos.map((src, i) => h("div", { key: i, style: { position: "relative", width: 64, height: 64 } },
+        h("img", { src, alt: "Foto pekerjaan " + (i + 1), style: { width: 64, height: 64, objectFit: "cover", borderRadius: 8, display: "block" } }),
+        h("button", { type: "button", onClick: () => onRemove(i), disabled, "aria-label": "Hapus foto", style: { position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", background: "var(--red)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" } }, h(Icon, { name: "x", size: 12 })))),
+      !full && h(Button, { type: "button", variant: "outline", size: "sm", onClick: onCamera, disabled: disabled || busy }, h(Icon, { name: "camera", size: 14 }), " Kamera"),
+      !full && h(Button, { type: "button", variant: "outline", size: "sm", onClick: () => inputRef.current && inputRef.current.click(), disabled: disabled || busy }, h(Icon, { name: "image", size: 14 }), busy ? " Memproses…" : " Galeri"),
+      h("input", { ref: inputRef, type: "file", accept: "image/*", multiple: true, style: { display: "none" }, onChange: onFile })));
+}
+// Foto lembur pada kartu: diunduh hanya saat "Lihat foto" ditekan
+function OvertimePhotos({
+  ot
+}) {
+  const h = React.createElement;
+  const n = ot.photoCount || 0;
+  const [photos, setPhotos] = useState(_otPhotoCache[ot.id] || null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [view, setView] = useState(null);
+  async function load() {
+    setLoading(true);
+    setError("");
+    try {
+      const arr = await getOvertimePhotos(ot.id);
+      if (!arr.length) setError("Foto tidak ditemukan.");
+      setPhotos(arr);
+    } catch (err) {
+      setError(err.message || "Gagal memuat foto.");
+    } finally {
+      setLoading(false);
+    }
+  }
+  if (!n) return null;
+  return h("div", { style: { marginTop: 10 } },
+    photos && photos.length ? h("div", { className: "flex", style: { gap: 8, flexWrap: "wrap" } },
+      photos.map((src, i) => h("img", { key: i, src, alt: "Foto pekerjaan " + (i + 1), title: "Ketuk untuk memperbesar", onClick: () => setView(i), style: { width: 72, height: 72, objectFit: "cover", borderRadius: 8, cursor: "zoom-in" } }))) : h("button", { type: "button", onClick: load, disabled: loading, style: { background: "none", border: "none", color: "var(--accent-700)", fontSize: 13, fontWeight: 600, cursor: "pointer", padding: 0, display: "inline-flex", alignItems: "center", gap: 6 } },
+      h(Icon, { name: "camera", size: 14 }), loading ? "Memuat foto…" : `Lihat foto (${n})`),
+    error && h("p", { style: { fontSize: 12, color: "var(--red)", marginTop: 4 } }, error),
+    view !== null && photos && photos[view] && h(LeaveAttachmentViewer, { data: photos[view], name: "Foto lembur", type: "image/jpeg", onClose: () => setView(null) }));
+}
+function OvertimeFormModal({
+  user,
+  employees,
+  adminMode,
+  byName,
+  onClose,
+  onSaved
+}) {
+  const h = React.createElement;
+  const todayStr = todayDateStrWITA(getTrustedNow());
+  const minDate = (() => {
+    const d = new Date(todayStr + "T00:00:00");
+    d.setDate(d.getDate() - 31);
+    return todayDateStr(d);
+  })();
+  const [form, setForm] = useState({
+    userId: adminMode ? "" : user.id,
+    date: todayStr,
+    startTime: "17:00",
+    endTime: "20:00",
+    task: ""
+  });
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [photos, setPhotos] = useState([]);
+  const [showCamera, setShowCamera] = useState(false);
+  const sMin = timeToMinutes(form.startTime), eMin = timeToMinutes(form.endTime);
+  const minutes = overtimeMinutes(form.startTime, form.endTime);
+  const crossMidnight = sMin !== null && eMin !== null && eMin <= sMin;
+  function update(field, value) {
+    setForm(f => ({ ...f, [field]: value }));
+    setError("");
+  }
+  async function addPhoto(dataUrl, err) {
+    if (err) return setError(err.message || "Gagal memproses foto.");
+    try {
+      const c = await otCompressDataUrl(dataUrl);
+      setPhotos(p => p.length >= OVERTIME_MAX_PHOTOS ? p : [...p, c]);
+      setError("");
+    } catch (e2) {
+      setError(e2.message || "Gagal memproses foto.");
+    }
+  }
+  async function handleSubmit(e) {
+    e.preventDefault();
+    const target = adminMode ? employees.find(u => u.id === form.userId) : user;
+    if (!target) return setError("Pilih karyawan terlebih dahulu.");
+    if (!form.date) return setError("Tanggal lembur wajib diisi.");
+    if (!adminMode && (form.date > todayStr || form.date < minDate)) return setError("Tanggal lembur hanya boleh dari 31 hari lalu sampai hari ini.");
+    if (!form.startTime || !form.endTime) return setError("Jam mulai dan jam selesai wajib diisi.");
+    if (minutes < 15) return setError("Durasi lembur minimal 15 menit.");
+    if (minutes > 16 * 60) return setError("Durasi lembur maksimal 16 jam per input.");
+    if (!form.task.trim()) return setError("Keterangan pekerjaan wajib diisi.");
+    if (!adminMode && OVERTIME_PHOTO_REQUIRED && photos.length === 0) return setError("Foto pekerjaan wajib dilampirkan (minimal 1).");
+    if (photos.reduce((a, x) => a + x.length, 0) > OVERTIME_PHOTO_MAX_CHARS) return setError("Ukuran foto terlalu besar. Hapus salah satu foto lalu coba lagi.");
+    const endAbs = sMin + minutes;
+    const clash = getOvertimes().find(o => o.userId === target.id && o.date === form.date && o.status !== LEAVE_STATUS.REJECTED && sMin < timeToMinutes(o.startTime) + o.minutes && timeToMinutes(o.startTime) < endAbs);
+    if (clash) return setError(`Bentrok dengan lembur yang sudah ada di tanggal ini (${clash.startTime}–${clash.endTime}).`);
+    setSaving(true);
+    setError("");
+    try {
+      await addOvertime({
+        userId: target.id,
+        userName: target.name,
+        date: form.date,
+        startTime: form.startTime,
+        endTime: form.endTime,
+        task: form.task,
+        photos,
+        autoApprove: adminMode,
+        byName
+      });
+      onSaved();
+    } catch (err) {
+      setError(err.message || "Terjadi kesalahan saat menyimpan lembur. Coba lagi.");
+    } finally {
+      setSaving(false);
+    }
+  }
+  if (showCamera) {
+    return h(CameraCaptureModal, {
+      title: "Foto Pekerjaan",
+      requireFace: false,
+      onClose: () => setShowCamera(false),
+      onCapture: dataUrl => {
+        setShowCamera(false);
+        addPhoto(dataUrl);
+      }
+    });
+  }
+  return h("div", { className: "modal-backdrop", onClick: onClose },
+    h("div", { className: "modal-box compact-form fade-up", style: { maxWidth: 440 }, onClick: e => e.stopPropagation() },
+      h("form", { onSubmit: handleSubmit },
+        h("div", { className: "flex form-head", style: { alignItems: "center", justifyContent: "space-between", padding: "18px 20px", borderBottom: "1px solid var(--line)" } },
+          h("h3", { style: { fontSize: 16, fontWeight: 700, color: "var(--navy-900)" } }, adminMode ? "Input Lembur Karyawan" : "Input Lembur"),
+          h("button", { type: "button", onClick: onClose, "aria-label": "Tutup", style: { color: "var(--t-faint)", padding: 4 } }, h(Icon, { name: "x", size: 20 }))),
+        h("div", { className: "form-body", style: { padding: 20, display: "flex", flexDirection: "column", gap: 14 } },
+          error && h("div", { style: { background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, error),
+          adminMode && h("div", null,
+            h("label", { className: "label" }, "Karyawan"),
+            h("select", { className: "input", value: form.userId, onChange: e => update("userId", e.target.value) },
+              h("option", { value: "" }, "— Pilih karyawan —"),
+              employees.map(u => h("option", { key: u.id, value: u.id }, u.name)))),
+          h("div", null,
+            h("label", { className: "label" }, "Tanggal lembur"),
+            h("input", { className: "input", type: "date", value: form.date, min: adminMode ? undefined : minDate, max: adminMode ? undefined : todayStr, onChange: e => update("date", e.target.value) })),
+          h("div", { className: "grid-2" },
+            h("div", null,
+              h("label", { className: "label" }, "Jam mulai"),
+              h("input", { className: "input", type: "time", value: form.startTime, onChange: e => update("startTime", e.target.value) })),
+            h("div", null,
+              h("label", { className: "label" }, "Jam selesai"),
+              h("input", { className: "input", type: "time", value: form.endTime, onChange: e => update("endTime", e.target.value) }))),
+          h("p", { style: { fontSize: 13, fontWeight: 600, color: minutes >= 15 ? "var(--accent-700)" : "var(--t-faint)", marginTop: -4 } },
+            "Durasi: " + (minutes ? formatOvertimeDuration(minutes) : "—") + (crossMidnight && minutes ? " (selesai keesokan harinya)" : "")),
+          h("div", null,
+            h("label", { className: "label" }, "Keterangan pekerjaan"),
+            h("textarea", { className: "input", rows: 3, value: form.task, onChange: e => update("task", e.target.value), placeholder: "mis. perbaikan kabel putus di Jl. Sam Ratulangi, patroli tambahan…", maxLength: 300, style: { resize: "none", fontFamily: "inherit" } })),
+          h(OvertimePhotoField, { photos, required: !adminMode && OVERTIME_PHOTO_REQUIRED, disabled: saving, onPick: addPhoto, onCamera: () => setShowCamera(true), onRemove: i => setPhotos(p => p.filter((_, k) => k !== i)) })),
+        h("div", { className: "flex form-foot", style: { gap: 10, padding: "16px 20px", borderTop: "1px solid var(--line)" } },
+          h(Button, { type: "button", variant: "outline", onClick: onClose, style: { flex: 1 } }, "Batal"),
+          h(Button, { type: "submit", variant: "primary", disabled: saving, style: { flex: 1 } }, saving ? "Menyimpan…" : adminMode ? "Simpan Lembur" : "Kirim Lembur")))));
+}
+function OvertimeCard({
+  ot,
+  showName,
+  canDecide,
+  canRemove,
+  busy,
+  onDecide,
+  onRemove
+}) {
+  const h = React.createElement;
+  const [showDetail, setShowDetail] = useState(false);
+  const cross = timeToMinutes(ot.endTime) <= timeToMinutes(ot.startTime);
+  const timeText = ot.startTime + " – " + ot.endTime + (cross ? " (+1 hari)" : "") + " · " + formatOvertimeDuration(ot.minutes);
+  const linkBtn = (label, onClick, color) => h("button", { type: "button", disabled: busy, onClick, style: { background: "none", border: "none", color: color || "var(--red)", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 } }, label);
+  return h("div", { className: "card", style: { padding: 16 } },
+    h("div", { className: "flex", style: { alignItems: "flex-start", justifyContent: "space-between", gap: 12 } },
+      h("div", { style: { minWidth: 0 } },
+        h("p", { style: { fontWeight: 600, color: "var(--navy-900)", fontSize: 14 } }, showName ? ot.userName : formatDateID(ot.date)),
+        h("p", { style: { fontSize: 12, color: "var(--t-faint)", marginTop: 2 } }, (showName ? formatDateShortID(ot.date) + " · " : "") + timeText)),
+      h(LeaveStatusBadge, { status: ot.status })),
+    h("p", { style: { fontSize: 13, color: "var(--t-muted)", marginTop: 10, whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, ot.task),
+    h(OvertimePhotos, { ot }),
+    h("div", { style: { marginTop: 10 } },
+      h("button", { type: "button", onClick: () => setShowDetail(true), style: { background: "none", border: "none", color: "var(--accent-700)", fontSize: 13, fontWeight: 600, cursor: "pointer", padding: 0, display: "inline-flex", alignItems: "center", gap: 6 } }, h(Icon, { name: "eye", size: 14 }), "Lihat detail")),
+    showDetail && h(OvertimeDetailModal, { ot, canDecide, busy, onDecide, onClose: () => setShowDetail(false) }),
+    (ot.createdBy === "admin" || ot.decidedBy) && h("p", { style: { fontSize: 11, color: "var(--t-faint)", marginTop: 6 } },
+      [ot.createdBy === "admin" ? "Diinput oleh admin" : null, ot.decidedBy && ot.createdBy !== "admin" ? (ot.status === LEAVE_STATUS.REJECTED ? "Ditolak oleh " : "Disetujui oleh ") + ot.decidedBy : null].filter(Boolean).join(" · ")),
+    canDecide && ot.status === LEAVE_STATUS.PENDING && h("div", { className: "flex", style: { gap: 8, marginTop: 12 } },
+      h(Button, { variant: "success", size: "sm", disabled: busy, onClick: () => onDecide(LEAVE_STATUS.APPROVED) }, h(Icon, { name: "check", size: 14 }), " Setujui"),
+      h(Button, { variant: "outline", size: "sm", disabled: busy, onClick: () => onDecide(LEAVE_STATUS.REJECTED) }, h(Icon, { name: "x", size: 14 }), " Tolak")),
+    (canRemove || (canDecide && ot.status !== LEAVE_STATUS.PENDING)) && h("div", { className: "flex", style: { gap: 14, marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--line)", alignItems: "center", flexWrap: "wrap" } },
+      canDecide && ot.status !== LEAVE_STATUS.PENDING && linkBtn("Kembalikan ke Menunggu", () => onDecide(LEAVE_STATUS.PENDING), "var(--accent-700)"),
+      canRemove && linkBtn(canDecide ? "Hapus" : "Batalkan pengajuan", onRemove)));
+}
+function EmployeeOvertimePage({
+  user
+}) {
+  const h = React.createElement;
+  const [showModal, setShowModal] = useState(false);
+  const [month, setMonth] = useState(todayDateStrWITA(getTrustedNow()).slice(0, 7));
+  const [busyId, setBusyId] = useState(null);
+  const [error, setError] = useState("");
+  useStoreSync();
+  const mine = getOvertimesByUser(user.id).filter(o => o.date.startsWith(month));
+  const approvedMin = mine.filter(o => o.status === LEAVE_STATUS.APPROVED).reduce((a, o) => a + o.minutes, 0);
+  const pendingCount = mine.filter(o => o.status === LEAVE_STATUS.PENDING).length;
+  async function cancel(ot) {
+    if (!window.confirm("Batalkan pengajuan lembur ini?")) return;
+    setBusyId(ot.id);
+    setError("");
+    try {
+      await deleteOvertime(ot.id);
+    } catch (err) {
+      setError(err.message || "Gagal membatalkan pengajuan lembur. Coba lagi.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+  const stat = (label, value, color) => h("div", { className: "card", style: { padding: 14, flex: 1, minWidth: 130 } },
+    h("p", { style: { fontSize: 12, color: "var(--t-faint)" } }, label),
+    h("p", { style: { fontSize: 18, fontWeight: 700, color: color || "var(--navy-900)", marginTop: 2 } }, value));
+  return h("div", { className: "container-md" },
+    h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 12, flexWrap: "wrap" } },
+      h("div", null,
+        h("h1", { style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Lembur"),
+        h("p", { style: { color: "var(--t-muted)", fontSize: 14, marginTop: 2 } }, "Catat jam lembur kamu dan pantau persetujuannya.")),
+      h(Button, { variant: "primary", onClick: () => setShowModal(true) }, h(Icon, { name: "plus", size: 16 }), " Input Lembur")),
+    error && h("div", { style: { marginBottom: 16, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, error),
+    h("div", { className: "flex", style: { gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 14 } },
+      h("div", null,
+        h("label", { className: "label" }, "Bulan"),
+        h("input", { className: "input", type: "month", value: month, onChange: e => e.target.value && setMonth(e.target.value), style: { maxWidth: 190 } }))),
+    h("div", { className: "flex", style: { gap: 10, flexWrap: "wrap", marginBottom: 18 } },
+      stat("Total lembur disetujui", approvedMin ? formatOvertimeDuration(approvedMin) : "0 jam", "var(--accent-700)"),
+      stat("Menunggu persetujuan", pendingCount + " pengajuan")),
+    mine.length === 0 ? h("div", { className: "card", style: { padding: 32, textAlign: "center" } },
+      h(Icon, { name: "timer", size: 28, style: { color: "#cbd5e1", margin: "0 auto 8px" } }),
+      h("p", { style: { fontSize: 14, color: "var(--t-muted)" } }, "Belum ada data lembur di bulan ini.")) : h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
+      mine.map(ot => h(OvertimeCard, { key: ot.id, ot, showName: false, canDecide: false, canRemove: ot.status === LEAVE_STATUS.PENDING, busy: busyId === ot.id, onRemove: () => cancel(ot) }))),
+    showModal && h(OvertimeFormModal, { user, adminMode: false, onClose: () => setShowModal(false), onSaved: () => setShowModal(false) }));
+}
+function OvertimeAdminPage() {
+  const h = React.createElement;
+  const { user, canEdit } = useAuth();
+  const [tab, setTab] = useState("pending");
+  const [month, setMonth] = useState(todayDateStrWITA(getTrustedNow()).slice(0, 7));
+  const [busyId, setBusyId] = useState(null);
+  const [error, setError] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  useStoreSync();
+  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE).sort((a, b) => a.name.localeCompare(b.name));
+  const inMonth = getOvertimes().filter(o => o.date.startsWith(month));
+  const pendingAll = getOvertimes().filter(o => o.status === LEAVE_STATUS.PENDING).length;
+  const filtered = tab === "all" ? inMonth : inMonth.filter(o => o.status === tab);
+  // Rekap total jam lembur DISETUJUI per karyawan pada bulan terpilih
+  const recapMap = {};
+  inMonth.filter(o => o.status === LEAVE_STATUS.APPROVED).forEach(o => {
+    const r = recapMap[o.userId] || (recapMap[o.userId] = { name: o.userName, minutes: 0, count: 0 });
+    r.minutes += o.minutes;
+    r.count += 1;
+  });
+  const recap = Object.values(recapMap).sort((a, b) => b.minutes - a.minutes);
+  const totalMin = recap.reduce((a, r) => a + r.minutes, 0);
+  async function run(id, fn, fallbackMsg) {
+    setBusyId(id);
+    setError("");
+    try {
+      await fn();
+    } catch (err) {
+      setError(err.message || fallbackMsg);
+    } finally {
+      setBusyId(null);
+    }
+  }
+  function remove(ot) {
+    if (!window.confirm(`Hapus data lembur ${ot.userName} tanggal ${formatDateShortID(ot.date)}?`)) return;
+    run(ot.id, () => deleteOvertime(ot.id), "Gagal menghapus data lembur. Coba lagi.");
+  }
+  function exportCsv() {
+    const q = v => '"' + String(v ?? "").replace(/"/g, '""') + '"';
+    const label = { pending: "Menunggu", approved: "Disetujui", rejected: "Ditolak" };
+    const rows = [["Tanggal", "Nama", "Jam Mulai", "Jam Selesai", "Durasi (menit)", "Durasi (jam)", "Keterangan", "Status", "Diinput Oleh", "Jumlah Foto"]];
+    [...filtered].sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : a.userName.localeCompare(b.userName)).forEach(o => rows.push([o.date, o.userName, o.startTime, o.endTime, o.minutes, (o.minutes / 60).toFixed(2), o.task, label[o.status] || o.status, o.createdBy === "admin" ? "Admin" : "Karyawan", o.photoCount || 0]));
+    const csv = "\ufeff" + rows.map(r => r.map(q).join(",")).join("\r\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `lembur-${month}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+  const TABS = [{ key: "pending", label: "Menunggu" }, { key: "approved", label: "Disetujui" }, { key: "rejected", label: "Ditolak" }, { key: "all", label: "Semua" }];
+  return h("div", { className: "container-lg" },
+    h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 12, flexWrap: "wrap" } },
+      h("div", null,
+        h("h1", { style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Lembur Karyawan"),
+        h("p", { style: { color: "var(--t-muted)", fontSize: 14, marginTop: 2 } }, "Tinjau pengajuan lembur, input langsung untuk karyawan, dan lihat rekap jam per bulan.")),
+      h("div", { className: "flex", style: { gap: 8, flexWrap: "wrap" } },
+        h(Button, { variant: "outline", onClick: exportCsv, disabled: filtered.length === 0 }, h(Icon, { name: "download", size: 16 }), " Unduh CSV"),
+        canEdit && h(Button, { variant: "primary", onClick: () => setShowForm(true) }, h(Icon, { name: "plus", size: 16 }), " Input Lembur"))),
+    error && h("div", { style: { marginBottom: 16, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, error),
+    h("div", { style: { marginBottom: 14 } },
+      h("label", { className: "label" }, "Bulan"),
+      h("input", { className: "input", type: "month", value: month, onChange: e => e.target.value && setMonth(e.target.value), style: { maxWidth: 190 } })),
+    h("div", { className: "card", style: { padding: 16, marginBottom: 18 } },
+      h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: recap.length ? 10 : 0, flexWrap: "wrap" } },
+        h("p", { style: { fontSize: 14, fontWeight: 700, color: "var(--navy-900)" } }, "Rekap lembur disetujui bulan ini"),
+        h("p", { style: { fontSize: 13, color: "var(--accent-700)", fontWeight: 700 } }, "Total " + (totalMin ? formatOvertimeDuration(totalMin) : "0 jam"))),
+      recap.length === 0 ? h("p", { style: { fontSize: 13, color: "var(--t-faint)", marginTop: 6 } }, "Belum ada lembur yang disetujui di bulan ini.") : h("div", { style: { display: "flex", flexDirection: "column" } },
+        recap.map((r, i) => h("div", { key: r.name + i, className: "flex", style: { justifyContent: "space-between", gap: 10, padding: "8px 0", borderTop: i ? "1px solid var(--line)" : "none", fontSize: 13 } },
+          h("span", { style: { color: "var(--navy-900)", fontWeight: 500 } }, r.name),
+          h("span", { style: { color: "var(--t-muted)", whiteSpace: "nowrap" } }, formatOvertimeDuration(r.minutes) + " · " + r.count + "x"))))),
+    h("div", { className: "flex scrollbar-none", style: { gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 16 } },
+      TABS.map(t => h("button", { key: t.key, onClick: () => setTab(t.key), className: `chip ${tab === t.key ? "chip-active" : "chip-inactive"}` },
+        t.label, t.key === "pending" && pendingAll > 0 ? ` (${pendingAll})` : ""))),
+    filtered.length === 0 ? h("div", { className: "card", style: { padding: 40, textAlign: "center" } },
+      h("p", { style: { color: "var(--t-faint)", fontSize: 14 } }, "Tidak ada data lembur pada kategori dan bulan ini.")) : h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
+      filtered.map(ot => h(OvertimeCard, {
+        key: ot.id, ot, showName: true, canDecide: canEdit, canRemove: canEdit, busy: busyId === ot.id,
+        onDecide: d => run(ot.id, () => decideOvertime(ot.id, d, user && user.name), "Gagal menyimpan keputusan lembur. Coba lagi."),
+        onRemove: () => remove(ot)
+      }))),
+    showForm && h(OvertimeFormModal, { employees, adminMode: true, byName: user && user.name, onClose: () => setShowForm(false), onSaved: () => setShowForm(false) }));
+}
+
 /* ======================= APP UTAMA ======================= */
 const EMPLOYEE_NAV = [{
   key: "home",
@@ -19767,6 +20479,10 @@ const EMPLOYEE_NAV = [{
   key: "leave",
   label: "Izin",
   icon: "calendar-plus"
+}, {
+  key: "overtime",
+  label: "Lembur",
+  icon: "timer"
 }, {
   key: "profile",
   label: "Profil",
@@ -20111,6 +20827,10 @@ function App() {
     if (!canAccessAdminPanel(user)) return 0;
     return getLeaveRequests().filter(l => l.status === LEAVE_STATUS.PENDING).length;
   }, [user, leaveTick, page]);
+  const pendingOvertimeCount = useMemo(() => {
+    if (!canAccessAdminPanel(user)) return 0;
+    return getOvertimes().filter(o => o.status === LEAVE_STATUS.PENDING).length;
+  }, [user, page, store.overtimes]);
   const baruKejadianCount = useMemo(() => {
     if (!canAccessAdminPanel(user)) return 0;
     return getKejadianReports().filter(k => k.status === KEJADIAN_STATUS.BARU).length;
@@ -20162,6 +20882,11 @@ function App() {
       label: "Pengajuan Izin",
       icon: "calendar-clock",
       badge: pendingLeaveCount
+    }, {
+      key: "overtime",
+      label: "Lembur",
+      icon: "timer",
+      badge: pendingOvertimeCount
     }]
   }, {
     key: "settings",
@@ -20188,7 +20913,7 @@ function App() {
     key: "panduan",
     label: "Panduan",
     icon: "help-circle"
-  }], [pendingLeaveCount, baruKejadianCount]);
+  }], [pendingLeaveCount, baruKejadianCount, pendingOvertimeCount]);
   const isAdminUser = canAccessAdminPanel(user);
   const {
     alerts: emergencyAlerts,
@@ -20231,6 +20956,7 @@ function App() {
       if (page === "leaves") return /*#__PURE__*/React.createElement(LeaveRequestsPage, {
         onChanged: () => setLeaveTick(t => t + 1)
       });
+      if (page === "overtime") return /*#__PURE__*/React.createElement(OvertimeAdminPage, null);
       if (page === "settings-jam") return /*#__PURE__*/React.createElement(SettingsPage, {
         section: "jam"
       });
@@ -20264,6 +20990,9 @@ function App() {
       user: user
     });
     if (page === "leave") return /*#__PURE__*/React.createElement(EmployeeLeavePage, {
+      user: user
+    });
+    if (page === "overtime") return /*#__PURE__*/React.createElement(EmployeeOvertimePage, {
       user: user
     });
     if (page === "profile") return /*#__PURE__*/React.createElement(ProfilePage, {
