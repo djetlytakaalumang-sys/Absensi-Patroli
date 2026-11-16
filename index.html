@@ -20300,20 +20300,29 @@ function OvertimeCard({
   const [showDetail, setShowDetail] = useState(false);
   const cross = timeToMinutes(ot.endTime) <= timeToMinutes(ot.startTime);
   const timeText = ot.startTime + " – " + ot.endTime + (cross ? " (+1 hari)" : "") + " · " + formatOvertimeDuration(ot.minutes);
+  const subText = (showName ? formatDateShortID(ot.date) + " · " : "") + timeText + (ot.photoCount ? " · " + ot.photoCount + " foto" : "");
   const linkBtn = (label, onClick, color) => h("button", { type: "button", disabled: busy, onClick, style: { background: "none", border: "none", color: color || "var(--red)", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 } }, label);
+  // Kartu ringkas seperti daftar Pengajuan Izin: ikon + nama/tanggal + status, keterangan 2 baris;
+  // ketuk bagian atas kartu untuk membuka detail lengkap (jam, foto, keputusan).
   return h("div", { className: "card", style: { padding: 16 } },
     h("div", { className: "flex", style: { alignItems: "flex-start", justifyContent: "space-between", gap: 12 } },
-      h("div", { style: { minWidth: 0 } },
-        h("p", { style: { fontWeight: 600, color: "var(--navy-900)", fontSize: 14 } }, showName ? ot.userName : formatDateID(ot.date)),
-        h("p", { style: { fontSize: 12, color: "var(--t-faint)", marginTop: 2 } }, (showName ? formatDateShortID(ot.date) + " · " : "") + timeText)),
+      h("div", {
+        className: "flex",
+        role: "button",
+        tabIndex: 0,
+        title: "Lihat detail lembur",
+        onClick: () => setShowDetail(true),
+        onKeyDown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setShowDetail(true); } },
+        style: { gap: 12, alignItems: "center", cursor: "pointer", flex: 1, minWidth: 0 }
+      },
+        h("div", { style: { width: 44, height: 44, borderRadius: 10, flexShrink: 0, background: "var(--slate-mist)", display: "flex", alignItems: "center", justifyContent: "center" } },
+          h(Icon, { name: "timer", size: 18, style: { color: "var(--t-faint)" } })),
+        h("div", { style: { minWidth: 0 } },
+          h("p", { style: { fontWeight: 600, color: "var(--navy-900)", fontSize: 14, overflowWrap: "anywhere" } }, showName ? ot.userName : formatDateID(ot.date)),
+          h("p", { style: { fontSize: 12, color: "var(--t-faint)" } }, subText))),
       h(LeaveStatusBadge, { status: ot.status })),
-    h("p", { style: { fontSize: 13, color: "var(--t-muted)", marginTop: 10, whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, ot.task),
-    h(OvertimePhotos, { ot }),
-    h("div", { style: { marginTop: 10 } },
-      h("button", { type: "button", onClick: () => setShowDetail(true), style: { background: "none", border: "none", color: "var(--accent-700)", fontSize: 13, fontWeight: 600, cursor: "pointer", padding: 0, display: "inline-flex", alignItems: "center", gap: 6 } }, h(Icon, { name: "eye", size: 14 }), "Lihat detail")),
+    h("p", { style: { fontSize: 13, color: "var(--t-muted)", marginTop: 10, whiteSpace: "normal", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflowWrap: "anywhere" } }, ot.task),
     showDetail && h(OvertimeDetailModal, { ot, canDecide, busy, onDecide, onClose: () => setShowDetail(false) }),
-    (ot.createdBy === "admin" || ot.decidedBy) && h("p", { style: { fontSize: 11, color: "var(--t-faint)", marginTop: 6 } },
-      [ot.createdBy === "admin" ? "Diinput oleh admin" : null, ot.decidedBy && ot.createdBy !== "admin" ? (ot.status === LEAVE_STATUS.REJECTED ? "Ditolak oleh " : "Disetujui oleh ") + ot.decidedBy : null].filter(Boolean).join(" · ")),
     canDecide && ot.status === LEAVE_STATUS.PENDING && h("div", { className: "flex", style: { gap: 8, marginTop: 12 } },
       h(Button, { variant: "success", size: "sm", disabled: busy, onClick: () => onDecide(LEAVE_STATUS.APPROVED) }, h(Icon, { name: "check", size: 14 }), " Setujui"),
       h(Button, { variant: "outline", size: "sm", disabled: busy, onClick: () => onDecide(LEAVE_STATUS.REJECTED) }, h(Icon, { name: "x", size: 14 }), " Tolak")),
@@ -20364,7 +20373,7 @@ function EmployeeOvertimePage({
       stat("Menunggu persetujuan", pendingCount + " pengajuan")),
     mine.length === 0 ? h("div", { className: "card", style: { padding: 32, textAlign: "center" } },
       h(Icon, { name: "timer", size: 28, style: { color: "#cbd5e1", margin: "0 auto 8px" } }),
-      h("p", { style: { fontSize: 14, color: "var(--t-muted)" } }, "Belum ada data lembur di bulan ini.")) : h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
+      h("p", { style: { fontSize: 14, color: "var(--t-muted)" } }, "Belum ada data lembur di bulan ini.")) : h("div", { className: "leave-grid", style: { display: "flex", flexDirection: "column", gap: 12 } },
       mine.map(ot => h(OvertimeCard, { key: ot.id, ot, showName: false, canDecide: false, canRemove: ot.status === LEAVE_STATUS.PENDING, busy: busyId === ot.id, onRemove: () => cancel(ot) }))),
     showModal && h(OvertimeFormModal, { user, adminMode: false, onClose: () => setShowModal(false), onSaved: () => setShowModal(false) }));
 }
@@ -20445,7 +20454,7 @@ function OvertimeAdminPage() {
       TABS.map(t => h("button", { key: t.key, onClick: () => setTab(t.key), className: `chip ${tab === t.key ? "chip-active" : "chip-inactive"}` },
         t.label, t.key === "pending" && pendingAll > 0 ? ` (${pendingAll})` : ""))),
     filtered.length === 0 ? h("div", { className: "card", style: { padding: 40, textAlign: "center" } },
-      h("p", { style: { color: "var(--t-faint)", fontSize: 14 } }, "Tidak ada data lembur pada kategori dan bulan ini.")) : h("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
+      h("p", { style: { color: "var(--t-faint)", fontSize: 14 } }, "Tidak ada data lembur pada kategori dan bulan ini.")) : h("div", { className: "leave-grid", style: { display: "flex", flexDirection: "column", gap: 12 } },
       filtered.map(ot => h(OvertimeCard, {
         key: ot.id, ot, showName: true, canDecide: canEdit, canRemove: canEdit, busy: busyId === ot.id,
         onDecide: d => run(ot.id, () => decideOvertime(ot.id, d, user && user.name), "Gagal menyimpan keputusan lembur. Coba lagi."),
