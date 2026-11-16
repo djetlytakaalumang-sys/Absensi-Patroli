@@ -2043,11 +2043,22 @@ async function getOvertimePhotos(id) {
   _otPhotoCache[id] = arr;
   return arr;
 }
+// Aturan: karyawan yang punya jadwal Piket Malam pada suatu tanggal TIDAK boleh mengajukan lembur di tanggal yang sama.
+// Dicek dari Jadwal resmi (getScheduleFor, sudah memperhitungkan izin yang disetujui: kalau jadwal Piket Malam
+// digantikan Izin, orangnya tidak lagi berstatus Piket Malam sehingga tidak diblokir).
+const OVERTIME_NIGHT_DUTY_MSG = "Pengajuan lembur ditolak: Anda memiliki jadwal Piket Malam pada tanggal tersebut. Karyawan dengan jadwal Piket Malam tidak dapat mengajukan lembur di tanggal yang sama.";
+function hasNightDutyOn(userId, dateStr) {
+  if (!userId || !dateStr) return false;
+  const sch = getScheduleFor(userId, dateStr);
+  return !!sch && sch.type === SCHEDULE_TYPE.PIKET_MALAM;
+}
 async function addOvertime(data) {
   // Input lembur hanya untuk karyawan (atas nama dirinya sendiri) — admin/View Only hanya menyetujui, menolak, dan memantau.
   const _sess = getSession();
   const _me = _sess && store.users.find(x => x.id === _sess.userId);
   if (!_me || _me.role !== ROLES.EMPLOYEE || data.userId !== _me.id) throw new Error("Lembur hanya bisa diinput oleh karyawan yang bersangkutan.");
+  // Validasi jadwal otomatis (lapisan terakhir — berlaku apa pun jalur pemanggilnya).
+  if (hasNightDutyOn(data.userId, data.date)) throw new Error(OVERTIME_NIGHT_DUTY_MSG);
   const nowIso = new Date().toISOString();
   const auto = data.autoApprove === true;
   const photos = Array.isArray(data.photos) ? data.photos.slice(0, OVERTIME_MAX_PHOTOS) : [];
@@ -17307,6 +17318,7 @@ function PanduanPage() {
         "Pilih tanggal lembur (paling lama 31 hari ke belakang sampai hari ini), lalu isi Jam Mulai dan Jam Selesai. Durasi dihitung otomatis dan langsung tampil di form.",
         "Kalau Jam Selesai lebih kecil dari Jam Mulai, dianggap lewat tengah malam (selesai keesokan harinya).",
         "Durasi minimal 15 menit dan maksimal 16 jam per input. Lembur tidak boleh bentrok jamnya dengan lembur lain di tanggal yang sama (yang berstatus Ditolak tidak dihitung bentrok).",
+        "Karyawan yang memiliki jadwal Piket Malam pada suatu tanggal tidak dapat mengajukan lembur di tanggal yang sama. Sistem memvalidasi jadwal secara otomatis dan menolak pengajuannya.",
         "Tulis keterangan pekerjaan. Foto pekerjaan wajib minimal 1 dan maksimal 3, bisa diambil dari kamera atau dipilih dari galeri; foto otomatis dikecilkan.",
         "Tekan \"Kirim Lembur\". Statusnya awalnya Menunggu, dan pengajuan yang masih Menunggu masih bisa dibatalkan oleh karyawan."
       ]
@@ -20303,6 +20315,7 @@ function OvertimeFormModal({
   const sMin = timeToMinutes(form.startTime), eMin = timeToMinutes(form.endTime);
   const minutes = overtimeMinutes(form.startTime, form.endTime);
   const crossMidnight = sMin !== null && eMin !== null && eMin <= sMin;
+  const nightDutyBlocked = hasNightDutyOn(adminMode ? form.userId : user.id, form.date);
   function update(field, value) {
     setForm(f => ({ ...f, [field]: value }));
     setError("");
@@ -20322,6 +20335,7 @@ function OvertimeFormModal({
     const target = adminMode ? employees.find(u => u.id === form.userId) : user;
     if (!target) return setError("Pilih karyawan terlebih dahulu.");
     if (!form.date) return setError("Tanggal lembur wajib diisi.");
+    if (hasNightDutyOn(target.id, form.date)) return setError(OVERTIME_NIGHT_DUTY_MSG);
     if (!adminMode && (form.date > todayStr || form.date < minDate)) return setError("Tanggal lembur hanya boleh dari 31 hari lalu sampai hari ini.");
     if (!form.startTime || !form.endTime) return setError("Jam mulai dan jam selesai wajib diisi.");
     if (minutes < 15) return setError("Durasi lembur minimal 15 menit.");
@@ -20379,7 +20393,8 @@ function OvertimeFormModal({
               employees.map(u => h("option", { key: u.id, value: u.id }, u.name)))),
           h("div", null,
             h("label", { className: "label" }, "Tanggal lembur"),
-            h("input", { className: "input", type: "date", value: form.date, min: adminMode ? undefined : minDate, max: adminMode ? undefined : todayStr, onChange: e => update("date", e.target.value) })),
+            h("input", { className: "input", type: "date", value: form.date, min: adminMode ? undefined : minDate, max: adminMode ? undefined : todayStr, onChange: e => update("date", e.target.value) }),
+            nightDutyBlocked && h("div", { role: "alert", style: { background: "var(--red-soft)", color: "var(--red)", fontSize: 12.5, padding: "8px 12px", borderRadius: 10, marginTop: 8 } }, "Ada jadwal Piket Malam pada tanggal ini. Lembur tidak dapat diajukan di tanggal yang sama.")),
           h("div", { className: "grid-2" },
             h("div", null,
               h("label", { className: "label" }, "Jam mulai"),
@@ -20395,7 +20410,7 @@ function OvertimeFormModal({
           h(OvertimePhotoField, { photos, required: !adminMode && OVERTIME_PHOTO_REQUIRED, disabled: saving, onPick: addPhoto, onCamera: () => setShowCamera(true), onRemove: i => setPhotos(p => p.filter((_, k) => k !== i)) })),
         h("div", { className: "flex form-foot", style: { gap: 10, padding: "16px 20px", borderTop: "1px solid var(--line)" } },
           h(Button, { type: "button", variant: "outline", onClick: onClose, style: { flex: 1 } }, "Batal"),
-          h(Button, { type: "submit", variant: "primary", disabled: saving, style: { flex: 1 } }, saving ? "Menyimpan…" : adminMode ? "Simpan Lembur" : "Kirim Lembur")))));
+          h(Button, { type: "submit", variant: "primary", disabled: saving || nightDutyBlocked, style: { flex: 1 } }, saving ? "Menyimpan…" : adminMode ? "Simpan Lembur" : "Kirim Lembur")))));
 }
 function OvertimeCard({
   ot,
