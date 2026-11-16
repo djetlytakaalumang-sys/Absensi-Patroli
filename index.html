@@ -1967,8 +1967,8 @@ async function addLeaveRequest(data) {
 }
 /* ===== LEMBUR =====
    Status memakai nilai yang sama dengan izin (pending / approved / rejected) supaya lencana & warnanya konsisten.
-   Karyawan mengajukan -> status "pending"; admin menyetujui/menolak. Admin juga bisa menginput langsung
-   untuk karyawan (langsung "approved", ditandai createdBy: "admin"). */
+   Karyawan mengajukan -> status "pending"; admin menyetujui/menolak. Input lembur HANYA oleh karyawan
+   (admin tidak bisa menginput). Data lama berlabel createdBy: "admin" tetap ditampilkan. */
 function generateOvertimeId() {
   return "ot-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
@@ -2025,6 +2025,10 @@ async function getOvertimePhotos(id) {
   return arr;
 }
 async function addOvertime(data) {
+  // Input lembur hanya untuk karyawan (atas nama dirinya sendiri) — admin/View Only hanya menyetujui, menolak, dan memantau.
+  const _sess = getSession();
+  const _me = _sess && store.users.find(x => x.id === _sess.userId);
+  if (!_me || _me.role !== ROLES.EMPLOYEE || data.userId !== _me.id) throw new Error("Lembur hanya bisa diinput oleh karyawan yang bersangkutan.");
   const nowIso = new Date().toISOString();
   const auto = data.autoApprove === true;
   const photos = Array.isArray(data.photos) ? data.photos.slice(0, OVERTIME_MAX_PHOTOS) : [];
@@ -17099,7 +17103,7 @@ function PanduanPage() {
   const headerEl = React.createElement("div", { style: { marginBottom: 24 } },
     React.createElement("h1", { style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Panduan & Penjelasan Perhitungan"),
     React.createElement("p", { style: { color: "var(--navy-700)", fontSize: 14, marginTop: 2 } },
-      "Panduan khusus admin: penjelasan cara kerja setiap status, skor, CP, laporan kejadian, dan pengaturan di aplikasi ini \u2014 klik tiap bagian untuk membuka.")
+      "Panduan khusus admin: penjelasan cara kerja setiap status, skor, CP, laporan kejadian, lembur, hak akses, dan pengaturan di aplikasi ini \u2014 klik tiap bagian untuk membuka.")
   );
 
   const ringkasanSection = React.createElement(GuideSection, { icon: "sparkles", title: "Ringkasan Cepat: Dari Mana Nilai Saya?", defaultOpen: true },
@@ -17237,6 +17241,7 @@ function PanduanPage() {
         "Di tampilan ringkas, tiap laporan yang sudah diproses punya satu baris ringkasan, mis. \"Update terakhir 2 hari lalu oleh Budi · 3 update\". Buka kartu laporan untuk melihat riwayat lengkap berurutan dari yang terlama; klik foto untuk memperbesar atau mengecilkan.",
         "Admin bisa menghapus laporan kejadian: buka kartu laporannya lalu tekan \"Hapus Laporan\" dan konfirmasi. Laporan beserta foto dan seluruh riwayat updatenya terhapus permanen dan tidak bisa dikembalikan. Kalau perlu arsip, ekspor ke Excel atau PDF dulu.",
         "Ekspor Excel memuat kolom Ticket ID, Kategori, Prioritas, Judul, Kronologi, dan \"Riwayat Penanganan\" (semua update: tanggal, jam, petugas, catatan). PDF memuat kolom Tiket (nomor, judul, kategori, prioritas) dan Riwayat Penanganan; riwayat yang panjang dipecah ke beberapa baris dan tiap baris lanjutan mengulang info tiket supaya tidak ada kolom kosong. Entri yang punya foto diberi tanda (+foto); fotonya sendiri tidak ikut diekspor maupun di-backup.",
+        "Tombol \"Lihat detail\" pada kartu laporan (atau klik barisnya di Feed Laporan Kejadian pada Dashboard) membuka Detail Laporan Kejadian: nomor tiket, judul, kategori, prioritas, status, pelapor, waktu lapor, waktu mulai diproses, waktu selesai beserta lama penanganan, kronologi, foto yang bisa diperbesar, peta lokasi dengan tautan Google Maps, dan riwayat penanganan lengkap.",
         "Tab \"Baru & Diproses\" berisi laporan yang masih berjalan, tab \"Selesai\" berisi yang sudah tuntas.",
         "Urutan daftar bawaannya mengikuti status: Baru, lalu Diproses (yang Darurat paling atas), dan Selesai di paling bawah. Pilihan \"Urutkan\" bisa diganti ke Tanggal terbaru atau Tanggal terlama, dan kolom \"Tanggal\" menyaring laporan pada satu hari tertentu (tekan \"Reset tanggal\" untuk menampilkan semua). Leader Team punya pilihan urutan yang sama di kartu \"Laporan Kejadian Tim\".",
         "Laporan yang ditandai Darurat memunculkan kartu merah di akun admin disertai nada notifikasi lembut dua nada yang berulang tiap beberapa detik, getar singkat, dan judul tab berkedip pelan. Bunyinya berhenti setelah Anda menekan \"Matikan Bunyi Alarm\" atau menutup laporannya, dan otomatis berhenti sendiri setelah 30 detik (kartunya tetap tampil sampai ditutup).",
@@ -17264,6 +17269,62 @@ function PanduanPage() {
       items: [
         "Menu Pengajuan \u2192 Pengajuan Izin menampilkan semua pengajuan. Pengajuan yang masih Menunggu punya tombol Setujui dan Tolak.",
         "Angka pada menu menunjukkan jumlah pengajuan yang menunggu keputusan."
+      ]
+    })
+  );
+
+  const lemburSection = React.createElement(GuideSection, { icon: "timer", title: "Lembur: Input, Persetujuan, Detail & Unduh Excel/PDF" },
+    React.createElement("p", null, "Karyawan mencatat jam lembur lewat aplikasi, lalu admin menyetujui atau menolak. Input lembur HANYA bisa dilakukan oleh karyawan untuk dirinya sendiri; admin dan akun View Only tidak bisa menginput lembur."),
+    React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Cara input (karyawan):"),
+    React.createElement(GuideList, {
+      items: [
+        "Buka menu Lembur, lalu tekan \"Input Lembur\".",
+        "Pilih tanggal lembur (paling lama 31 hari ke belakang sampai hari ini), lalu isi Jam Mulai dan Jam Selesai. Durasi dihitung otomatis dan langsung tampil di form.",
+        "Kalau Jam Selesai lebih kecil dari Jam Mulai, dianggap lewat tengah malam (selesai keesokan harinya).",
+        "Durasi minimal 15 menit dan maksimal 16 jam per input. Lembur tidak boleh bentrok jamnya dengan lembur lain di tanggal yang sama (yang berstatus Ditolak tidak dihitung bentrok).",
+        "Tulis keterangan pekerjaan. Foto pekerjaan wajib minimal 1 dan maksimal 3, bisa diambil dari kamera atau dipilih dari galeri; foto otomatis dikecilkan.",
+        "Tekan \"Kirim Lembur\". Statusnya awalnya Menunggu, dan pengajuan yang masih Menunggu masih bisa dibatalkan oleh karyawan."
+      ]
+    }),
+    React.createElement(GuideBadgeRow, { label: "Menunggu", color: "var(--amber)", bg: "var(--amber-soft)", desc: "Pengajuan sudah terkirim, belum diputuskan admin. Belum dihitung ke total jam lembur." }),
+    React.createElement(GuideBadgeRow, { label: "Disetujui", color: "var(--green)", bg: "var(--green-soft)", desc: "Durasinya dihitung ke total jam lembur karyawan pada bulan itu." }),
+    React.createElement(GuideBadgeRow, { label: "Ditolak", color: "var(--red)", bg: "var(--red-soft)", desc: "Tidak dihitung ke total jam lembur." }),
+    React.createElement(GuideExampleBox, { title: "Contoh menghitung durasi" },
+      React.createElement("p", { style: { margin: 0, fontSize: 13.5 } }, "18:00 \u2013 21:30 = 3 jam 30 menit (3,50 jam). 22:00 \u2013 02:00 = 4 jam, karena lewat tengah malam.")
+    ),
+    React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Untuk admin:"),
+    React.createElement(GuideList, {
+      items: [
+        "Menu Pengajuan \u2192 Lembur menampilkan semua lembur dalam kartu ringkas dua kolom (ikon, nama, tanggal, jam, durasi, status, dan keterangan 2 baris). Pilih bulan di bagian atas, lalu saring dengan tab Menunggu, Disetujui, Ditolak, atau Semua. Angka pada menu menunjukkan jumlah pengajuan yang menunggu.",
+        "Ketuk bagian atas kartu untuk membuka Detail Lembur: durasi dan jam, hari & tanggal, nama dan jabatan karyawan, waktu diajukan, keputusan (siapa, kapan, dan lama proses), keterangan pekerjaan, foto yang bisa diperbesar, serta rekap lembur karyawan itu pada bulan yang sama.",
+        "Pengajuan Menunggu punya tombol Setujui dan Tolak (di kartu maupun di detail). Setelah diputuskan, keputusan bisa dikembalikan lewat \"Kembalikan ke Menunggu\", dan data bisa dihapus lewat \"Hapus\" (hanya Admin).",
+        "Kartu \"Rekap lembur disetujui bulan ini\" menampilkan total jam seluruh karyawan dan rincian per karyawan (total jam dan berapa kali lembur). Hanya lembur berstatus Disetujui yang dihitung.",
+        "Tombol \"Unduh Excel\" dan \"Unduh PDF\" membuat laporan SEMUA lembur (semua status) pada bulan yang dipilih, tidak terpengaruh tab yang sedang aktif. Excel berisi dua sheet: \"Rekap per Karyawan\" (jumlah dan total jam disetujui, jumlah menunggu dan ditolak, serta baris TOTAL) dan \"Rincian Lembur\" (satu baris per lembur). PDF berisi tabel rekap lalu tabel rincian.",
+        "Karyawan juga punya tombol Excel dan PDF di halaman Lembur untuk mengunduh data lemburnya sendiri pada bulan yang dipilih.",
+        "Lembur lama yang dulu diinput oleh admin tetap tampil dengan keterangan \"Diinput oleh admin\" dan tetap dihitung di rekap."
+      ]
+    })
+  );
+
+  const aksesSection = React.createElement(GuideSection, { icon: "shield", title: "Hak Akses: Admin, View Only & Karyawan" },
+    React.createElement(GuideBadgeRow, { label: "Admin", color: "var(--navy-900)", bg: "var(--slate-mist)", desc: "Bisa melihat dan mengubah semua data: menyetujui izin dan lembur, mengubah pengaturan, mengelola pengguna, backup, dan lainnya." }),
+    React.createElement(GuideBadgeRow, { label: "View Only", color: "var(--accent-700)", bg: "var(--slate-mist)", desc: "Bisa membuka semua menu admin untuk MELIHAT saja: Dashboard, Presensi Karyawan (jam masuk), Jadwal Kerja, Lembur, Patroli, Laporan Kejadian, Izin, Pengaturan, Hak Akses, dan Backup." }),
+    React.createElement(GuideBadgeRow, { label: "Karyawan", color: "var(--green)", bg: "var(--green-soft)", desc: "Hanya mengakses presensi, patroli, jadwal, penilaian, riwayat, izin, dan lembur milik sendiri." }),
+    React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Aturan akun View Only:"),
+    React.createElement(GuideList, {
+      items: [
+        "Tidak ada tombol tambah, ubah, hapus, setujui, atau tolak. Halaman Pengaturan tampil redup dengan keterangan \"Mode Lihat Saja\".",
+        "Tetap bisa membuka halaman detail (laporan kejadian, lembur, presensi), melihat foto dan peta, serta mengunduh Excel atau PDF.",
+        "Perbaikan otomatis di latar belakang (menyesuaikan status presensi dengan jadwal dan menutup sesi patroli yang tertinggal) tidak dijalankan dari akun View Only; perbaikan itu tetap berjalan lewat akun Admin dan Karyawan.",
+        "Cocok untuk atasan atau pengawas yang hanya perlu memantau jam masuk kerja, lembur, dan jadwal."
+      ]
+    }),
+    React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Cara mengatur (Admin):"),
+    React.createElement(GuideList, {
+      items: [
+        "Buka Pengaturan \u2192 Hak Akses. Pada tabel pengguna, ubah kolom Role menjadi Admin, View Only, atau Karyawan. Pengguna baru ditambahkan lewat tombol \"Tambah Pengguna\" dengan memilih Role yang sama.",
+        "Kamu tidak bisa mengubah role akunmu sendiri, dan harus selalu ada minimal 1 akun Admin.",
+        "Pembatasan ini berlaku di tampilan aplikasi. Aturan keamanan database di Firebase (Firestore rules) diatur terpisah dan tidak berubah oleh pengaturan role ini."
       ]
     })
   );
@@ -17494,6 +17555,8 @@ function PanduanPage() {
     alphaSection,
     kejadianSection,
     izinSection,
+    lemburSection,
+    aksesSection,
     perangkatSection,
     tampilanSection
   );
@@ -20071,24 +20134,43 @@ function OvertimeDetailModal({
   }, [ot.id]);
   const cross = timeToMinutes(ot.endTime) <= timeToMinutes(ot.startTime);
   const decisionLabel = ot.status === LEAVE_STATUS.REJECTED ? "Ditolak" : "Disetujui";
+  const empUser = getUsers().find(u => u.id === ot.userId) || null;
+  const weekday = new Date(ot.date + "T00:00:00").toLocaleDateString("id-ID", { weekday: "long" });
+  // Rekap lembur karyawan ini pada bulan yang sama (hanya yang disetujui dihitung ke total jam)
+  const monthKey = String(ot.date).slice(0, 7);
+  const sameMonth = getOvertimes().filter(o => o.userId === ot.userId && String(o.date).startsWith(monthKey));
+  const apprList = sameMonth.filter(o => o.status === LEAVE_STATUS.APPROVED);
+  const apprMin = apprList.reduce((a, o) => a + (o.minutes || 0), 0);
+  const pendCount = sameMonth.filter(o => o.status === LEAVE_STATUS.PENDING).length;
   return h(React.Fragment, null,
     h(DetailShell, { title: "Detail Lembur", subtitle: ot.userName, onClose },
-      h("div", { className: "flex", style: { alignItems: "center", gap: 8, marginTop: 14 } },
+      h("div", { className: "flex", style: { alignItems: "center", gap: 8, marginTop: 14, flexWrap: "wrap" } },
         h(LeaveStatusBadge, { status: ot.status }),
         ot.createdBy === "admin" && h("span", { style: { fontSize: 12, color: "var(--t-faint)" } }, "Diinput oleh admin")),
+      h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 12, padding: "12px 14px", borderRadius: 12, background: "var(--slate-mist)" } },
+        h("div", null,
+          h("p", { style: { fontSize: 11, color: "var(--t-faint)" } }, "Durasi lembur"),
+          h("p", { style: { fontSize: 20, fontWeight: 700, color: "var(--accent-700)" } }, formatOvertimeDuration(ot.minutes)),
+          h("p", { style: { fontSize: 11, color: "var(--t-faint)" } }, (ot.minutes / 60).toFixed(2).replace(".", ",") + " jam")),
+        h("div", { style: { textAlign: "right" } },
+          h("p", { style: { fontSize: 11, color: "var(--t-faint)" } }, "Jam"),
+          h("p", { style: { fontSize: 16, fontWeight: 700, color: "var(--navy-900)" } }, ot.startTime + " – " + ot.endTime),
+          cross && h("p", { style: { fontSize: 11, color: "var(--t-faint)" } }, "selesai keesokan harinya"))),
       h("div", { style: { marginTop: 10 } },
-        h(DetailRow, { label: "Karyawan" }, ot.userName || "-"),
-        h(DetailRow, { label: "Tanggal" }, formatDateID(ot.date)),
-        h(DetailRow, { label: "Jam" }, ot.startTime + " – " + ot.endTime + (cross ? " (selesai keesokan harinya)" : "")),
-        h(DetailRow, { label: "Durasi" }, formatOvertimeDuration(ot.minutes)),
+        h(DetailRow, { label: "Karyawan" }, (ot.userName || "-") + (empUser && empUser.position ? " · " + empUser.position : "")),
+        h(DetailRow, { label: "Hari & tanggal" }, weekday + ", " + formatDateID(ot.date)),
         h(DetailRow, { label: ot.createdBy === "admin" ? "Diinput" : "Diajukan" }, detailDateTime(ot.createdAt)),
-        ot.status !== LEAVE_STATUS.PENDING && h(DetailRow, { label: decisionLabel }, detailDateTime(ot.decidedAt) + (ot.decidedBy ? " · " + ot.decidedBy : ""))),
+        ot.status === LEAVE_STATUS.PENDING ? h(DetailRow, { label: "Keputusan" }, "Menunggu persetujuan admin") : h(DetailRow, { label: decisionLabel }, detailDateTime(ot.decidedAt) + (ot.decidedBy ? " · " + ot.decidedBy : "")),
+        ot.status === LEAVE_STATUS.APPROVED && ot.decidedAt && ot.createdAt && h(DetailRow, { label: "Lama proses" }, detailDurationText(new Date(ot.decidedAt) - new Date(ot.createdAt)))),
       h("p", { style: { fontSize: 12, fontWeight: 700, color: "var(--navy-700)", marginTop: 16 } }, "Keterangan pekerjaan"),
       h("p", { style: { fontSize: 14, color: "var(--navy-900)", marginTop: 4, whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, ot.task || "-"),
       h("div", { style: { marginTop: 16 } },
         h("p", { style: { fontSize: 12, fontWeight: 700, color: "var(--navy-700)", marginBottom: 6 } }, "Foto pekerjaan" + (ot.photoCount ? ` (${ot.photoCount})` : "")),
         !ot.photoCount ? h("p", { style: { fontSize: 13, color: "var(--t-faint)" } }, "Tidak ada foto dilampirkan.") : photoError ? h("p", { style: { fontSize: 13, color: "var(--red)" } }, photoError) : !photos ? h("p", { style: { fontSize: 13, color: "var(--t-faint)" } }, "Memuat foto…") : h("div", { style: { display: "flex", flexDirection: "column", gap: 10 } },
           photos.map((src, i) => h("img", { key: i, src, alt: "Foto pekerjaan " + (i + 1), title: "Ketuk untuk memperbesar", onClick: () => setZoomIdx(i), style: { width: "100%", borderRadius: 12, cursor: "zoom-in", display: "block" } })))),
+      h("div", { style: { marginTop: 16, padding: "12px 14px", borderRadius: 12, border: "1px solid var(--line)" } },
+        h("p", { style: { fontSize: 12, fontWeight: 700, color: "var(--navy-700)" } }, "Rekap " + (ot.userName || "karyawan") + " · " + overtimeMonthLabel(monthKey)),
+        h("p", { style: { fontSize: 13, color: "var(--navy-900)", marginTop: 4 } }, "Disetujui: " + (apprMin ? formatOvertimeDuration(apprMin) : "0 jam") + " (" + apprList.length + "x)" + (pendCount ? " · Menunggu: " + pendCount + "x" : ""))),
       canDecide && ot.status === LEAVE_STATUS.PENDING && h("div", { className: "flex", style: { gap: 8, marginTop: 18 } },
         h(Button, { variant: "success", size: "sm", disabled: busy, onClick: () => { onDecide(LEAVE_STATUS.APPROVED); onClose(); } }, h(Icon, { name: "check", size: 14 }), " Setujui"),
         h(Button, { variant: "outline", size: "sm", disabled: busy, onClick: () => { onDecide(LEAVE_STATUS.REJECTED); onClose(); } }, h(Icon, { name: "x", size: 14 }), " Tolak"))),
@@ -20508,7 +20590,6 @@ function OvertimeAdminPage() {
   const [month, setMonth] = useState(todayDateStrWITA(getTrustedNow()).slice(0, 7));
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
-  const [showForm, setShowForm] = useState(false);
   useStoreSync();
   const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE).sort((a, b) => a.name.localeCompare(b.name));
   const inMonth = getOvertimes().filter(o => o.date.startsWith(month));
@@ -20550,11 +20631,10 @@ function OvertimeAdminPage() {
     h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 12, flexWrap: "wrap" } },
       h("div", null,
         h("h1", { style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Lembur Karyawan"),
-        h("p", { style: { color: "var(--t-muted)", fontSize: 14, marginTop: 2 } }, "Tinjau pengajuan lembur, input langsung untuk karyawan, dan lihat rekap jam per bulan.")),
+        h("p", { style: { color: "var(--t-muted)", fontSize: 14, marginTop: 2 } }, "Tinjau pengajuan lembur dari karyawan dan lihat rekap jam per bulan.")),
       h("div", { className: "flex", style: { gap: 8, flexWrap: "wrap" } },
         h(Button, { variant: "outline", onClick: exportExcel, disabled: inMonth.length === 0 }, h(Icon, { name: "download", size: 16 }), " Unduh Excel"),
-        h(Button, { variant: "outline", onClick: exportPdf, disabled: inMonth.length === 0 }, h(Icon, { name: "download", size: 16 }), " Unduh PDF"),
-        canEdit && h(Button, { variant: "primary", onClick: () => setShowForm(true) }, h(Icon, { name: "plus", size: 16 }), " Input Lembur"))),
+        h(Button, { variant: "outline", onClick: exportPdf, disabled: inMonth.length === 0 }, h(Icon, { name: "download", size: 16 }), " Unduh PDF"))),
     error && h("div", { style: { marginBottom: 16, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, error),
     h("div", { style: { marginBottom: 14 } },
       h("label", { className: "label" }, "Bulan"),
@@ -20577,7 +20657,7 @@ function OvertimeAdminPage() {
         onDecide: d => run(ot.id, () => decideOvertime(ot.id, d, user && user.name), "Gagal menyimpan keputusan lembur. Coba lagi."),
         onRemove: () => remove(ot)
       }))),
-    showForm && h(OvertimeFormModal, { employees, adminMode: true, byName: user && user.name, onClose: () => setShowForm(false), onSaved: () => setShowForm(false) }));
+    null);
 }
 
 /* ======================= APP UTAMA ======================= */
