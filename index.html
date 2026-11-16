@@ -20473,8 +20473,6 @@ function EmployeeOvertimePage({
         h("h1", { style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Lembur"),
         h("p", { style: { color: "var(--t-muted)", fontSize: 14, marginTop: 2 } }, "Catat jam lembur kamu dan pantau persetujuannya.")),
       h("div", { className: "flex", style: { gap: 8, flexWrap: "wrap" } },
-        h(Button, { variant: "outline", disabled: mine.length === 0, onClick: () => { try { exportOvertimeToExcel(mine, month, user.name); } catch (err) { setError("Gagal membuat file Excel: " + (err && err.message || err)); } } }, h(Icon, { name: "download", size: 16 }), " Excel"),
-        h(Button, { variant: "outline", disabled: mine.length === 0, onClick: () => { try { exportOvertimeToPDF(mine, month, user.name); } catch (err) { setError("Gagal membuat file PDF: " + (err && err.message || err)); } } }, h(Icon, { name: "download", size: 16 }), " PDF"),
         h(Button, { variant: "primary", onClick: () => setShowModal(true) }, h(Icon, { name: "plus", size: 16 }), " Input Lembur"))),
     error && h("div", { style: { marginBottom: 16, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, error),
     h("div", { className: "flex", style: { gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 14 } },
