@@ -4360,6 +4360,20 @@ function exportKejadianToExcel(reports, filenamePrefix = "laporan-kejadian") {
   XLSX.utils.book_append_sheet(wb, ws, "Kejadian");
   XLSX.writeFile(wb, `${filenamePrefix}-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
+// Lama berjalan dalam bulan + hari (kalender WITA). start/end = "YYYY-MM-DD".
+function kejadianDurasiLabel(start, end) {
+  if (!start || !end) return "-";
+  const [y1, m1, d1] = start.split("-").map(Number);
+  const [y2, m2, d2] = end.split("-").map(Number);
+  let months = (y2 - y1) * 12 + (m2 - m1);
+  let days = d2 - d1;
+  if (days < 0) { months--; days += new Date(y2, m2 - 1, 0).getDate(); }
+  if (months < 0) return "-";
+  const parts = [];
+  if (months > 0) parts.push(months + " bulan");
+  if (days > 0) parts.push(days + " hari");
+  return parts.length ? parts.join(" ") : "Kurang dari 1 hari";
+}
 function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian", filterLabel = "") {
   const doc = new jspdf.jsPDF({
     orientation: "landscape"
@@ -4369,7 +4383,7 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian", filte
   doc.text("Laporan Kejadian Patroli", 14, 15);
   doc.setFontSize(9);
   doc.setTextColor(100, 116, 139);
-  doc.text(`Dibuat pada ${new Date().toLocaleString("id-ID")}${filterLabel ? " \u00b7 Status: " + filterLabel : ""}`, 14, 21);
+  doc.text(`Dibuat pada ${new Date().toLocaleString("id-ID")}${filterLabel ? " \u00b7 Status: " + filterLabel : ""} \u00b7 ${reports.length} tiket \u00b7 Urutan: terlama ke terbaru`, 14, 21);
   const ticketCell = k => [k.ticketId || "-", k.title || "", [k.category, KEJADIAN_PRIORITY_LABEL[k.priority] ? "Prioritas " + KEJADIAN_PRIORITY_LABEL[k.priority] : ""].filter(Boolean).join(" \u00b7 ")].filter(Boolean).join("\n");
   // Tabel 9 kolom seperti semula. Riwayat Penanganan yang panjang dipecah per kelompok update (batas tinggi
   // baris), dan SETIAP baris lanjutan mengulang info tiket (tiket, tanggal, waktu, pelapor, status, darurat,
@@ -4379,7 +4393,11 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian", filte
   doc.setFontSize(8);
   const linesOf = txt => doc.splitTextToSize(pdfSafeText(txt), HIST_COL_W - 5).length;
   const body = [];
-  reports.forEach((k, ki) => {
+  // Urutan: yang belum selesai dulu, lalu yang selesai; di tiap kelompok dari yang PALING LAMA dimulai ke yang terbaru.
+  const isDone = k => k.status === KEJADIAN_STATUS.SELESAI;
+  const ordered = [...reports].sort((a, b) => (isDone(a) ? 1 : 0) - (isDone(b) ? 1 : 0) || new Date(a.createdAt) - new Date(b.createdAt));
+  const todayStr = todayDateStrWITA(new Date());
+  ordered.forEach((k, ki) => {
     const fill = ki % 2 === 0 ? [255, 255, 255] : [244, 246, 249];
     const items = kejadianHistoryItems(k);
     const chunks = [];
@@ -4426,7 +4444,11 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian", filte
       const hist = chunk.count ? `Riwayat Penanganan (update ${done + 1}-${done + chunk.count} dari ${items.length})\n` + chunk.lines.join("\n") : "-";
       done += chunk.count;
       const first = ci === 0;
-      const row = [first ? ticketCell(k) : `${k.ticketId || "-"}\n(lanjutan riwayat)`, formatDateShortID(k.createdAt.slice(0, 10)), formatClock(new Date(k.createdAt)), k.userName, KEJADIAN_STATUS_LABEL[k.status] || k.status, k.darurat ? "Ya" : "Tidak", k.note, k.address || "-", hist];
+      const startDay = todayDateStrWITA(new Date(k.createdAt));
+      const lastItem = items.length ? items[items.length - 1] : null;
+      const endDay = isDone(k) ? (k.finishedAt ? todayDateStrWITA(new Date(k.finishedAt)) : (lastItem && lastItem.day) || todayStr) : todayStr;
+      const mulaiCell = ["Mulai:", formatDateShortID(startDay) + " " + formatClock(new Date(k.createdAt)), "", isDone(k) ? "Lama pengerjaan:" : "Sudah berjalan:", kejadianDurasiLabel(startDay, endDay), "", "Update terakhir:", lastItem && lastItem.day ? formatDateShortID(lastItem.day) + " " + lastItem.clock : "Belum ada update"].join("\n");
+      const row = [String(ki + 1), first ? ticketCell(k) : `${k.ticketId || "-"}\n(lanjutan riwayat)`, mulaiCell, k.userName, KEJADIAN_STATUS_LABEL[k.status] || k.status, k.darurat ? "Ya" : "Tidak", k.note, k.address || "-", hist];
       body.push(row.map(c => ({
         content: pdfSafeText(c),
         styles: {
@@ -4441,7 +4463,7 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian", filte
       left: 14,
       right: 14
     },
-    head: [["Tiket", "Tanggal", "Waktu", "Pelapor", "Status", "Darurat", "Kronologi", "Lokasi", "Riwayat Penanganan"]],
+    head: [["No", "Tiket", "Mulai & Durasi", "Pelapor", "Status", "Darurat", "Kronologi", "Lokasi", "Riwayat Penanganan"]],
     body,
     rowPageBreak: "avoid",
     styles: {
@@ -4457,13 +4479,13 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian", filte
     },
     columnStyles: {
       0: {
-        cellWidth: 34
+        cellWidth: 8
       },
       1: {
-        cellWidth: 22
+        cellWidth: 34
       },
       2: {
-        cellWidth: 17
+        cellWidth: 32
       },
       3: {
         cellWidth: 22
@@ -4472,7 +4494,7 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian", filte
         cellWidth: 17
       },
       5: {
-        cellWidth: 16
+        cellWidth: 14
       },
       6: {
         cellWidth: 42
