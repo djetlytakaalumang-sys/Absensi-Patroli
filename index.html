@@ -5350,7 +5350,8 @@ const PDF_STATUS_COLOR = {
     text: [67, 56, 202]
   }
 };
-function exportRekapPDF(user, monthKey, records) {
+// Menggambar SATU slip rekap (1 karyawan, 1 bulan) ke dokumen jsPDF yang sudah ada.
+function drawRekapSlip(doc, user, monthKey, records) {
   const [y, m] = monthKey.split("-").map(Number);
 
   // ── Bangun daftar SEMUA hari dalam bulan ──────────────────────────────────
@@ -5394,11 +5395,6 @@ function exportRekapPDF(user, monthKey, records) {
   const bulanLabel = new Date(y, m - 1, 1).toLocaleDateString("id-ID", {
     month: "long",
     year: "numeric"
-  });
-  const doc = new jspdf.jsPDF({
-    orientation: "portrait",
-    unit: "mm",
-    format: "a4"
   });
   const pw = doc.internal.pageSize.getWidth();
 
@@ -5614,7 +5610,24 @@ function exportRekapPDF(user, monthKey, records) {
   doc.setDrawColor(37, 99, 235);
   doc.setLineWidth(0.3);
   doc.line(pw - 60, footerY + 14, pw - 14, footerY + 14);
+}
+
+function exportRekapPDF(user, monthKey, records) {
+  const doc = new jspdf.jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  drawRekapSlip(doc, user, monthKey, records);
   doc.save(`rekap-${user.name.replace(/\s+/g, "-")}-${monthKey}.pdf`);
+}
+
+// Rekap untuk RENTANG bulan: satu PDF, satu slip per bulan (tiap bulan mulai di halaman baru).
+function exportRekapRangePDF(user, monthKeys) {
+  const doc = new jspdf.jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  monthKeys.forEach((mk, idx) => {
+    if (idx > 0) doc.addPage();
+    const recs = getEffectiveRecordsForUserMonth(user.id, user.name, mk).sort((a, b) => a.date > b.date ? 1 : -1);
+    drawRekapSlip(doc, user, mk, recs);
+  });
+  const first = monthKeys[0], last = monthKeys[monthKeys.length - 1];
+  doc.save(`rekap-${user.name.replace(/\s+/g, "-")}-${first}_sd_${last}.pdf`);
 }
 
 /* ======================= DETEKSI "LUPA ABSEN PULANG" ======================= */
@@ -5652,6 +5665,8 @@ function lucideNodeToSvgString(node, overrideAttrs) {
 // Tambah bahasa baru: buat kamus baru di I18N_DICTS (mis. { en: {...}, ms: {...} }) dan masukkan kodenya ke I18N_LANGS.
 const I18N_LANGS = ["id", "en"];
 const I18N_DICTS = { en: {
+"Export Excel Presensi":"Export Attendance Excel","Semua karyawan":"All employees","Download Excel":"Download Excel",
+"Dari bulan":"From month","Sampai bulan":"To month",
 "Belum selesai":"Not finished","Sudah selesai":"Finished","Semua status":"All statuses","Status Selesai":"Done status",
 "Dashboard":"Dashboard","Operasional Lapangan":"Field Operations","Pengajuan":"Requests","Pengajuan Izin":"Leave Requests","Pengaturan":"Settings","Jam & Presensi":"Hours & Attendance","Checkpoint & Lokasi":"Checkpoints & Locations","Hak Akses":"Access Rights","Backup & Arsip":"Backup & Archive","Panduan":"Guide","Presensi":"Attendance","Presensi Patroli Team":"Patrol Team Attendance","Patroli":"Patrol","Jadwal":"Schedule","Jadwal Kerja":"Work Schedule","Penilaian":"Scoring","Riwayat":"History","Profil":"Profile","Profil Saya":"My Profile","Izin / Cuti":"Leave","Izin/Cuti":"Leave","Lembur":"Overtime","Keluar":"Log out","Login":"Log in","User Name":"User Name","Password":"Password","Remember me":"Remember me","Memeriksa...":"Checking...","Lupa kata sandi? Hubungi administrator.":"Forgot your password? Contact the administrator.","Username atau kata sandi salah.":"Incorrect username or password.","Username dan kata sandi wajib diisi.":"Username and password are required.","Menghubungkan ke server…":"Connecting to server…","Menghubungkan ke server...":"Connecting to server...","Tampilkan kata sandi":"Show password","Sembunyikan kata sandi":"Hide password","Tema gelap":"Dark theme","Tema terang":"Light theme","Ganti ke tema gelap":"Switch to dark theme","Ganti ke tema terang":"Switch to light theme","Cari menu…":"Search menu…","Menu tidak ditemukan":"Menu not found","Notifikasi":"Notifications","Tidak ada notifikasi baru.":"No new notifications.","Profil saya":"My profile",
 "Hadir":"Present","Terlambat":"Late","Alpa":"Absent","Izin":"Leave","Piket Malam":"Night Duty","Piket Mlm":"Night Duty","Masuk":"In","Off":"Off","Standby On Call":"Standby On Call","Super Admin":"Super Admin","Karyawan":"Employee","Menunggu":"Pending","Disetujui":"Approved","Ditolak":"Rejected","Semua":"All","Baru":"New","Diproses":"In progress","Selesai":"Done","Baru & Diproses":"New & In progress","Belum Absen":"Not Checked In","Belum":"Not yet",
@@ -10455,6 +10470,68 @@ function ProfilePage({
   }));
 }
 
+/* ======================= MODAL EXCEL PRESENSI (PILIH RENTANG BULAN) ======================= */
+function ExcelRangeModal({
+  users,
+  onClose,
+  filteredCount,
+  onExportFiltered
+}) {
+  useStoreSync();
+  const h = React.createElement;
+  const [userId, setUserId] = useState("all");
+  const [fromMonth, setFromMonth] = useState(currentMonthKey());
+  const [toMonth, setToMonth] = useState(currentMonthKey());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const cutoffDateStr = useMemo(() => todayDateStrWITA(new Date(Date.now() - LIVE_RECORD_DAYS * 24 * 60 * 60 * 1000)), []);
+  const monthOptions = useMemo(() => {
+    const opts = [];
+    const now = new Date();
+    for (let i = 0; i < 36; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      opts.push({
+        key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+        label: d.toLocaleDateString("id-ID", { month: "long", year: "numeric" })
+      });
+    }
+    return opts;
+  }, []);
+  const toOptions = useMemo(() => monthOptions.filter(o => o.key >= fromMonth), [monthOptions, fromMonth]);
+  const rangeMonths = useMemo(() => monthOptions.filter(o => o.key >= fromMonth && o.key <= toMonth).map(o => o.key).reverse(), [monthOptions, fromMonth, toMonth]);
+  useEffect(() => {
+    if (toMonth < fromMonth) setToMonth(fromMonth);
+  }, [fromMonth]);
+  async function handleDownload() {
+    setBusy(true);
+    setError("");
+    try {
+      // bulan lama di luar jendela data live diambil dulu dari server supaya datanya lengkap
+      for (const mk of rangeMonths) {
+        if (`${mk}-01` < cutoffDateStr && !oldRecordsCache[mk]) await ensureRecordsForMonthLoaded(mk);
+      }
+      await new Promise(r => setTimeout(r, 50));
+      const targetUsers = userId === "all" ? users : users.filter(u => u.id === userId);
+      const rows = [];
+      rangeMonths.forEach(mk => targetUsers.forEach(u => getEffectiveRecordsForUserMonth(u.id, u.name, mk).forEach(r => rows.push(r))));
+      rows.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : String(a.userName).localeCompare(String(b.userName)));
+      if (!rows.length) {
+        setError("Tidak ada data presensi pada rentang bulan tersebut.");
+        return;
+      }
+      const first = rangeMonths[0], last = rangeMonths[rangeMonths.length - 1];
+      const who = userId === "all" ? "" : "-" + (targetUsers[0] ? targetUsers[0].name.replace(/\s+/g, "-") : "");
+      exportToExcel(rows, `laporan-presensi-${first}${last !== first ? "_sd_" + last : ""}${who}`);
+      onClose();
+    } catch (err) {
+      setError(err.message || "Gagal membuat Excel. Coba lagi.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return h("div", { className: "modal-backdrop", onClick: onClose }, h("div", { className: "modal-box fade-up", style: { maxWidth: 520 }, onClick: e => e.stopPropagation() }, h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", padding: "18px 20px", borderBottom: "1px solid var(--line)" } }, h("div", null, h("h3", { style: { fontSize: 16, fontWeight: 700, color: "var(--navy-900)" } }, "Export Excel Presensi"), h("p", { style: { fontSize: 12, color: "var(--t-faint)", marginTop: 2 } }, "Pilih rentang bulan: dari bulan sampai bulan")), h("button", { onClick: onClose, "aria-label": "Tutup", style: { color: "var(--t-faint)", padding: 4 } }, h(Icon, { name: "x", size: 20 }))), h("div", { style: { padding: 20, display: "flex", flexDirection: "column", gap: 16 } }, h("div", null, h("label", { className: "label" }, "Karyawan"), h("select", { className: "input", value: userId, onChange: e => setUserId(e.target.value) }, h("option", { value: "all" }, "Semua karyawan"), users.map(u => h("option", { key: u.id, value: u.id }, u.name)))), h("div", { className: "grid-2", style: { gap: 12 } }, h("div", null, h("label", { className: "label" }, "Dari bulan"), h("select", { className: "input", value: fromMonth, onChange: e => setFromMonth(e.target.value) }, monthOptions.map(o => h("option", { key: o.key, value: o.key }, o.label)))), h("div", null, h("label", { className: "label" }, "Sampai bulan"), h("select", { className: "input", value: toMonth, onChange: e => setToMonth(e.target.value) }, toOptions.map(o => h("option", { key: o.key, value: o.key }, o.label))))), rangeMonths.length > 1 && h("p", { style: { fontSize: 12, color: "var(--t-muted)", marginTop: -6 } }, `Mencakup ${rangeMonths.length} bulan, diurutkan dari tanggal terlama.`), busy && h("div", { className: "flex", style: { alignItems: "center", gap: 8, fontSize: 13, color: "var(--t-muted)" } }, h(Icon, { name: "loader-2", size: 14, className: "spin" }), "Menyiapkan data…"), error && h("div", { style: { background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, error), onExportFiltered && h("button", { onClick: onExportFiltered, style: { fontSize: 12, color: "var(--t-muted)", textDecoration: "underline", textAlign: "left" } }, `Atau unduh sesuai filter tabel saat ini (${filteredCount} baris)`)), h("div", { className: "flex", style: { gap: 10, padding: "16px 20px", borderTop: "1px solid var(--line)" } }, h(Button, { variant: "outline", onClick: onClose, style: { flex: 1 } }, "Batal"), h(Button, { variant: "primary", onClick: handleDownload, disabled: busy, style: { flex: 1 } }, busy ? "Membuat Excel…" : h(React.Fragment, null, h(Icon, { name: "file-spreadsheet", size: 15 }), " Download Excel")))));
+}
+
 /* ======================= MODAL REKAP PDF PER KARYAWAN ======================= */
 function RekapPDFModal({
   users,
@@ -10463,6 +10540,7 @@ function RekapPDFModal({
   useStoreSync();
   const [selectedUserId, setSelectedUserId] = useState(users[0]?.id || "");
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
+  const [endMonth, setEndMonth] = useState(currentMonthKey());
   const [previewing, setPreviewing] = useState(false);
   const [loadingMonth, setLoadingMonth] = useState(null);
   const [monthLoadError, setMonthLoadError] = useState("");
@@ -10512,6 +10590,10 @@ function RekapPDFModal({
     }
     return opts;
   }, [selectedUser]);
+  // Rentang bulan: "Dari bulan" (selectedMonth) s/d "Sampai bulan" (endMonth), urut lama -> baru
+  const endOptions = useMemo(() => monthOptions.filter(o => o.key >= selectedMonth), [monthOptions, selectedMonth]);
+  const rangeMonths = useMemo(() => monthOptions.filter(o => o.key >= selectedMonth && o.key <= endMonth).map(o => o.key).reverse(), [monthOptions, selectedMonth, endMonth]);
+  useEffect(() => { if (endMonth < selectedMonth) setEndMonth(selectedMonth); }, [selectedMonth]);
 
   // Reset bulan saat ganti user
   React.useEffect(() => {
@@ -10520,8 +10602,10 @@ function RekapPDFModal({
       const jd = new Date(selectedUser.joinDate + "T00:00:00");
       const joinYM = `${jd.getFullYear()}-${String(jd.getMonth() + 1).padStart(2, "0")}`;
       setSelectedMonth(cur >= joinYM ? cur : joinYM);
+      setEndMonth(cur >= joinYM ? cur : joinYM);
     } else {
       setSelectedMonth(cur);
+      setEndMonth(cur);
     }
   }, [selectedUserId]);
 
@@ -10577,13 +10661,22 @@ function RekapPDFModal({
     const avg = Math.round(mins.reduce((a, b) => a + b, 0) / mins.length);
     return `${Math.floor(avg / 60)}j ${avg % 60}m`;
   }, [allRows]);
-  function handleGenerate() {
+  async function handleGenerate() {
     if (!selectedUser) return;
     setPreviewing(true);
-    setTimeout(() => {
-      exportRekapPDF(selectedUser, selectedMonth, previewRecords);
+    setMonthLoadError("");
+    try {
+      // bulan lama di luar jendela data live perlu diambil dulu supaya rekap akurat
+      for (const mk of rangeMonths) {
+        if (`${mk}-01` < cutoffDateStr && !oldRecordsCache[mk]) await ensureRecordsForMonthLoaded(mk);
+      }
+      await new Promise(r => setTimeout(r, 80));
+      if (rangeMonths.length <= 1) exportRekapPDF(selectedUser, selectedMonth, previewRecords);else exportRekapRangePDF(selectedUser, rangeMonths);
+    } catch (err) {
+      setMonthLoadError(err.message || "Gagal membuat rekap. Coba lagi.");
+    } finally {
       setPreviewing(false);
-    }, 80);
+    }
   }
   const STATUS_COLOR = {
     [STATUS.HADIR]: {
@@ -10640,7 +10733,7 @@ function RekapPDFModal({
       color: "var(--t-faint)",
       marginTop: 2
     }
-  }, "Slip rekap resmi per karyawan per bulan")), /*#__PURE__*/React.createElement("button", {
+  }, "Slip rekap resmi per karyawan — pilih satu bulan atau rentang bulan")), /*#__PURE__*/React.createElement("button", {
     onClick: onClose,
     "aria-label": "Tutup",
     style: {
@@ -10657,12 +10750,7 @@ function RekapPDFModal({
       flexDirection: "column",
       gap: 16
     }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "grid-2",
-    style: {
-      gap: 12
-    }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+  }, /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "label"
   }, "Karyawan"), /*#__PURE__*/React.createElement("select", {
     className: "input",
@@ -10671,16 +10759,16 @@ function RekapPDFModal({
   }, users.map(u => /*#__PURE__*/React.createElement("option", {
     key: u.id,
     value: u.id
-  }, u.name)))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+  }, u.name)))), /*#__PURE__*/React.createElement("div", {className: "grid-2", style: {gap: 12}}, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "label"
-  }, "Bulan"), /*#__PURE__*/React.createElement("select", {
+  }, "Dari bulan"), /*#__PURE__*/React.createElement("select", {
     className: "input",
     value: selectedMonth,
     onChange: e => setSelectedMonth(e.target.value)
   }, monthOptions.map(o => /*#__PURE__*/React.createElement("option", {
     key: o.key,
     value: o.key
-  }, o.label))))), loadingMonth === selectedMonth && /*#__PURE__*/React.createElement("div", {
+  }, o.label)))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {className: "label"}, "Sampai bulan"), /*#__PURE__*/React.createElement("select", {className: "input", value: endMonth, onChange: e => setEndMonth(e.target.value)}, endOptions.map(o => /*#__PURE__*/React.createElement("option", {key: o.key, value: o.key}, o.label))))), rangeMonths.length > 1 && /*#__PURE__*/React.createElement("p", {style: {fontSize: 12, color: "var(--t-muted)", marginTop: -6}}, `PDF berisi ${rangeMonths.length} slip bulanan; tiap bulan mulai di halaman baru.`)), loadingMonth === selectedMonth && /*#__PURE__*/React.createElement("div", {
     className: "flex",
     style: {
       alignItems: "center",
@@ -10815,7 +10903,7 @@ function RekapPDFModal({
   }, "Batal"), /*#__PURE__*/React.createElement(Button, {
     variant: "primary",
     onClick: handleGenerate,
-    disabled: previewing || previewRecords.length === 0,
+    disabled: previewing || rangeMonths.length <= 1 && previewRecords.length === 0,
     style: {
       flex: 1
     }
@@ -11256,6 +11344,7 @@ function AdminDashboard({
   const [statusFilter, setStatusFilter] = useState("all");
   const [detailRecord, setDetailRecord] = useState(null);
   const [showRekap, setShowRekap] = useState(false);
+  const [showExcel, setShowExcel] = useState(false);
   useStoreSync();
   const checkOutReminderHour = 17;
   const users = useMemo(() => getUsers().filter(u => u.role === ROLES.EMPLOYEE), []);
@@ -11473,7 +11562,7 @@ function AdminDashboard({
   }), " Rekap PDF"), /*#__PURE__*/React.createElement(Button, {
     variant: "outline",
     size: "sm",
-    onClick: () => exportToExcel(filtered)
+    onClick: () => setShowExcel(true)
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "file-spreadsheet",
     size: 15
@@ -12232,6 +12321,14 @@ function AdminDashboard({
   }), showRekap && /*#__PURE__*/React.createElement(RekapPDFModal, {
     users: users,
     onClose: () => setShowRekap(false)
+  }), showExcel && /*#__PURE__*/React.createElement(ExcelRangeModal, {
+    users: users,
+    onClose: () => setShowExcel(false),
+    filteredCount: filtered.length,
+    onExportFiltered: () => {
+      setShowExcel(false);
+      exportToExcel(filtered);
+    }
   }));
 }
 
