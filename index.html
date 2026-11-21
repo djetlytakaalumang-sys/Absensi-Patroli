@@ -5630,6 +5630,22 @@ function exportRekapRangePDF(user, monthKeys) {
   doc.save(`rekap-${user.name.replace(/\s+/g, "-")}-${first}_sd_${last}.pdf`);
 }
 
+// Rekap SEMUA karyawan (atau daftar karyawan tertentu) untuk satu/rentang bulan: satu PDF, urut per karyawan lalu per bulan.
+function exportRekapMultiPDF(userList, monthKeys) {
+  const doc = new jspdf.jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  let firstSlip = true;
+  userList.forEach(u => {
+    monthKeys.forEach(mk => {
+      if (!firstSlip) doc.addPage();
+      firstSlip = false;
+      const recs = getEffectiveRecordsForUserMonth(u.id, u.name, mk).sort((a, b) => a.date > b.date ? 1 : -1);
+      drawRekapSlip(doc, u, mk, recs);
+    });
+  });
+  const first = monthKeys[0], last = monthKeys[monthKeys.length - 1];
+  doc.save(`rekap-semua-karyawan-${first}${last !== first ? "_sd_" + last : ""}.pdf`);
+}
+
 /* ======================= DETEKSI "LUPA ABSEN PULANG" ======================= */
 function getLupaAbsenPulang(users, checkOutReminderHour = 17) {
   // Pakai jam server terpercaya + WITA dipaksa (bukan jam/tanggal device polos) supaya
@@ -10529,7 +10545,7 @@ function ExcelRangeModal({
       setBusy(false);
     }
   }
-  return h("div", { className: "modal-backdrop", onClick: onClose }, h("div", { className: "modal-box fade-up", style: { maxWidth: 520 }, onClick: e => e.stopPropagation() }, h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", padding: "18px 20px", borderBottom: "1px solid var(--line)" } }, h("div", null, h("h3", { style: { fontSize: 16, fontWeight: 700, color: "var(--navy-900)" } }, "Export Excel Presensi"), h("p", { style: { fontSize: 12, color: "var(--t-faint)", marginTop: 2 } }, "Pilih rentang bulan: dari bulan sampai bulan")), h("button", { onClick: onClose, "aria-label": "Tutup", style: { color: "var(--t-faint)", padding: 4 } }, h(Icon, { name: "x", size: 20 }))), h("div", { style: { padding: 20, display: "flex", flexDirection: "column", gap: 16 } }, h("div", null, h("label", { className: "label" }, "Karyawan"), h("select", { className: "input", value: userId, onChange: e => setUserId(e.target.value) }, h("option", { value: "all" }, "Semua karyawan"), users.map(u => h("option", { key: u.id, value: u.id }, u.name)))), h("div", { className: "grid-2", style: { gap: 12 } }, h("div", null, h("label", { className: "label" }, "Dari bulan"), h("select", { className: "input", value: fromMonth, onChange: e => setFromMonth(e.target.value) }, monthOptions.map(o => h("option", { key: o.key, value: o.key }, o.label)))), h("div", null, h("label", { className: "label" }, "Sampai bulan"), h("select", { className: "input", value: toMonth, onChange: e => setToMonth(e.target.value) }, toOptions.map(o => h("option", { key: o.key, value: o.key }, o.label))))), rangeMonths.length > 1 && h("p", { style: { fontSize: 12, color: "var(--t-muted)", marginTop: -6 } }, `Mencakup ${rangeMonths.length} bulan, diurutkan dari tanggal terlama.`), busy && h("div", { className: "flex", style: { alignItems: "center", gap: 8, fontSize: 13, color: "var(--t-muted)" } }, h(Icon, { name: "loader-2", size: 14, className: "spin" }), "Menyiapkan data…"), error && h("div", { style: { background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, error), onExportFiltered && h("button", { onClick: onExportFiltered, style: { fontSize: 12, color: "var(--t-muted)", textDecoration: "underline", textAlign: "left" } }, `Atau unduh sesuai filter tabel saat ini (${filteredCount} baris)`)), h("div", { className: "flex", style: { gap: 10, padding: "16px 20px", borderTop: "1px solid var(--line)" } }, h(Button, { variant: "outline", onClick: onClose, style: { flex: 1 } }, "Batal"), h(Button, { variant: "primary", onClick: handleDownload, disabled: busy, style: { flex: 1 } }, busy ? "Membuat Excel…" : h(React.Fragment, null, h(Icon, { name: "file-spreadsheet", size: 15 }), " Download Excel")))));
+  return h("div", { className: "modal-backdrop", onClick: onClose }, h("div", { className: "modal-box fade-up", style: { maxWidth: 520 }, onClick: e => e.stopPropagation() }, h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", padding: "18px 20px", borderBottom: "1px solid var(--line)" } }, h("div", null, h("h3", { style: { fontSize: 16, fontWeight: 700, color: "var(--navy-900)" } }, "Export Excel Presensi"), h("p", { style: { fontSize: 12, color: "var(--t-faint)", marginTop: 2 } }, "Pilih rentang bulan: dari bulan sampai bulan")), h("button", { onClick: onClose, "aria-label": "Tutup", style: { color: "var(--t-faint)", padding: 4 } }, h(Icon, { name: "x", size: 20 }))), h("div", { style: { padding: 20, display: "flex", flexDirection: "column", gap: 16 } }, h("div", null, h("label", { className: "label" }, "Karyawan"), h("select", { className: "input", value: userId, onChange: e => setUserId(e.target.value) }, h("option", { value: "all" }, "Semua karyawan"), users.map(u => h("option", { key: u.id, value: u.id }, u.name)))), h("div", { className: "grid-2", style: { gap: 12 } }, h("div", null, h("label", { className: "label" }, "Dari bulan"), h("input", { type: "month", className: "input", value: fromMonth, min: monthOptions[monthOptions.length - 1].key, max: currentMonthKey(), onChange: e => e.target.value && setFromMonth(e.target.value) })), h("div", null, h("label", { className: "label" }, "Sampai bulan"), h("input", { type: "month", className: "input", value: toMonth, min: fromMonth, max: currentMonthKey(), onChange: e => e.target.value && setToMonth(e.target.value) }))), rangeMonths.length > 1 && h("p", { style: { fontSize: 12, color: "var(--t-muted)", marginTop: -6 } }, `Mencakup ${rangeMonths.length} bulan, diurutkan dari tanggal terlama.`), busy && h("div", { className: "flex", style: { alignItems: "center", gap: 8, fontSize: 13, color: "var(--t-muted)" } }, h(Icon, { name: "loader-2", size: 14, className: "spin" }), "Menyiapkan data…"), error && h("div", { style: { background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, error), onExportFiltered && h("button", { onClick: onExportFiltered, style: { fontSize: 12, color: "var(--t-muted)", textDecoration: "underline", textAlign: "left" } }, `Atau unduh sesuai filter tabel saat ini (${filteredCount} baris)`)), h("div", { className: "flex", style: { gap: 10, padding: "16px 20px", borderTop: "1px solid var(--line)" } }, h(Button, { variant: "outline", onClick: onClose, style: { flex: 1 } }, "Batal"), h(Button, { variant: "primary", onClick: handleDownload, disabled: busy, style: { flex: 1 } }, busy ? "Membuat Excel…" : h(React.Fragment, null, h(Icon, { name: "file-spreadsheet", size: 15 }), " Download Excel")))));
 }
 
 /* ======================= MODAL REKAP PDF PER KARYAWAN ======================= */
@@ -10545,6 +10561,7 @@ function RekapPDFModal({
   const [loadingMonth, setLoadingMonth] = useState(null);
   const [monthLoadError, setMonthLoadError] = useState("");
   const selectedUser = users.find(u => u.id === selectedUserId);
+  const isAll = selectedUserId === "all"; // unduh rekap untuk SEMUA karyawan sekaligus
 
   // Batas jendela data yang dipantau live (lihat initFirestore) — bulan yang tanggal terakhirnya
   // di luar batas ini perlu diambil manual (sekali-ambil) lewat ensureRecordsForMonthLoaded,
@@ -10662,7 +10679,7 @@ function RekapPDFModal({
     return `${Math.floor(avg / 60)}j ${avg % 60}m`;
   }, [allRows]);
   async function handleGenerate() {
-    if (!selectedUser) return;
+    if (!selectedUser && !isAll) return;
     setPreviewing(true);
     setMonthLoadError("");
     try {
@@ -10671,7 +10688,7 @@ function RekapPDFModal({
         if (`${mk}-01` < cutoffDateStr && !oldRecordsCache[mk]) await ensureRecordsForMonthLoaded(mk);
       }
       await new Promise(r => setTimeout(r, 80));
-      if (rangeMonths.length <= 1) exportRekapPDF(selectedUser, selectedMonth, previewRecords);else exportRekapRangePDF(selectedUser, rangeMonths);
+      if (isAll) exportRekapMultiPDF(users, rangeMonths.length ? rangeMonths : [selectedMonth]);else if (rangeMonths.length <= 1) exportRekapPDF(selectedUser, selectedMonth, previewRecords);else exportRekapRangePDF(selectedUser, rangeMonths);
     } catch (err) {
       setMonthLoadError(err.message || "Gagal membuat rekap. Coba lagi.");
     } finally {
@@ -10733,7 +10750,7 @@ function RekapPDFModal({
       color: "var(--t-faint)",
       marginTop: 2
     }
-  }, "Slip rekap resmi per karyawan — pilih satu bulan atau rentang bulan")), /*#__PURE__*/React.createElement("button", {
+  }, "Slip rekap resmi per karyawan atau semua karyawan — pilih satu bulan atau rentang bulan")), /*#__PURE__*/React.createElement("button", {
     onClick: onClose,
     "aria-label": "Tutup",
     style: {
@@ -10756,19 +10773,12 @@ function RekapPDFModal({
     className: "input",
     value: selectedUserId,
     onChange: e => setSelectedUserId(e.target.value)
-  }, users.map(u => /*#__PURE__*/React.createElement("option", {
+  }, [/*#__PURE__*/React.createElement("option", {key: "all", value: "all"}, "Semua karyawan"), ...users.map(u => /*#__PURE__*/React.createElement("option", {
     key: u.id,
     value: u.id
-  }, u.name)))), /*#__PURE__*/React.createElement("div", {className: "grid-2", style: {gap: 12}}, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+  }, u.name))])), /*#__PURE__*/React.createElement("div", {className: "grid-2", style: {gap: 12}}, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "label"
-  }, "Dari bulan"), /*#__PURE__*/React.createElement("select", {
-    className: "input",
-    value: selectedMonth,
-    onChange: e => setSelectedMonth(e.target.value)
-  }, monthOptions.map(o => /*#__PURE__*/React.createElement("option", {
-    key: o.key,
-    value: o.key
-  }, o.label)))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {className: "label"}, "Sampai bulan"), /*#__PURE__*/React.createElement("select", {className: "input", value: endMonth, onChange: e => setEndMonth(e.target.value)}, endOptions.map(o => /*#__PURE__*/React.createElement("option", {key: o.key, value: o.key}, o.label))))), rangeMonths.length > 1 && /*#__PURE__*/React.createElement("p", {style: {fontSize: 12, color: "var(--t-muted)", marginTop: -6}}, `PDF berisi ${rangeMonths.length} slip bulanan; tiap bulan mulai di halaman baru.`)), loadingMonth === selectedMonth && /*#__PURE__*/React.createElement("div", {
+  }, "Dari bulan"), /*#__PURE__*/React.createElement("input", {type: "month", className: "input", value: selectedMonth, min: monthOptions.length ? monthOptions[monthOptions.length - 1].key : undefined, max: currentMonthKey(), onChange: e => e.target.value && setSelectedMonth(e.target.value)})), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {className: "label"}, "Sampai bulan"), /*#__PURE__*/React.createElement("input", {type: "month", className: "input", value: endMonth, min: selectedMonth, max: currentMonthKey(), onChange: e => e.target.value && setEndMonth(e.target.value)}))), rangeMonths.length > 1 && /*#__PURE__*/React.createElement("p", {style: {fontSize: 12, color: "var(--t-muted)", marginTop: -6}}, `PDF berisi ${rangeMonths.length} slip bulanan; tiap bulan mulai di halaman baru.`), isAll && /*#__PURE__*/React.createElement("p", {style: {fontSize: 12, color: "var(--t-muted)", marginTop: -6}}, `Satu PDF untuk ${users.length} karyawan \u00d7 ${Math.max(rangeMonths.length, 1)} bulan = ${users.length * Math.max(rangeMonths.length, 1)} slip (urut per karyawan). Prosesnya bisa agak lama.`)), loadingMonth === selectedMonth && /*#__PURE__*/React.createElement("div", {
     className: "flex",
     style: {
       alignItems: "center",
@@ -10903,7 +10913,7 @@ function RekapPDFModal({
   }, "Batal"), /*#__PURE__*/React.createElement(Button, {
     variant: "primary",
     onClick: handleGenerate,
-    disabled: previewing || rangeMonths.length <= 1 && previewRecords.length === 0,
+    disabled: previewing || !isAll && !selectedUser || !isAll && rangeMonths.length <= 1 && previewRecords.length === 0,
     style: {
       flex: 1
     }
