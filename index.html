@@ -4360,7 +4360,7 @@ function exportKejadianToExcel(reports, filenamePrefix = "laporan-kejadian") {
   XLSX.utils.book_append_sheet(wb, ws, "Kejadian");
   XLSX.writeFile(wb, `${filenamePrefix}-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
-function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian") {
+function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian", filterLabel = "") {
   const doc = new jspdf.jsPDF({
     orientation: "landscape"
   });
@@ -4369,7 +4369,7 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian") {
   doc.text("Laporan Kejadian Patroli", 14, 15);
   doc.setFontSize(9);
   doc.setTextColor(100, 116, 139);
-  doc.text(`Dibuat pada ${new Date().toLocaleString("id-ID")}`, 14, 21);
+  doc.text(`Dibuat pada ${new Date().toLocaleString("id-ID")}${filterLabel ? " \u00b7 Status: " + filterLabel : ""}`, 14, 21);
   const ticketCell = k => [k.ticketId || "-", k.title || "", [k.category, KEJADIAN_PRIORITY_LABEL[k.priority] ? "Prioritas " + KEJADIAN_PRIORITY_LABEL[k.priority] : ""].filter(Boolean).join(" \u00b7 ")].filter(Boolean).join("\n");
   // Tabel 9 kolom seperti semula. Riwayat Penanganan yang panjang dipecah per kelompok update (batas tinggi
   // baris), dan SETIAP baris lanjutan mengulang info tiket (tiket, tanggal, waktu, pelapor, status, darurat,
@@ -5628,6 +5628,7 @@ function lucideNodeToSvgString(node, overrideAttrs) {
 // Tambah bahasa baru: buat kamus baru di I18N_DICTS (mis. { en: {...}, ms: {...} }) dan masukkan kodenya ke I18N_LANGS.
 const I18N_LANGS = ["id", "en"];
 const I18N_DICTS = { en: {
+"Belum selesai":"Not finished","Sudah selesai":"Finished","Semua status":"All statuses","Status Selesai":"Done status",
 "Dashboard":"Dashboard","Operasional Lapangan":"Field Operations","Pengajuan":"Requests","Pengajuan Izin":"Leave Requests","Pengaturan":"Settings","Jam & Presensi":"Hours & Attendance","Checkpoint & Lokasi":"Checkpoints & Locations","Hak Akses":"Access Rights","Backup & Arsip":"Backup & Archive","Panduan":"Guide","Presensi":"Attendance","Presensi Patroli Team":"Patrol Team Attendance","Patroli":"Patrol","Jadwal":"Schedule","Jadwal Kerja":"Work Schedule","Penilaian":"Scoring","Riwayat":"History","Profil":"Profile","Profil Saya":"My Profile","Izin / Cuti":"Leave","Izin/Cuti":"Leave","Lembur":"Overtime","Keluar":"Log out","Login":"Log in","User Name":"User Name","Password":"Password","Remember me":"Remember me","Memeriksa...":"Checking...","Lupa kata sandi? Hubungi administrator.":"Forgot your password? Contact the administrator.","Username atau kata sandi salah.":"Incorrect username or password.","Username dan kata sandi wajib diisi.":"Username and password are required.","Menghubungkan ke server…":"Connecting to server…","Menghubungkan ke server...":"Connecting to server...","Tampilkan kata sandi":"Show password","Sembunyikan kata sandi":"Hide password","Tema gelap":"Dark theme","Tema terang":"Light theme","Ganti ke tema gelap":"Switch to dark theme","Ganti ke tema terang":"Switch to light theme","Cari menu…":"Search menu…","Menu tidak ditemukan":"Menu not found","Notifikasi":"Notifications","Tidak ada notifikasi baru.":"No new notifications.","Profil saya":"My profile",
 "Hadir":"Present","Terlambat":"Late","Alpa":"Absent","Izin":"Leave","Piket Malam":"Night Duty","Piket Mlm":"Night Duty","Masuk":"In","Off":"Off","Standby On Call":"Standby On Call","Super Admin":"Super Admin","Karyawan":"Employee","Menunggu":"Pending","Disetujui":"Approved","Ditolak":"Rejected","Semua":"All","Baru":"New","Diproses":"In progress","Selesai":"Done","Baru & Diproses":"New & In progress","Belum Absen":"Not Checked In","Belum":"Not yet",
 "Halo,":"Hello,","Berikut ringkasan kehadiran Anda hari ini.":"Here is your attendance summary for today.","Absen Masuk":"Check In","Absen Pulang":"Check Out","Presensi hari ini selesai":"Today's attendance is complete","Anda sedang izin/cuti hari ini":"You are on leave today","Menyimpan data presensi…":"Saving attendance data…","Memverifikasi lokasi GPS (mengambil 3 sampel)…":"Verifying GPS location (taking 3 samples)…","Selfie Absen Masuk":"Check-in Selfie","Selfie Absen Pulang":"Check-out Selfie","Jam Masuk":"Check-in Time","Jam Pulang":"Check-out Time","Lokasi Masuk":"Check-in Location","Lokasi Pulang":"Check-out Location","Belum absen pulang":"Not checked out yet","Bulan ini":"This month","Riwayat Presensi":"Attendance History","Grafik Kehadiran Bulan Ini":"Attendance Chart This Month","Tidak ada catatan pada periode ini.":"No records in this period.","Tidak ada catatan":"No records","Tidak ada":"None","Buka di Google Maps":"Open in Google Maps","Lihat detail":"View details","Detail":"Details","Tanggal":"Date","Nama":"Name","Status":"Status","Pulang":"Out","Jabatan":"Position","Departemen":"Department","Total":"Total","Bulan":"Month","Hari":"Day","Hari ini":"Today","Jam":"Time","Waktu":"Time","Lokasi":"Location","Aksi":"Actions",
@@ -14728,6 +14729,19 @@ function KejadianPage() {
   const [dateFilter, setDateFilter] = useState("");
   const [detailId, setDetailId] = useState(null);
   const all = useMemo(() => getKejadianReports(), [store.kejadian]);
+  const [pdfMenuOpen, setPdfMenuOpen] = useState(false);
+  function exportPdfBy(mode) {
+    setPdfMenuOpen(false);
+    const done = k => k.status === KEJADIAN_STATUS.SELESAI;
+    const list = mode === "selesai" ? all.filter(done) : mode === "belum" ? all.filter(k => !done(k)) : all;
+    if (!list.length) {
+      window.alert(mode === "selesai" ? "Belum ada laporan kejadian yang selesai." : mode === "belum" ? "Tidak ada laporan kejadian yang belum selesai." : "Belum ada laporan kejadian.");
+      return;
+    }
+    const prefix = mode === "selesai" ? "laporan-kejadian-selesai" : mode === "belum" ? "laporan-kejadian-belum-selesai" : "laporan-kejadian";
+    const label = mode === "selesai" ? "Sudah selesai" : mode === "belum" ? "Belum selesai (Baru & Diproses)" : "Semua status";
+    exportKejadianToPDF(list, prefix, label);
+  }
   const detailK = detailId ? all.find(x => x.id === detailId) || null : null;
   const baruCount = all.filter(k => k.status === KEJADIAN_STATUS.BARU).length;
   const filtered = dateFilter ? all.filter(k => todayDateStrWITA(new Date(k.createdAt)) === dateFilter) : all;
@@ -14825,14 +14839,32 @@ function KejadianPage() {
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "file-spreadsheet",
     size: 15
-  }), " Excel (Semua)"), /*#__PURE__*/React.createElement(Button, {
+  }), " Excel (Semua)"), /*#__PURE__*/React.createElement("div", {
+    style: { position: "relative" }
+  }, /*#__PURE__*/React.createElement(Button, {
     variant: "outline",
     size: "sm",
-    onClick: () => exportKejadianToPDF(all)
+    onClick: () => setPdfMenuOpen(o => !o)
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "file-text",
     size: 15
-  }), " PDF (Semua)"))), actionError && /*#__PURE__*/React.createElement("div", {
+  }), " PDF ", /*#__PURE__*/React.createElement(Icon, {
+    name: pdfMenuOpen ? "chevron-up" : "chevron-down",
+    size: 14
+  })), pdfMenuOpen && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    onClick: () => setPdfMenuOpen(false),
+    style: { position: "fixed", inset: 0, zIndex: 40 }
+  }), /*#__PURE__*/React.createElement("div", {
+    role: "menu",
+    style: { position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 41, minWidth: 230, background: "var(--page-bg, #fff)", border: "1px solid var(--line)", borderRadius: 12, boxShadow: "0 10px 30px rgba(0,0,0,.18)", padding: 6, display: "flex", flexDirection: "column", gap: 2 }
+  }, [["belum", "Belum selesai", "Baru & Diproses", all.filter(k => k.status !== KEJADIAN_STATUS.SELESAI).length], ["selesai", "Sudah selesai", "Status Selesai", all.filter(k => k.status === KEJADIAN_STATUS.SELESAI).length], ["semua", "Semua", "Semua status", all.length]].map(([mode, title, sub, n]) => /*#__PURE__*/React.createElement("button", {
+    key: mode,
+    role: "menuitem",
+    onClick: () => exportPdfBy(mode),
+    style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, width: "100%", textAlign: "left", padding: "9px 12px", borderRadius: 8, color: "var(--navy-900)", fontSize: 13 },
+    onMouseEnter: e => e.currentTarget.style.background = "var(--navy-50)",
+    onMouseLeave: e => e.currentTarget.style.background = "transparent"
+  }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", { style: { fontWeight: 600, display: "block" } }, title), /*#__PURE__*/React.createElement("span", { style: { fontSize: 11, color: "var(--t-muted)" } }, sub)), /*#__PURE__*/React.createElement("span", { style: { fontSize: 12, color: "var(--t-muted)" } }, n)))))))), actionError && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 16,
       background: "var(--red-soft)",
