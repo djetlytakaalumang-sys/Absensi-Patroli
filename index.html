@@ -4390,7 +4390,7 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian", filte
   // lokasi) — jadi tidak ada kolom kosong. Baris tidak pernah terpotong di tengah halaman (rowPageBreak).
   const HIST_COL_W = 67; // mm, harus sama dengan columnStyles[8]
   const MAX_LINES = 20; // batas tinggi satu baris riwayat
-  doc.setFontSize(8);
+  doc.setFontSize(7); // font tabel 7pt supaya minimal 2 tiket muat per halaman
   const linesOf = txt => doc.splitTextToSize(pdfSafeText(txt), HIST_COL_W - 5).length;
   const body = [];
   // Urutan: yang belum selesai dulu, lalu yang selesai; di tiap kelompok dari yang PALING LAMA dimulai ke yang terbaru.
@@ -4467,40 +4467,42 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian", filte
     body,
     rowPageBreak: "avoid",
     styles: {
-      fontSize: 8,
-      cellPadding: 2.5,
+      fontSize: 7,
+      cellPadding: 2,
       lineColor: [214, 220, 229],
       lineWidth: 0.1
     },
     headStyles: {
       fillColor: [15, 27, 51],
       textColor: 255,
-      fontStyle: "bold"
+      fontStyle: "bold",
+      fontSize: 8,
+      overflow: "visible"
     },
     columnStyles: {
       0: {
-        cellWidth: 8
+        cellWidth: 10
       },
       1: {
-        cellWidth: 34
+        cellWidth: 30
       },
       2: {
-        cellWidth: 32
+        cellWidth: 30
       },
       3: {
-        cellWidth: 22
+        cellWidth: 20
       },
       4: {
-        cellWidth: 17
+        cellWidth: 16
       },
       5: {
-        cellWidth: 14
+        cellWidth: 17
       },
       6: {
-        cellWidth: 42
+        cellWidth: 51
       },
       7: {
-        cellWidth: 32
+        cellWidth: 28
       },
       8: {
         cellWidth: HIST_COL_W
