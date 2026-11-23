@@ -18000,7 +18000,7 @@ function PanduanPage() {
   const headerEl = React.createElement("div", { style: { marginBottom: 24 } },
     React.createElement("h1", { style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Panduan & Penjelasan Perhitungan"),
     React.createElement("p", { style: { color: "var(--navy-700)", fontSize: 14, marginTop: 2 } },
-      "Panduan khusus admin: penjelasan cara kerja setiap status, skor, CP, laporan kejadian, lembur, hak akses, dan pengaturan di aplikasi ini \u2014 klik tiap bagian untuk membuka.")
+      "Panduan khusus admin: penjelasan cara kerja setiap status, skor, CP, laporan kejadian, lembur, hak akses, area, zona waktu, dan pengaturan di aplikasi ini \u2014 klik tiap bagian untuk membuka.")
   );
 
   const ringkasanSection = React.createElement(GuideSection, { icon: "sparkles", title: "Ringkasan Cepat: Dari Mana Nilai Saya?", defaultOpen: true },
@@ -18024,6 +18024,37 @@ function PanduanPage() {
     ),
     React.createElement("p", { style: { fontSize: 12.5, fontStyle: "italic" } },
       "Detail cara hitung tiap bagian ada di bawah ini \u2014 tinggal klik judulnya untuk buka.")
+  );
+
+  const areaZonaSection = React.createElement(GuideSection, { icon: "clock", title: "Area, Zona Waktu (WIB / WITA) & Dashboard per Area" },
+    React.createElement("p", null, "Monitoring dibagi per area: Timur (NIT), Tengah (NITA), dan Barat (NIB). Tiap area punya anggota, lokasi presensi, checkpoint, tim & rute, dan skor sendiri. Diatur di Pengaturan \u2192 Checkpoint & Lokasi \u2192 Area."),
+    React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Zona waktu & jam kerja"),
+    React.createElement(GuideList, {
+      items: [
+        "Jam dan tanggal presensi mengikuti zona waktu PERANGKAT yang dipakai petugas: HP di area NIT memakai WITA, HP di area NITA dan NIB memakai WIB.",
+        "Batas jam di Pengaturan \u2192 Jam & Presensi dibaca sebagai jam lokal area. Contoh: batas masuk 08:00 berarti 08:00 WITA untuk petugas NIT dan 08:00 WIB untuk petugas NITA/NIB.",
+        "Di layar presensi, jam digital diberi label WIB, WITA, atau WIT supaya jelas jam yang dipakai. Pergantian hari dan logout otomatis jam 00:00 juga mengikuti zona perangkat.",
+        "Pastikan 'tanggal & waktu otomatis' dan 'zona waktu otomatis' aktif di HP semua petugas. Kalau zona di HP salah, jam dan tanggal presensinya ikut salah.",
+        "Dashboard admin memakai zona waktu perangkat admin, jadi laptop admin sebaiknya diatur ke WITA. Selama 00:00\u201301:00 WITA, 'hari ini' untuk petugas WIB bisa berbeda satu hari."
+      ]
+    }),
+    React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Dashboard per area"),
+    React.createElement(GuideList, {
+      items: [
+        "Dashboard punya pilihan area di bawah judul. Analitik Kehadiran, Aktivitas Terkini, kartu statistik, laporan kejadian, peringkat tim, dan Peta Live Patroli hanya menghitung area yang dipilih.",
+        "Hanya Super Admin yang bisa melihat semua area. Admin dan View Only hanya melihat area yang diberikan ke akunnya (pilihan 'Semua area saya' menggabungkan area itu).",
+        "Kalau akun Admin atau View Only belum punya area akses, dashboard kosong dan muncul pesan untuk menghubungi Super Admin. Area akses diatur di Pengaturan \u2192 Hak Akses \u2192 Edit pengguna \u2192 Batasi akses ke area.",
+        "Pembatasan ini berlaku di tampilan aplikasi. Aturan keamanan Firestore diatur terpisah."
+      ]
+    }),
+    React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Admin Area (mengatur area kerja dan rute)"),
+    React.createElement(GuideList, {
+      items: [
+        "Admin Area boleh mengatur lokasi presensi, checkpoint, anggota, dan tim & rute di areanya sendiri lewat Pengaturan \u2192 Checkpoint & Lokasi.",
+        "Yang tetap hanya Super Admin: menambah/menghapus area, jam kerja, data karyawan, Hak Akses, dan Backup.",
+        "Lokasi, checkpoint, atau tim yang belum punya area (termasuk Tim Manado dan Tim Minut bawaan) hanya bisa diubah Super Admin sampai dimasukkan ke sebuah area."
+      ]
+    })
   );
 
   const statusSection = React.createElement(GuideSection, { icon: "badge-check", title: "Status Kehadiran" },
@@ -18100,7 +18131,7 @@ function PanduanPage() {
 
   const kejadianSection = React.createElement(GuideSection, { icon: "alert-triangle", title: "Laporan Kejadian: Baru \u2192 Diproses \u2192 Selesai" },
     React.createElement("p", null, "Laporan kejadian dibuat dan diperbarui oleh karyawan pelapor. Admin hanya memantau laporan dan perkembangannya (tidak mengubah status). Selain pelapor, karyawan yang ditandai Leader Team juga bisa memproses, mengupdate, dan menyelesaikan laporan anggota lain; mereka melihat laporan tim di kartu \"Laporan Kejadian Tim\" pada halaman Patroli. Nama yang tercatat di riwayat adalah nama yang melakukan update."),
-    React.createElement("p", null, "Setiap laporan berbentuk tiket: nomor tiket otomatis (format NIT-TahunBulanTanggal-Urutan, mis. NIT-20261007-001), Kategori (Gangguan OSP, Gangguan Perangkat, Kabel Laut, Pekerjaan Pihak Ketiga, atau Lainnya), Prioritas (Rendah, Sedang, Tinggi), Judul, Kronologi, lokasi, foto, dan riwayat tindakan. Judul dan kronologi wajib diisi saat melapor. Laporan lama yang dibuat sebelum format ini tetap tampil tanpa nomor tiket."),
+    React.createElement("p", null, "Setiap laporan berbentuk tiket: nomor tiket otomatis (format AwalanArea-KodeKategori-Urutan, mis. NIT-OSP-001 atau NITA-OSP-001; awalan mengikuti area pelapor: NIT = Timur, NITA = Tengah, NIB = Barat; kode kategori: OSP, PRK, KBL, PPK, LNY; nomor urut jalan sendiri per kategori; tiket lama berformat NIT-TahunBulanTanggal-Urutan tidak diubah), Kategori (Gangguan OSP, Gangguan Perangkat, Kabel Laut, Pekerjaan Pihak Ketiga, atau Lainnya), Prioritas (Rendah, Sedang, Tinggi), Judul, Kronologi, lokasi, foto, dan riwayat tindakan. Judul dan kronologi wajib diisi saat melapor. Laporan lama yang dibuat sebelum format ini tetap tampil tanpa nomor tiket."),
     React.createElement(GuideBadgeRow, { label: "Baru", color: "var(--red)", bg: "var(--red-soft)", desc: "Laporan baru dikirim petugas. Belum ada tindakan." }),
     React.createElement(GuideBadgeRow, { label: "Diproses", color: "var(--amber)", bg: "var(--amber-soft)", desc: "Petugas menandai laporan sedang ditangani. Selama belum tuntas, status tetap Diproses dan petugas bisa menambah Update Progres dari hari ke hari (mis. menunggu material, lanjut besok), boleh disertai foto." }),
     React.createElement(GuideBadgeRow, { label: "Selesai", color: "var(--navy-700)", bg: "var(--slate-mist)", desc: "Petugas menyelesaikan laporan setelah kejadian tuntas, boleh disertai catatan penyelesaian." }),
@@ -18206,8 +18237,9 @@ function PanduanPage() {
 
   const aksesSection = React.createElement(GuideSection, { icon: "shield", title: "Hak Akses: Super Admin, Admin, View Only & Karyawan" },
     React.createElement(GuideBadgeRow, { label: "Super Admin", color: "var(--navy-900)", bg: "var(--slate-mist)", desc: "Bisa melihat dan mengubah semua data: menyetujui izin dan lembur, mengubah pengaturan, mengelola pengguna, backup, dan lainnya." }),
-    React.createElement(GuideBadgeRow, { label: "Admin", color: "var(--accent-700)", bg: "var(--slate-mist)", desc: "Bisa membuka dan mengunduh (Excel/PDF) semua data seperti Super Admin, serta menyetujui, menolak, atau mengembalikan keputusan Izin dan Lembur. Tidak bisa mengubah pengaturan (jam, checkpoint, hak akses, backup), data karyawan, jadwal, atau menghapus data." }),
-    React.createElement(GuideBadgeRow, { label: "View Only", color: "var(--accent-700)", bg: "var(--slate-mist)", desc: "Bisa membuka semua menu admin untuk MELIHAT saja: Dashboard, Presensi Karyawan (jam masuk), Jadwal Kerja, Lembur, Patroli, Laporan Kejadian, Izin, Pengaturan, Hak Akses, dan Backup." }),
+    React.createElement(GuideBadgeRow, { label: "Admin", color: "var(--accent-700)", bg: "var(--slate-mist)", desc: "Bisa membuka dan mengunduh (Excel/PDF) data seperti Super Admin (di Dashboard hanya area yang diberikan ke akunnya), serta menyetujui, menolak, atau mengembalikan keputusan Izin dan Lembur. Tidak bisa mengubah pengaturan (jam, checkpoint, hak akses, backup), data karyawan, jadwal, atau menghapus data." }),
+    React.createElement(GuideBadgeRow, { label: "Admin Area", color: "var(--accent-700)", bg: "var(--slate-mist)", desc: "Pengguna berperan Admin yang dibatasi ke satu atau beberapa area (Pengaturan \u2192 Hak Akses \u2192 Edit pengguna \u2192 Batasi akses ke area). Selain hak Admin biasa, Admin Area boleh mengatur lokasi presensi, checkpoint patroli, anggota, dan tim & rute HANYA di area yang dikelolanya. Tidak bisa menambah/menghapus area, mengubah jam kerja, atau mengatur area lain. Lokasi, checkpoint, dan tim yang belum punya area hanya bisa diubah Super Admin." }),
+    React.createElement(GuideBadgeRow, { label: "View Only", color: "var(--accent-700)", bg: "var(--slate-mist)", desc: "Bisa membuka semua menu admin untuk MELIHAT saja: Dashboard, Presensi Karyawan (jam masuk), Jadwal Kerja, Lembur, Patroli, Laporan Kejadian, Izin, Pengaturan, Hak Akses, dan Backup. Di Dashboard hanya melihat area yang diberikan ke akunnya." }),
     React.createElement(GuideBadgeRow, { label: "Karyawan", color: "var(--green)", bg: "var(--green-soft)", desc: "Hanya mengakses presensi, patroli, jadwal, penilaian, riwayat, izin, dan lembur milik sendiri." }),
     React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Aturan akun View Only:"),
     React.createElement(GuideList, {
@@ -18408,7 +18440,7 @@ function PanduanPage() {
     React.createElement(GuideList, {
       items: [
         "Jam & Presensi \u2014 Jam Potong Masuk (checkInDeadline): batas jam check-in supaya masih dihitung \"Hadir\", lewat dari jam ini otomatis \"Terlambat\". Jam Pulang Normal (shiftEndTime): jam pulang yang diharapkan untuk shift Hadir/Terlambat, dipakai mendeteksi \"pulang lebih awal\". Mulai/Selesai Piket Malam (nightShiftStart/nightShiftEnd): jendela jam untuk mendeteksi otomatis status Piket Malam kalau tidak ada Jadwal resmi.",
-        `Checkpoint & Lokasi \u2014 kartu Tim & Rute Checkpoint (atur anggota tim & urutan rute, lihat bagian "Tim & Rute Patroli" di atas); daftar Checkpoint Patroli (nama, koordinat, radius), maksimal ${MAX_CHECKPOINTS} titik \u2014 checkpoint otomatis tercentang saat petugas berada dalam radiusnya; Lokasi Kantor (officeLocations), maksimal ${MAX_OFFICE_LOCATIONS} lokasi, tiap lokasi bisa punya radius toleransi sendiri (kalau kosong, dipakai Radius Presensi/radiusMeters sebagai nilai default); dan sakelar Wajib Dalam Radius (enforceRadius) \u2014 kalau aktif, karyawan di luar radius semua Lokasi Kantor tidak bisa presensi sama sekali.`,
+        `Checkpoint & Lokasi \u2014 kartu Area (anggota, lokasi presensi, checkpoint, dan bobot skor per area; Admin Area hanya melihat areanya), kartu Tim & Rute Checkpoint (atur anggota tim & urutan rute, lihat bagian "Tim & Rute Patroli" di atas); daftar Checkpoint Patroli (nama, koordinat, radius), maksimal ${MAX_CHECKPOINTS} titik \u2014 checkpoint otomatis tercentang saat petugas berada dalam radiusnya; Lokasi Kantor (officeLocations), maksimal ${MAX_OFFICE_LOCATIONS} lokasi, tiap lokasi bisa punya radius toleransi sendiri (kalau kosong, dipakai Radius Presensi/radiusMeters sebagai nilai default); dan sakelar Wajib Dalam Radius (enforceRadius) \u2014 kalau aktif, karyawan di luar radius semua Lokasi Kantor tidak bisa presensi sama sekali.`,
         "Hak Akses \u2014 kartu Hak Akses Pengguna (atur siapa saja yang punya akses Admin, View Only, atau Karyawan, dan tempat menambah karyawan/pengguna baru lewat tombol \"Tambah Pengguna\"; kolom \"Leader Team\" dicentang untuk menjadikan seorang karyawan Leader Team yang ikut bisa memproses, mengupdate, dan menyelesaikan laporan kejadian anggota lain), serta kartu Riwayat Login (catatan waktu setiap pengguna login, memakai jam server \u2014 bukan jam perangkat \u2014 supaya tidak bisa direkayasa, bisa difilter per nama/tanggal). Di daftar yang sama juga otomatis muncul dua jenis kejadian sistem: (1) Tutup Otomatis (ikon \u26a0\ufe0f kuning) \u2014 saat ada presensi/sesi patroli yang lupa diakhiri dari hari sebelumnya, lalu ditutup paksa oleh sistem; dan (2) Logout Otomatis (ikon \ud83d\udeaa biru) \u2014 setiap pengguna yang sedang login otomatis dikeluarkan begitu tanggal berganti (00:00 WITA, jam server), sehingga wajib login ulang tiap hari.",
         "Backup & Arsip Data \u2014 kartu Backup & Arsipkan Data Lama: pilih rentang tanggal (dari\u2013sampai), lalu unduh presensi/patroli/checkpoint/laporan kejadian pada rentang itu sebagai file Excel (foto selfie & foto kejadian TIDAK disertakan, karena ukurannya terlalu besar untuk 1 sel Excel). Setelah file terunduh, admin bisa pilih menghapus data itu dari server (opsional, membantu menjaga kuota database tetap aman) \u2014 tindakan hapus ini tidak bisa dibatalkan setelah dijalankan. Di bawahnya ada kartu Import Data dari Excel, untuk mengembalikan data dari file backup itu ke server kapan saja (mis. kalau ternyata data yang sudah dihapus masih dibutuhkan) \u2014 aman diulang berkali-kali, data dengan id yang sama tidak akan dobel."
       ]
@@ -18442,6 +18474,7 @@ function PanduanPage() {
   return React.createElement("div", { className: "container-app" },
     headerEl,
     ringkasanSection,
+    areaZonaSection,
     statusSection,
     jadwalSection,
     attendanceScoreSection,
