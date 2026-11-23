@@ -2482,12 +2482,12 @@ function getCheckpointVisitCount(checkpointId) {
 }
 // Rekap rit per BULAN (dipakai di mode "Per Bulan" halaman Rekap Rit): untuk tiap karyawan,
 // hitung total rit per checkpoint sepanjang bulan tsb, plus rincian per tanggal (untuk expand).
-function getRitRecapMonthly(monthStr) {
+function getRitRecapMonthly(monthStr, areaFilter = "all") {
   const [y, m] = monthStr.split("-").map(Number);
   const start = `${monthStr}-01`;
   const daysInMonth = new Date(y, m, 0).getDate();
   const end = `${monthStr}-${String(daysInMonth).padStart(2, "0")}`;
-  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE);
+  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE && userInArea(u.id, areaFilter));
   const checkpoints = getCheckpoints();
   const passesInRange = store.checkpointPasses.filter(p => p.date >= start && p.date <= end);
   return employees.map(u => {
@@ -2591,8 +2591,8 @@ function getLastCheckpointPassForUserOnDate(userId, dateStr) {
 }
 // Rekap jumlah rit (lintas checkpoint) per karyawan untuk 1 tanggal tertentu.
 // checkpointId null/undefined = hitung semua checkpoint digabung (byCheckpoint tetap dipecah per checkpoint).
-function getRitRecap(dateStr, checkpointId) {
-  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE);
+function getRitRecap(dateStr, checkpointId, areaFilter = "all") {
+  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE && userInArea(u.id, areaFilter));
   const allCheckpoints = getCheckpoints();
   const passesOnDate = store.checkpointPasses.filter(p => p.date === dateStr && (!checkpointId || p.checkpointId === checkpointId));
   return employees.map(u => {
@@ -3570,13 +3570,13 @@ function getAreaWeights(userId) {
   const att = Number.isFinite(w) ? Math.min(100, Math.max(0, w)) / 100 : SCORE_WEIGHT_ATTENDANCE;
   return { att, pat: 1 - att };
 }
-function AreaFilterChips({ value, onChange }) {
+function AreaFilterChips({ value, onChange, noAll }) {
   useStoreSync();
   const areas = getVisibleAreas();
   if (areas.length === 0) return null;
   const h = React.createElement;
   const chip = (key, label) => h("button", { key, onClick: () => onChange(key), className: `chip ${value === key ? "chip-active" : "chip-inactive"}` }, label);
-  return h("div", { className: "flex", style: { gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 16 } }, chip("all", getScopeAreaIds() ? "Semua area saya" : "Semua area"), areas.map(a => chip(a.id, a.name)));
+  return h("div", { className: "flex", style: { gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 16 } }, noAll ? null : chip("all", getScopeAreaIds() ? "Semua area saya" : "Semua area"), areas.map(a => chip(a.id, a.name)));
 }
 // Skor tim gabungan: kehadiran + patroli (bobot default 60/40, bisa beda per area). Jika belum ada data patroli, skor 100% dari kehadiran.
 function computeTeamScore(userId, monthKey) {
@@ -4601,14 +4601,14 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian", filte
 
 // ===== Ekspor Rekap Checkpoint (CP): Excel & PDF, per tanggal / per bulan =====
 // Mengikuti mode & filter yang sedang aktif di halaman Rekap Checkpoint (CP).
-function buildRitRecapExport({ mode, dateStr, monthStr, checkpointId, nameQuery }) {
+function buildRitRecapExport({ mode, dateStr, monthStr, checkpointId, nameQuery, areaFilter = "all" }) {
   const allCps = getCheckpoints();
   const cps = checkpointId ? allCps.filter(c => c.id === checkpointId) : allCps;
   const q = (nameQuery || "").toLowerCase();
   const keep = r => !q || r.userName.toLowerCase().includes(q);
-  const cpLabel = checkpointId ? (cps[0] ? cps[0].name : "-") : "Semua Checkpoint";
+  const cpLabel = (checkpointId ? (cps[0] ? cps[0].name : "-") : "Semua Checkpoint") + (areaFilter && areaFilter !== "all" ? " | Area: " + getAreaName(areaFilter) : "");
   if (mode === "harian") {
-    const rows = getRitRecap(dateStr, checkpointId || null).filter(keep).map(r => ({
+    const rows = getRitRecap(dateStr, checkpointId || null, areaFilter).filter(keep).map(r => ({
       userId: r.userId,
       avatarColor: r.avatarColor,
       name: r.userName,
@@ -4651,7 +4651,7 @@ function buildRitRecapExport({ mode, dateStr, monthStr, checkpointId, nameQuery 
     const key = p.userId + "|" + Number(p.date.slice(8, 10));
     perDay[key] = (perDay[key] || 0) + 1;
   });
-  const rows = getRitRecapMonthly(monthStr).filter(keep).map(r => ({
+  const rows = getRitRecapMonthly(monthStr, areaFilter).filter(keep).map(r => ({
     userId: r.userId,
     avatarColor: r.avatarColor,
     name: r.userName,
@@ -10607,14 +10607,17 @@ function ProfilePage({
 
 /* ======================= MODAL EXCEL PRESENSI (PILIH RENTANG BULAN) ======================= */
 function ExcelRangeModal({
-  users,
+  users: allUsers,
   onClose,
   filteredCount,
   onExportFiltered
 }) {
   useStoreSync();
   const h = React.createElement;
+  const [areaId, setAreaId] = useState("all");
+  const users = useMemo(() => allUsers.filter(u => userInArea(u.id, areaId)), [allUsers, areaId, store.settings]);
   const [userId, setUserId] = useState("all");
+  useEffect(() => { setUserId("all"); }, [areaId]);
   const [fromMonth, setFromMonth] = useState(currentMonthKey());
   const [toMonth, setToMonth] = useState(currentMonthKey());
   const [busy, setBusy] = useState(false);
@@ -10655,7 +10658,7 @@ function ExcelRangeModal({
         return;
       }
       const first = rangeMonths[0], last = rangeMonths[rangeMonths.length - 1];
-      const who = userId === "all" ? "" : "-" + (targetUsers[0] ? targetUsers[0].name.replace(/\s+/g, "-") : "");
+      const who = userId === "all" ? (areaId !== "all" ? "-area-" + getAreaName(areaId).replace(/\s+/g, "-") : "") : "-" + (targetUsers[0] ? targetUsers[0].name.replace(/\s+/g, "-") : "");
       exportToExcel(rows, `laporan-presensi-${first}${last !== first ? "_sd_" + last : ""}${who}`);
       onClose();
     } catch (err) {
@@ -10664,21 +10667,26 @@ function ExcelRangeModal({
       setBusy(false);
     }
   }
-  return h("div", { className: "modal-backdrop", onClick: onClose }, h("div", { className: "modal-box fade-up", style: { maxWidth: 520 }, onClick: e => e.stopPropagation() }, h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", padding: "18px 20px", borderBottom: "1px solid var(--line)" } }, h("div", null, h("h3", { style: { fontSize: 16, fontWeight: 700, color: "var(--navy-900)" } }, "Export Excel Presensi"), h("p", { style: { fontSize: 12, color: "var(--t-faint)", marginTop: 2 } }, "Pilih rentang bulan: dari bulan sampai bulan")), h("button", { onClick: onClose, "aria-label": "Tutup", style: { color: "var(--t-faint)", padding: 4 } }, h(Icon, { name: "x", size: 20 }))), h("div", { style: { padding: 20, display: "flex", flexDirection: "column", gap: 16 } }, h("div", null, h("label", { className: "label" }, "Karyawan"), h("select", { className: "input", value: userId, onChange: e => setUserId(e.target.value) }, h("option", { value: "all" }, "Semua karyawan"), users.map(u => h("option", { key: u.id, value: u.id }, u.name)))), h("div", { className: "grid-2", style: { gap: 12 } }, h("div", null, h("label", { className: "label" }, "Dari bulan"), h("input", { type: "month", className: "input", value: fromMonth, min: monthOptions[monthOptions.length - 1].key, max: currentMonthKey(), onChange: e => e.target.value && setFromMonth(e.target.value) })), h("div", null, h("label", { className: "label" }, "Sampai bulan"), h("input", { type: "month", className: "input", value: toMonth, min: fromMonth, max: currentMonthKey(), onChange: e => e.target.value && setToMonth(e.target.value) }))), rangeMonths.length > 1 && h("p", { style: { fontSize: 12, color: "var(--t-muted)", marginTop: -6 } }, `Mencakup ${rangeMonths.length} bulan, diurutkan dari tanggal terlama.`), busy && h("div", { className: "flex", style: { alignItems: "center", gap: 8, fontSize: 13, color: "var(--t-muted)" } }, h(Icon, { name: "loader-2", size: 14, className: "spin" }), "Menyiapkan data…"), error && h("div", { style: { background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, error), onExportFiltered && h("button", { onClick: onExportFiltered, style: { fontSize: 12, color: "var(--t-muted)", textDecoration: "underline", textAlign: "left" } }, `Atau unduh sesuai filter tabel saat ini (${filteredCount} baris)`)), h("div", { className: "flex", style: { gap: 10, padding: "16px 20px", borderTop: "1px solid var(--line)" } }, h(Button, { variant: "outline", onClick: onClose, style: { flex: 1 } }, "Batal"), h(Button, { variant: "primary", onClick: handleDownload, disabled: busy, style: { flex: 1 } }, busy ? "Membuat Excel…" : h(React.Fragment, null, h(Icon, { name: "file-spreadsheet", size: 15 }), " Download Excel")))));
+  return h("div", { className: "modal-backdrop", onClick: onClose }, h("div", { className: "modal-box fade-up", style: { maxWidth: 520 }, onClick: e => e.stopPropagation() }, h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", padding: "18px 20px", borderBottom: "1px solid var(--line)" } }, h("div", null, h("h3", { style: { fontSize: 16, fontWeight: 700, color: "var(--navy-900)" } }, "Export Excel Presensi"), h("p", { style: { fontSize: 12, color: "var(--t-faint)", marginTop: 2 } }, "Pilih rentang bulan: dari bulan sampai bulan")), h("button", { onClick: onClose, "aria-label": "Tutup", style: { color: "var(--t-faint)", padding: 4 } }, h(Icon, { name: "x", size: 20 }))), h("div", { style: { padding: 20, display: "flex", flexDirection: "column", gap: 16 } }, getVisibleAreas().length > 0 && h("div", null, h("label", { className: "label" }, "Area"), h("select", { className: "input", value: areaId, onChange: e => setAreaId(e.target.value) }, h("option", { value: "all" }, getScopeAreaIds() ? "Semua area saya" : "Semua area"), getVisibleAreas().map(a => h("option", { key: a.id, value: a.id }, a.name)))), h("div", null, h("label", { className: "label" }, "Karyawan"), h("select", { className: "input", value: userId, onChange: e => setUserId(e.target.value) }, h("option", { value: "all" }, "Semua karyawan"), users.map(u => h("option", { key: u.id, value: u.id }, u.name)))), h("div", { className: "grid-2", style: { gap: 12 } }, h("div", null, h("label", { className: "label" }, "Dari bulan"), h("input", { type: "month", className: "input", value: fromMonth, min: monthOptions[monthOptions.length - 1].key, max: currentMonthKey(), onChange: e => e.target.value && setFromMonth(e.target.value) })), h("div", null, h("label", { className: "label" }, "Sampai bulan"), h("input", { type: "month", className: "input", value: toMonth, min: fromMonth, max: currentMonthKey(), onChange: e => e.target.value && setToMonth(e.target.value) }))), rangeMonths.length > 1 && h("p", { style: { fontSize: 12, color: "var(--t-muted)", marginTop: -6 } }, `Mencakup ${rangeMonths.length} bulan, diurutkan dari tanggal terlama.`), busy && h("div", { className: "flex", style: { alignItems: "center", gap: 8, fontSize: 13, color: "var(--t-muted)" } }, h(Icon, { name: "loader-2", size: 14, className: "spin" }), "Menyiapkan data…"), error && h("div", { style: { background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, error), onExportFiltered && h("button", { onClick: onExportFiltered, style: { fontSize: 12, color: "var(--t-muted)", textDecoration: "underline", textAlign: "left" } }, `Atau unduh sesuai filter tabel saat ini (${filteredCount} baris)`)), h("div", { className: "flex", style: { gap: 10, padding: "16px 20px", borderTop: "1px solid var(--line)" } }, h(Button, { variant: "outline", onClick: onClose, style: { flex: 1 } }, "Batal"), h(Button, { variant: "primary", onClick: handleDownload, disabled: busy, style: { flex: 1 } }, busy ? "Membuat Excel…" : h(React.Fragment, null, h(Icon, { name: "file-spreadsheet", size: 15 }), " Download Excel")))));
 }
 
 /* ======================= MODAL REKAP PDF PER KARYAWAN ======================= */
 function RekapPDFModal({
-  users,
+  users: allUsers,
   onClose
 }) {
   useStoreSync();
+  const [areaId, setAreaId] = useState("all");
+  const users = useMemo(() => allUsers.filter(u => userInArea(u.id, areaId)), [allUsers, areaId, store.settings]);
   const [selectedUserId, setSelectedUserId] = useState(users[0]?.id || "");
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
   const [endMonth, setEndMonth] = useState(currentMonthKey());
   const [previewing, setPreviewing] = useState(false);
   const [loadingMonth, setLoadingMonth] = useState(null);
   const [monthLoadError, setMonthLoadError] = useState("");
+  useEffect(() => {
+    if (selectedUserId !== "all" && !users.some(u => u.id === selectedUserId)) setSelectedUserId("all");
+  }, [areaId, users]);
   const selectedUser = users.find(u => u.id === selectedUserId);
   const isAll = selectedUserId === "all"; // unduh rekap untuk SEMUA karyawan sekaligus
 
@@ -10886,7 +10894,13 @@ function RekapPDFModal({
       flexDirection: "column",
       gap: 16
     }
-  }, /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+  }, /*#__PURE__*/React.createElement(React.Fragment, null, getVisibleAreas().length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: "label"
+  }, "Area"), /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    value: areaId,
+    onChange: e => setAreaId(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", { value: "all" }, getScopeAreaIds() ? "Semua area saya" : "Semua area"), getVisibleAreas().map(a => /*#__PURE__*/React.createElement("option", { key: a.id, value: a.id }, a.name)))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "label"
   }, "Karyawan"), /*#__PURE__*/React.createElement("select", {
     className: "input",
@@ -12528,6 +12542,7 @@ function EmployeeFormModal({
     photo: employee?.photo || null,
     role: employee?.role || ROLES.EMPLOYEE,
     areaAccess: Array.isArray(employee?.areaAccess) ? employee.areaAccess : [],
+    areaMode: Array.isArray(employee?.areaAccess) && employee.areaAccess.length > 0 ? "some" : "all",
     homeAreaId: employee ? getAreaIdOfUser(employee.id) || "" : ""
   });
   const [error, setError] = useState("");
@@ -12561,7 +12576,8 @@ function EmployeeFormModal({
           photo: form.photo || null
         };
         if (form.password.trim()) payload.password = form.password;
-        payload.areaAccess = form.role === ROLES.ADMIN ? [] : form.role === ROLES.EMPLOYEE ? form.areaAccess.filter(id => id !== form.homeAreaId) : form.areaAccess;
+        if (form.role !== ROLES.EMPLOYEE && form.role !== ROLES.ADMIN && form.areaMode === "some" && form.areaAccess.length === 0) { setSaving(false); return setError("Pilih minimal satu area, atau pilih \"Semua area\"."); }
+        payload.areaAccess = form.role === ROLES.ADMIN ? [] : form.role === ROLES.EMPLOYEE ? form.areaAccess.filter(id => id !== form.homeAreaId) : form.areaMode === "all" ? [] : form.areaAccess;
         await updateUser(employee.id, payload);
         if (form.role === ROLES.EMPLOYEE && (form.homeAreaId || "") !== (getAreaIdOfUser(employee.id) || "")) await setUserHomeArea(employee.id, form.homeAreaId || null);
       } else {
@@ -12579,7 +12595,7 @@ function EmployeeFormModal({
         const newRole = allowRoleSelect ? form.role : ROLES.EMPLOYEE;
         const created = getUsers().find(u => u.username === form.username.trim());
         if (created && getAreas().length > 0) {
-          const acc = newRole === ROLES.ADMIN ? [] : newRole === ROLES.EMPLOYEE ? form.areaAccess.filter(id => id !== form.homeAreaId) : form.areaAccess;
+          const acc = newRole === ROLES.ADMIN ? [] : newRole === ROLES.EMPLOYEE ? form.areaAccess.filter(id => id !== form.homeAreaId) : form.areaMode === "all" ? [] : form.areaAccess;
           if (acc.length > 0) await updateUser(created.id, { areaAccess: acc });
           if (newRole === ROLES.EMPLOYEE && form.homeAreaId) await setUserHomeArea(created.id, form.homeAreaId);
         }
@@ -12599,9 +12615,12 @@ function EmployeeFormModal({
       _hh("label", { className: "label" }, "Area utama"),
       _hh("select", { className: "input", value: form.homeAreaId, onChange: e => update("homeAreaId", e.target.value) },
         _hh("option", { value: "" }, "— Belum dipilih —"), _areas.map(a => _hh("option", { key: a.id, value: a.id }, a.name)))),
-    _hh("label", { className: "label" }, form.role === ROLES.EMPLOYEE ? "Boleh presensi juga di area" : "Batasi akses ke area"),
-    _hh("p", { style: { fontSize: 12, color: "var(--t-muted)", marginBottom: 6 } }, form.role === ROLES.EMPLOYEE ? "Presensi hanya diterima di lokasi milik area utama dan area yang dicentang." : "Kosongkan untuk akses semua area. Jika dicentang, hanya data karyawan di area tersebut yang tampil."),
-    _hh("div", { style: { display: "flex", flexWrap: "wrap", gap: "6px 16px" } }, _areas.filter(a => form.role !== ROLES.EMPLOYEE || a.id !== form.homeAreaId).map(a => _hh("label", { key: a.id, style: { display: "flex", alignItems: "center", gap: 6, fontSize: 13 } },
+    form.role === ROLES.EMPLOYEE ? _hh("label", { className: "label" }, "Boleh presensi juga di area") : _hh("label", { className: "label" }, "Area yang boleh dilihat"),
+    form.role !== ROLES.EMPLOYEE && _hh("div", { style: { display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 } },
+      _hh("label", { style: { display: "flex", alignItems: "center", gap: 6, fontSize: 13 } }, _hh("input", { type: "radio", name: "areaMode", checked: form.areaMode === "all", onChange: () => update("areaMode", "all") }), "Semua area"),
+      _hh("label", { style: { display: "flex", alignItems: "center", gap: 6, fontSize: 13 } }, _hh("input", { type: "radio", name: "areaMode", checked: form.areaMode === "some", onChange: () => update("areaMode", "some") }), "Pilih area tertentu")),
+    _hh("p", { style: { fontSize: 12, color: "var(--t-muted)", marginBottom: 6 } }, form.role === ROLES.EMPLOYEE ? "Presensi hanya diterima di lokasi milik area utama dan area yang dicentang." : form.areaMode === "all" ? "Bisa melihat data semua area." : "Hanya data karyawan di area yang dicentang yang tampil."),
+    (form.role === ROLES.EMPLOYEE || form.areaMode === "some") && _hh("div", { style: { display: "flex", flexWrap: "wrap", gap: "6px 16px" } }, _areas.filter(a => form.role !== ROLES.EMPLOYEE || a.id !== form.homeAreaId).map(a => _hh("label", { key: a.id, style: { display: "flex", alignItems: "center", gap: 6, fontSize: 13 } },
       _hh("input", { type: "checkbox", checked: form.areaAccess.includes(a.id), onChange: () => _toggleAcc(a.id) }), a.name))));
   return /*#__PURE__*/React.createElement("div", {
     className: "modal-backdrop",
@@ -16817,60 +16836,6 @@ function MonthStepper({ value, onChange, auto }) {
     style: { border: "none", background: "transparent", color: ACCENT, fontSize: 14, cursor: "pointer", padding: 0 }
   }, "Bulan ini"))));
 }
-/* ===== Buat Jadwal Cepat per Area =====
-   Mengisi jadwal banyak karyawan sekaligus untuk rentang tanggal tertentu, tanpa Excel.
-   Target = karyawan pada area yang sedang dipilih di chip area (atau semua karyawan yang boleh diakses). */
-function QuickScheduleCard({ employees, areaFilter, canEdit }) {
-  const h = React.createElement;
-  const today = todayDateStrWITA(getTrustedNow());
-  const [from, setFrom] = useState(today);
-  const [to, setTo] = useState(today);
-  const [type, setType] = useState(SCHEDULE_TYPE.MASUK);
-  const [skipWeekend, setSkipWeekend] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [err, setErr] = useState("");
-  const label = areaFilter && areaFilter !== "all" ? getAreaName(areaFilter) : (getScopeAreaIds() ? "semua area yang saya kelola" : "semua karyawan");
-  async function apply() {
-    setErr(""); setMsg("");
-    if (!from || !to || to < from) return setErr("Rentang tanggal tidak valid.");
-    const days = [];
-    const cur = new Date(from + "T00:00:00Z");
-    const end = new Date(to + "T00:00:00Z");
-    while (cur <= end && days.length <= 62) {
-      const dow = cur.getUTCDay();
-      if (!(skipWeekend && (dow === 0 || dow === 6))) days.push(cur.toISOString().slice(0, 10));
-      cur.setUTCDate(cur.getUTCDate() + 1);
-    }
-    if (days.length > 62) return setErr("Maksimal 62 hari sekali terapkan.");
-    if (days.length === 0 || employees.length === 0) return setErr("Tidak ada tanggal atau karyawan yang cocok.");
-    if (!window.confirm(`Isi jadwal "${displayStatusLabel(type)}" untuk ${employees.length} karyawan (${label}) pada ${days.length} hari? Jadwal lama di tanggal yang sama akan ditimpa.`)) return;
-    setBusy(true);
-    try {
-      const entries = [];
-      employees.forEach(u => days.forEach(d => entries.push({ userId: u.id, userName: u.name, date: d, type })));
-      const written = await importSchedules(entries);
-      setMsg(`Berhasil menyimpan ${typeof written === "number" ? written : entries.length} jadwal untuk ${employees.length} karyawan.`);
-    } catch (e) {
-      setErr(e && e.message ? e.message : "Gagal menyimpan jadwal. Coba lagi.");
-    } finally {
-      setBusy(false);
-    }
-  }
-  return h("div", { className: "card", style: { padding: 20, marginBottom: 20 } },
-    h("h2", { style: { fontSize: 14, fontWeight: 700, color: "var(--navy-900)" } }, "Buat Jadwal Cepat per Area"),
-    h("p", { style: { fontSize: 13, color: "var(--navy-700)", marginTop: 2, marginBottom: 12 } }, "Isi jadwal untuk seluruh karyawan satu area sekaligus. Pilih area lewat tombol di atas, lalu tentukan tanggal dan jenis jadwalnya."),
-    h("div", { className: "flex", style: { gap: 12, flexWrap: "wrap", alignItems: "flex-end" } },
-      h("div", null, h("label", { className: "label" }, "Dari tanggal"), h("input", { type: "date", className: "input", value: from, onChange: e => setFrom(e.target.value) })),
-      h("div", null, h("label", { className: "label" }, "Sampai tanggal"), h("input", { type: "date", className: "input", value: to, onChange: e => setTo(e.target.value) })),
-      h("div", null, h("label", { className: "label" }, "Jenis jadwal"), h("select", { className: "input", value: type, onChange: e => setType(e.target.value) },
-        h("option", { value: SCHEDULE_TYPE.MASUK }, "Masuk"), h("option", { value: SCHEDULE_TYPE.PIKET_MALAM }, "Piket Malam"), h("option", { value: SCHEDULE_TYPE.OFF }, displayStatusLabel(SCHEDULE_TYPE.OFF)))),
-      h("label", { style: { display: "flex", alignItems: "center", gap: 6, fontSize: 13, paddingBottom: 10 } }, h("input", { type: "checkbox", checked: skipWeekend, onChange: e => setSkipWeekend(e.target.checked) }), "Lewati Sabtu & Minggu"),
-      canEdit && h(Button, { variant: "secondary", size: "sm", onClick: apply, disabled: busy || employees.length === 0 }, busy ? "Menyimpan…" : `Terapkan ke ${employees.length} karyawan`)),
-    h("p", { style: { fontSize: 12, color: "var(--t-faint)", marginTop: 10 } }, `Target: ${label} (${employees.length} karyawan).`),
-    err && h("div", { style: { marginTop: 12, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, err),
-    msg && h("div", { style: { marginTop: 12, background: "var(--green-soft)", color: "var(--green)", fontSize: 13, fontWeight: 600, padding: "10px 14px", borderRadius: 10 } }, msg));
-}
 function JadwalAdminPage() {
   useStoreSync();
   const {
@@ -16970,7 +16935,7 @@ function JadwalAdminPage() {
       fontSize: 14,
       marginTop: 2
     }
-  }, "Import jadwal bulanan dari Excel & pantau siapa yang belum presensi sesuai jadwal.")), /*#__PURE__*/React.createElement(AreaFilterChips, { value: areaFilter, onChange: setAreaFilter }), /*#__PURE__*/React.createElement(QuickScheduleCard, { employees, areaFilter, canEdit }), /*#__PURE__*/React.createElement("div", {
+  }, "Import jadwal bulanan dari Excel & pantau siapa yang belum presensi sesuai jadwal.")), /*#__PURE__*/React.createElement(AreaFilterChips, { value: areaFilter, onChange: setAreaFilter }), /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: 20,
@@ -18160,6 +18125,11 @@ function RekapRitPage() {
   const [monthFilter, setMonthFilter] = useState(todayDateStrWITA(getTrustedNow()).slice(0, 7));
   const [checkpointFilter, setCheckpointFilter] = useState("");
   const [nameFilter, setNameFilter] = useState("");
+  const [areaFilter, setAreaFilter] = useState(() => { const v = getVisibleAreas(); return v.length ? v[0].id : "all"; });
+  useEffect(() => {
+    const v = getVisibleAreas();
+    if (v.length > 0 && !v.some(a => a.id === areaFilter)) setAreaFilter(v[0].id);
+  }, [store.settings, areaFilter]);
   const [expandedUserId, setExpandedUserId] = useState(null);
   const { canEdit } = useAuth();
   const [notice, setNotice] = useState(null); // { ok, text }
@@ -18198,13 +18168,13 @@ function RekapRitPage() {
   const checkpoints = useMemo(() => getCheckpoints(), [store.checkpoints]);
 
   // ---- Mode Harian (existing) ----
-  const dailyRecap = useMemo(() => getRitRecap(dateFilter, checkpointFilter || null), [dateFilter, checkpointFilter, store.checkpointPasses, store.users]);
+  const dailyRecap = useMemo(() => getRitRecap(dateFilter, checkpointFilter || null, areaFilter), [dateFilter, checkpointFilter, areaFilter, store.checkpointPasses, store.users, store.settings]);
   const filteredDaily = useMemo(() => dailyRecap.filter(r => !nameFilter || r.userName.toLowerCase().includes(nameFilter.toLowerCase())), [dailyRecap, nameFilter]);
   const totalDaily = dailyRecap.reduce((sum, r) => sum + r.count, 0);
   const activeDailyCount = dailyRecap.filter(r => r.count > 0).length;
 
   // ---- Mode Bulanan (baru) ----
-  const monthlyRecap = useMemo(() => getRitRecapMonthly(monthFilter), [monthFilter, store.checkpointPasses, store.users, store.checkpoints]);
+  const monthlyRecap = useMemo(() => getRitRecapMonthly(monthFilter, areaFilter), [monthFilter, areaFilter, store.checkpointPasses, store.users, store.checkpoints, store.settings]);
   const filteredMonthly = useMemo(() => monthlyRecap.filter(r => !nameFilter || r.userName.toLowerCase().includes(nameFilter.toLowerCase())), [monthlyRecap, nameFilter]);
   const totalMonthly = monthlyRecap.reduce((sum, r) => sum + r.total, 0);
   const activeMonthlyCount = monthlyRecap.filter(r => r.total > 0).length;
@@ -18227,12 +18197,13 @@ function RekapRitPage() {
     return { days, byUser };
   }, [monthFilter, checkpointFilter, store.checkpointPasses]);
 
-  const exportOpts = { mode: mode === "matriks" ? "bulanan" : mode, dateStr: dateFilter, monthStr: monthFilter, checkpointId: checkpointFilter || null, nameQuery: nameFilter };
+  const exportOpts = { mode: mode === "matriks" ? "bulanan" : mode, dateStr: dateFilter, monthStr: monthFilter, checkpointId: checkpointFilter || null, nameQuery: nameFilter, areaFilter };
   function clearFilters() {
     setDateFilter(todayDateStrWITA(getTrustedNow()));
     setMonthFilter(todayDateStrWITA(getTrustedNow()).slice(0, 7));
     setCheckpointFilter("");
     setNameFilter("");
+    { const v = getVisibleAreas(); setAreaFilter(v.length ? v[0].id : "all"); }
   }
   const isFiltered = mode === "harian" ? (dateFilter !== todayDateStrWITA(getTrustedNow()) || checkpointFilter || nameFilter) : (monthFilter !== todayDateStrWITA(getTrustedNow()).slice(0, 7) || checkpointFilter || nameFilter);
 
@@ -18588,7 +18559,7 @@ function RekapRitPage() {
   const noticeEl = notice ? React.createElement("div", {
     style: { background: notice.ok ? "var(--green-soft)" : "var(--red-soft)", color: notice.ok ? "var(--green)" : "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10, marginBottom: 16 }
   }, notice.text) : null;
-  return React.createElement("div", { className: "container-app" }, headerEl, modeToggleEl, summaryEl, teamRouteCompareEl, filterEl, noticeEl, listCardEl);
+  return React.createElement("div", { className: "container-app" }, headerEl, modeToggleEl, React.createElement(AreaFilterChips, { value: areaFilter, onChange: setAreaFilter, noAll: true }), summaryEl, teamRouteCompareEl, filterEl, noticeEl, listCardEl);
 }
 
 function LoginHistoryCard() {
@@ -19136,20 +19107,17 @@ function SettingsPage({
   }, idx + 1), /*#__PURE__*/React.createElement("input", {
     className: "input",
     style: {
-      flex: 1
+      flex: 1,
+      minWidth: 0,
+      textOverflow: "ellipsis"
     },
+    title: loc.name,
     value: loc.name,
     onChange: e => upsertLocation(idx, {
       name: e.target.value
     }),
     placeholder: `Nama lokasi ${idx + 1}`
-  }), getAreas().length > 0 && /*#__PURE__*/React.createElement("select", {
-    className: "input",
-    style: { width: 150, flexShrink: 0, fontSize: 13 },
-    value: loc.areaId || "",
-    "aria-label": "Area lokasi presensi",
-    onChange: e => upsertLocation(idx, { areaId: e.target.value || null })
-  }, /*#__PURE__*/React.createElement("option", { value: "" }, "Semua area"), getAreas().map(a => /*#__PURE__*/React.createElement("option", { key: a.id, value: a.id }, a.name))), /*#__PURE__*/React.createElement("button", {
+  }), /*#__PURE__*/React.createElement("button", {
     onClick: () => removeLocation(idx),
     title: "Hapus lokasi ini",
     style: {
@@ -19161,7 +19129,13 @@ function SettingsPage({
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "trash-2",
     size: 16
-  }))), /*#__PURE__*/React.createElement(CheckpointMiniMap, {
+  }))), getAreas().length > 0 && /*#__PURE__*/React.createElement("div", { style: { marginBottom: 12 } }, /*#__PURE__*/React.createElement("label", { className: "label", style: { fontSize: 12 } }, "Area lokasi ini"), /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    style: { width: "100%" },
+    value: loc.areaId || "",
+    "aria-label": "Area lokasi presensi",
+    onChange: e => upsertLocation(idx, { areaId: e.target.value || null })
+  }, /*#__PURE__*/React.createElement("option", { value: "" }, "Semua area (lokasi umum)"), getAreas().map(a => /*#__PURE__*/React.createElement("option", { key: a.id, value: a.id }, a.name)))), /*#__PURE__*/React.createElement(CheckpointMiniMap, {
     lat: loc.lat,
     lng: loc.lng,
     radius: Number(loc.radius) || Number(settings.radiusMeters) || DEFAULT_SETTINGS.radiusMeters,
