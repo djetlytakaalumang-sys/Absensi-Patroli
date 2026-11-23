@@ -392,7 +392,7 @@ html[data-theme="dark"] .leaflet-control-zoom a{background:#2a232f !important;}
 html[data-theme="dark"] .leaflet-container .leaflet-control-attribution{background:rgba(20,16,26,.75) !important; color:#b8adb3 !important;}
 html[data-theme="dark"] .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.9);}
 /* Penanda versi di halaman login (memastikan versi terbaru yang terpasang, bukan cache lama) */
-.login-glass-wrap::after{content:"Versi 2026-11-16.36"; position:absolute; left:0; right:0; bottom:calc(8px + env(safe-area-inset-bottom)); text-align:center; font-size:11px; color:rgba(255,255,255,.7); pointer-events:none;}
+.login-glass-wrap::after{content:"Versi 2026-11-23.area"; position:absolute; left:0; right:0; bottom:calc(8px + env(safe-area-inset-bottom)); text-align:center; font-size:11px; color:rgba(255,255,255,.7); pointer-events:none;}
 /* Form ringkas (mis. pengajuan izin/cuti): jarak & ukuran input dirapatkan supaya tidak terlalu panjang */
 .compact-form .label{font-size:11px; margin-bottom:4px;}
 .compact-form .input{padding:9px 12px; font-size:15px;}
@@ -2838,7 +2838,7 @@ function parseScheduleExcelRows(rows, monthKey) {
 // Status jadwal + kehadiran hari ini untuk semua karyawan (dipakai di halaman Jadwal Admin)
 function getTodayScheduleStatus() {
   const todayStr = todayDateStrWITA(getTrustedNow());
-  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE);
+  const employees = getScopedEmployees();
   return employees.map(u => {
     const sch = getScheduleFor(u.id, todayStr);
     const scheduledType = sch ? sch.type : null;
@@ -3514,7 +3514,52 @@ function getUserAreaMap() {
 function getAreaIdOfUser(userId) {
   return getUserAreaMap()[userId] || null;
 }
+// ---- HAK AKSES PER AREA ----
+// user.areaAccess = daftar id area.
+//  - Admin / View Only: membatasi data yang boleh DILIHAT. Kosong = semua area. Super Admin selalu semua.
+//  - Karyawan: area TAMBAHAN tempat boleh presensi (selain area utamanya di Pengaturan -> Area).
+// Catatan: pembatasan ini berlaku di tampilan aplikasi; aturan keamanan Firestore tetap perlu disesuaikan bila ingin ketat di sisi server.
+function getScopeAreaIds(user) {
+  const u = user || window.__activeUser;
+  if (!u || u.role === ROLES.EMPLOYEE || u.role === ROLES.ADMIN) return null;
+  return Array.isArray(u.areaAccess) && u.areaAccess.length > 0 ? u.areaAccess : null;
+}
+function userInScope(userId) {
+  const scope = getScopeAreaIds();
+  return !scope || scope.includes(getAreaIdOfUser(userId));
+}
+function getScopedEmployees() {
+  return getUsers().filter(u => u.role === ROLES.EMPLOYEE && userInScope(u.id));
+}
+function getVisibleAreas() {
+  const scope = getScopeAreaIds();
+  const all = getAreas();
+  return scope ? all.filter(a => scope.includes(a.id)) : all;
+}
+// Area tempat karyawan boleh presensi: area utama + akses tambahan.
+function getAttendanceAreaIds(user) {
+  const home = getAreaIdOfUser(user.id);
+  const extra = Array.isArray(user.areaAccess) ? user.areaAccess : [];
+  return [...new Set([home, ...extra].filter(Boolean))];
+}
+// Lokasi presensi yang berlaku untuk karyawan: lokasi areanya + lokasi umum (tanpa area).
+function getOfficeLocationsForUser(user) {
+  const locs = getSettings().officeLocations || [];
+  if (getAreas().length === 0) return locs;
+  const allowed = getAttendanceAreaIds(user);
+  return locs.filter(l => !l.areaId || allowed.includes(l.areaId));
+}
+async function setUserHomeArea(userId, areaId) {
+  const cleaned = getAreas().map(a => ({ ...a, memberIds: (a.memberIds || []).filter(i => i !== userId) }));
+  const next = areaId ? cleaned.map(a => a.id === areaId ? { ...a, memberIds: [...a.memberIds, userId] } : a) : cleaned;
+  await updateSettings({ areas: next });
+}
+function getAreaName(id) {
+  const a = id ? getAreas().find(x => x.id === id) : null;
+  return a ? a.name : "";
+}
 function userInArea(userId, areaFilter) {
+  if (!userInScope(userId)) return false;
   return !areaFilter || areaFilter === "all" || getAreaIdOfUser(userId) === areaFilter;
 }
 // Bobot skor gabungan untuk satu karyawan: ikut area-nya; kalau belum masuk area, pakai default 60/40.
@@ -3527,11 +3572,11 @@ function getAreaWeights(userId) {
 }
 function AreaFilterChips({ value, onChange }) {
   useStoreSync();
-  const areas = getAreas();
+  const areas = getVisibleAreas();
   if (areas.length === 0) return null;
   const h = React.createElement;
   const chip = (key, label) => h("button", { key, onClick: () => onChange(key), className: `chip ${value === key ? "chip-active" : "chip-inactive"}` }, label);
-  return h("div", { className: "flex", style: { gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 16 } }, chip("all", "Semua area"), areas.map(a => chip(a.id, a.name)));
+  return h("div", { className: "flex", style: { gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 16 } }, chip("all", getScopeAreaIds() ? "Semua area saya" : "Semua area"), areas.map(a => chip(a.id, a.name)));
 }
 // Skor tim gabungan: kehadiran + patroli (bobot default 60/40, bisa beda per area). Jika belum ada data patroli, skor 100% dari kehadiran.
 function computeTeamScore(userId, monthKey) {
@@ -7023,6 +7068,7 @@ function AuthProvider({
       cursor: "pointer"
     }
   }, "Coba Lagi"))));
+  window.__activeUser = user;
   return /*#__PURE__*/React.createElement(AuthContext.Provider, {
     value: {
       user,
@@ -7703,8 +7749,17 @@ function AttendanceCard({
         withinRadius = true,
         nearestLocation = null,
         usedRadius = null;
-      if (settings.officeLocations && settings.officeLocations.length > 0) {
-        const dists = settings.officeLocations.map(loc => {
+      const userLocs = getOfficeLocationsForUser(user);
+      const homeAreaId = getAreaIdOfUser(user.id);
+      const homeArea = homeAreaId ? getAreas().find(x => x.id === homeAreaId) : null;
+      const enforce = homeArea && typeof homeArea.enforceRadius === "boolean" ? homeArea.enforceRadius : settings.enforceRadius;
+      if ((settings.officeLocations || []).length > 0 && userLocs.length === 0 && enforce) {
+        setError(`Area Anda${homeArea ? ` (${homeArea.name})` : ""} belum punya lokasi presensi. Hubungi admin untuk mengatur lokasi di Pengaturan → Area.`);
+        setStep(STEP.IDLE);
+        return;
+      }
+      if (userLocs.length > 0) {
+        const dists = userLocs.map(loc => {
           const locRadius = Number(loc.radius) || Number(settings.radiusMeters) || DEFAULT_SETTINGS.radiusMeters;
           const dist = Math.round(distanceMeters(pos.lat, pos.lng, loc.lat, loc.lng));
           return {
@@ -7725,8 +7780,8 @@ function AttendanceCard({
         usedRadius = best.radius;
         withinRadius = best.within;
       }
-      if (settings.enforceRadius && !withinRadius) {
-        setError(`Anda berada ${distance.toLocaleString("id-ID")} m dari lokasi kantor terdekat "${nearestLocation.name}" (maks ${usedRadius} m). Absen hanya dapat dilakukan di dalam radius kantor.`);
+      if (enforce && !withinRadius) {
+        setError(`Anda berada ${distance.toLocaleString("id-ID")} m dari lokasi presensi terdekat untuk area Anda "${nearestLocation.name}" (maks ${usedRadius} m). Absen hanya dapat dilakukan di dalam radius lokasi area Anda.`);
         setStep(STEP.IDLE);
         return;
       }
@@ -7788,6 +7843,7 @@ function AttendanceCard({
           checkInDistance: locationData.distance,
           checkInWithinRadius: locationData.withinRadius,
           checkInNearestLocation: locationData.nearestLocation?.name || null,
+          areaId: locationData.nearestLocation?.areaId || getAreaIdOfUser(user.id) || null,
           checkOutTime: null,
           checkOutPhoto: null,
           checkOutLat: null,
@@ -11420,7 +11476,7 @@ function AdminDashboard({
   const [showExcel, setShowExcel] = useState(false);
   useStoreSync();
   const checkOutReminderHour = 17;
-  const users = useMemo(() => getUsers().filter(u => u.role === ROLES.EMPLOYEE), []);
+  const users = useMemo(() => getScopedEmployees(), [store.users, store.settings]);
   const mk = currentMonthKey();
   const allRecords = useMemo(() => {
     const real = getRecords().map(withEffectiveStatus);
@@ -12470,7 +12526,9 @@ function EmployeeFormModal({
     phone: employee?.phone || "",
     address: employee?.address || "",
     photo: employee?.photo || null,
-    role: employee?.role || ROLES.EMPLOYEE
+    role: employee?.role || ROLES.EMPLOYEE,
+    areaAccess: Array.isArray(employee?.areaAccess) ? employee.areaAccess : [],
+    homeAreaId: employee ? getAreaIdOfUser(employee.id) || "" : ""
   });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -12503,7 +12561,9 @@ function EmployeeFormModal({
           photo: form.photo || null
         };
         if (form.password.trim()) payload.password = form.password;
+        payload.areaAccess = form.role === ROLES.ADMIN ? [] : form.role === ROLES.EMPLOYEE ? form.areaAccess.filter(id => id !== form.homeAreaId) : form.areaAccess;
         await updateUser(employee.id, payload);
+        if (form.role === ROLES.EMPLOYEE && (form.homeAreaId || "") !== (getAreaIdOfUser(employee.id) || "")) await setUserHomeArea(employee.id, form.homeAreaId || null);
       } else {
         await addUser({
           name: form.name,
@@ -12516,6 +12576,13 @@ function EmployeeFormModal({
           photo: form.photo || null,
           role: allowRoleSelect ? form.role : ROLES.EMPLOYEE
         });
+        const newRole = allowRoleSelect ? form.role : ROLES.EMPLOYEE;
+        const created = getUsers().find(u => u.username === form.username.trim());
+        if (created && getAreas().length > 0) {
+          const acc = newRole === ROLES.ADMIN ? [] : newRole === ROLES.EMPLOYEE ? form.areaAccess.filter(id => id !== form.homeAreaId) : form.areaAccess;
+          if (acc.length > 0) await updateUser(created.id, { areaAccess: acc });
+          if (newRole === ROLES.EMPLOYEE && form.homeAreaId) await setUserHomeArea(created.id, form.homeAreaId);
+        }
       }
       onSaved();
     } catch (err) {
@@ -12524,6 +12591,18 @@ function EmployeeFormModal({
       setSaving(false);
     }
   }
+  const _areas = getAreas();
+  const _hh = React.createElement;
+  const _toggleAcc = id => update("areaAccess", form.areaAccess.includes(id) ? form.areaAccess.filter(x => x !== id) : [...form.areaAccess, id]);
+  const areaBlock = _areas.length === 0 || form.role === ROLES.ADMIN ? null : _hh("div", { className: "fg-full", style: { borderTop: "1px solid var(--line)", paddingTop: 12, marginTop: 4 } },
+    form.role === ROLES.EMPLOYEE && _hh("div", { style: { marginBottom: 10 } },
+      _hh("label", { className: "label" }, "Area utama"),
+      _hh("select", { className: "input", value: form.homeAreaId, onChange: e => update("homeAreaId", e.target.value) },
+        _hh("option", { value: "" }, "— Belum dipilih —"), _areas.map(a => _hh("option", { key: a.id, value: a.id }, a.name)))),
+    _hh("label", { className: "label" }, form.role === ROLES.EMPLOYEE ? "Boleh presensi juga di area" : "Batasi akses ke area"),
+    _hh("p", { style: { fontSize: 12, color: "var(--t-muted)", marginBottom: 6 } }, form.role === ROLES.EMPLOYEE ? "Presensi hanya diterima di lokasi milik area utama dan area yang dicentang." : "Kosongkan untuk akses semua area. Jika dicentang, hanya data karyawan di area tersebut yang tampil."),
+    _hh("div", { style: { display: "flex", flexWrap: "wrap", gap: "6px 16px" } }, _areas.filter(a => form.role !== ROLES.EMPLOYEE || a.id !== form.homeAreaId).map(a => _hh("label", { key: a.id, style: { display: "flex", alignItems: "center", gap: 6, fontSize: 13 } },
+      _hh("input", { type: "checkbox", checked: form.areaAccess.includes(a.id), onChange: () => _toggleAcc(a.id) }), a.name))));
   return /*#__PURE__*/React.createElement("div", {
     className: "modal-backdrop",
     onClick: onClose
@@ -12673,7 +12752,7 @@ function EmployeeFormModal({
       resize: "vertical",
       fontFamily: "inherit"
     }
-  }))), /*#__PURE__*/React.createElement("div", {
+  })), areaBlock), /*#__PURE__*/React.createElement("div", {
     className: "flex",
     style: {
       gap: 10,
@@ -14027,7 +14106,7 @@ function EmployeesPage() {
   const [monthKey, setMonthKey] = useState(currentMonthKey());
   const [loadingMonth, setLoadingMonth] = useState(null);
   const [monthLoadError, setMonthLoadError] = useState("");
-  const employees = useMemo(() => getUsers().filter(u => u.role === ROLES.EMPLOYEE), [refreshKey]);
+  const employees = useMemo(() => getScopedEmployees(), [refreshKey, store.users, store.settings]);
   const mk = monthKey;
   const todayStr = todayDateStrWITA(getTrustedNow());
   // Ringkasan tiap kartu karyawan mengikuti bulan yang dipilih. Data live cuma mencakup ~90 hari
@@ -16563,13 +16642,13 @@ function ScheduleBadge({
 // Buat & unduh file .xlsx template import jadwal, formatnya PERSIS yang dibaca parseScheduleExcelRows:
 // header "No", "Nama Karyawan", "Username", lalu kolom tanggal "1".."31" berisi Masuk/Piket Malam/Standby.
 // Kalau sudah ada data karyawan, baris diisi otomatis dari daftar karyawan supaya admin tinggal isi jadwalnya.
-function downloadScheduleTemplate() {
+function downloadScheduleTemplate(areaFilter = "all") {
   const DAYS = 31;
   const dayHeaders = Array.from({
     length: DAYS
   }, (_, i) => String(i + 1));
   const header = ["No", "Nama Karyawan", "Username", ...dayHeaders];
-  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE);
+  const employees = getScopedEmployees().filter(u => userInArea(u.id, areaFilter));
   const dataRows = (employees.length > 0 ? employees : [{
     name: "Nama Karyawan",
     username: "username"
@@ -16592,7 +16671,7 @@ function downloadScheduleTemplate() {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, wsJadwal, "Jadwal");
   XLSX.utils.book_append_sheet(wb, wsPetunjuk, "Petunjuk");
-  XLSX.writeFile(wb, "Template_Import_Jadwal_Kerja.xlsx");
+  XLSX.writeFile(wb, areaFilter && areaFilter !== "all" ? `Template_Import_Jadwal_${getAreaName(areaFilter).replace(/[^A-Za-z0-9]+/g, "_")}.xlsx` : "Template_Import_Jadwal_Kerja.xlsx");
 }
 /* ===== Pemilih bulan sendiri (pengganti <input type="month">) =====
    Input bulan bawaan browser/WebView Android sering tidak bisa maju ke bulan berikutnya atau tampil
@@ -16738,6 +16817,60 @@ function MonthStepper({ value, onChange, auto }) {
     style: { border: "none", background: "transparent", color: ACCENT, fontSize: 14, cursor: "pointer", padding: 0 }
   }, "Bulan ini"))));
 }
+/* ===== Buat Jadwal Cepat per Area =====
+   Mengisi jadwal banyak karyawan sekaligus untuk rentang tanggal tertentu, tanpa Excel.
+   Target = karyawan pada area yang sedang dipilih di chip area (atau semua karyawan yang boleh diakses). */
+function QuickScheduleCard({ employees, areaFilter, canEdit }) {
+  const h = React.createElement;
+  const today = todayDateStrWITA(getTrustedNow());
+  const [from, setFrom] = useState(today);
+  const [to, setTo] = useState(today);
+  const [type, setType] = useState(SCHEDULE_TYPE.MASUK);
+  const [skipWeekend, setSkipWeekend] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+  const label = areaFilter && areaFilter !== "all" ? getAreaName(areaFilter) : (getScopeAreaIds() ? "semua area yang saya kelola" : "semua karyawan");
+  async function apply() {
+    setErr(""); setMsg("");
+    if (!from || !to || to < from) return setErr("Rentang tanggal tidak valid.");
+    const days = [];
+    const cur = new Date(from + "T00:00:00Z");
+    const end = new Date(to + "T00:00:00Z");
+    while (cur <= end && days.length <= 62) {
+      const dow = cur.getUTCDay();
+      if (!(skipWeekend && (dow === 0 || dow === 6))) days.push(cur.toISOString().slice(0, 10));
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    if (days.length > 62) return setErr("Maksimal 62 hari sekali terapkan.");
+    if (days.length === 0 || employees.length === 0) return setErr("Tidak ada tanggal atau karyawan yang cocok.");
+    if (!window.confirm(`Isi jadwal "${displayStatusLabel(type)}" untuk ${employees.length} karyawan (${label}) pada ${days.length} hari? Jadwal lama di tanggal yang sama akan ditimpa.`)) return;
+    setBusy(true);
+    try {
+      const entries = [];
+      employees.forEach(u => days.forEach(d => entries.push({ userId: u.id, userName: u.name, date: d, type })));
+      const written = await importSchedules(entries);
+      setMsg(`Berhasil menyimpan ${typeof written === "number" ? written : entries.length} jadwal untuk ${employees.length} karyawan.`);
+    } catch (e) {
+      setErr(e && e.message ? e.message : "Gagal menyimpan jadwal. Coba lagi.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return h("div", { className: "card", style: { padding: 20, marginBottom: 20 } },
+    h("h2", { style: { fontSize: 14, fontWeight: 700, color: "var(--navy-900)" } }, "Buat Jadwal Cepat per Area"),
+    h("p", { style: { fontSize: 13, color: "var(--navy-700)", marginTop: 2, marginBottom: 12 } }, "Isi jadwal untuk seluruh karyawan satu area sekaligus. Pilih area lewat tombol di atas, lalu tentukan tanggal dan jenis jadwalnya."),
+    h("div", { className: "flex", style: { gap: 12, flexWrap: "wrap", alignItems: "flex-end" } },
+      h("div", null, h("label", { className: "label" }, "Dari tanggal"), h("input", { type: "date", className: "input", value: from, onChange: e => setFrom(e.target.value) })),
+      h("div", null, h("label", { className: "label" }, "Sampai tanggal"), h("input", { type: "date", className: "input", value: to, onChange: e => setTo(e.target.value) })),
+      h("div", null, h("label", { className: "label" }, "Jenis jadwal"), h("select", { className: "input", value: type, onChange: e => setType(e.target.value) },
+        h("option", { value: SCHEDULE_TYPE.MASUK }, "Masuk"), h("option", { value: SCHEDULE_TYPE.PIKET_MALAM }, "Piket Malam"), h("option", { value: SCHEDULE_TYPE.OFF }, displayStatusLabel(SCHEDULE_TYPE.OFF)))),
+      h("label", { style: { display: "flex", alignItems: "center", gap: 6, fontSize: 13, paddingBottom: 10 } }, h("input", { type: "checkbox", checked: skipWeekend, onChange: e => setSkipWeekend(e.target.checked) }), "Lewati Sabtu & Minggu"),
+      canEdit && h(Button, { variant: "secondary", size: "sm", onClick: apply, disabled: busy || employees.length === 0 }, busy ? "Menyimpan…" : `Terapkan ke ${employees.length} karyawan`)),
+    h("p", { style: { fontSize: 12, color: "var(--t-faint)", marginTop: 10 } }, `Target: ${label} (${employees.length} karyawan).`),
+    err && h("div", { style: { marginTop: 12, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, err),
+    msg && h("div", { style: { marginTop: 12, background: "var(--green-soft)", color: "var(--green)", fontSize: 13, fontWeight: 600, padding: "10px 14px", borderRadius: 10 } }, msg));
+}
 function JadwalAdminPage() {
   useStoreSync();
   const {
@@ -16748,9 +16881,10 @@ function JadwalAdminPage() {
   const [viewMonth, setViewMonth] = useState(currentMonthKey());
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null); // { written, unmatched }
+  const [areaFilter, setAreaFilter] = useState("all");
   const [error, setError] = useState("");
-  const employees = useMemo(() => getUsers().filter(u => u.role === ROLES.EMPLOYEE), [store.users]);
-  const todayStatus = useMemo(() => getTodayScheduleStatus(), [store.schedules, store.leaves, store.records, store.users]);
+  const employees = useMemo(() => getScopedEmployees().filter(u => userInArea(u.id, areaFilter)), [store.users, store.settings, areaFilter]);
+  const todayStatus = useMemo(() => getTodayScheduleStatus().filter(x => userInArea(x.userId, areaFilter)), [store.schedules, store.leaves, store.records, store.users, store.settings, areaFilter]);
   const missingToday = todayStatus.filter(s => s.isMissing);
   // Penanda "hari ini" di grid: kolom tanggal disorot + ringkasan siapa saja yang bertugas hari ini
   const todayStr = todayDateStrWITA();
@@ -16793,6 +16927,13 @@ function JadwalAdminPage() {
         entries,
         unmatched
       } = parseScheduleExcelRows(rows, importMonth);
+      const allowedIds = new Set(employees.map(u => u.id));
+      const outside = entries.filter(en => !allowedIds.has(en.userId));
+      if (outside.length > 0) {
+        const names = [...new Set(outside.map(en => en.userName))];
+        unmatched.push(...names.map(n => `${n} (di luar area terpilih)`));
+        for (let k = entries.length - 1; k >= 0; k--) if (!allowedIds.has(entries[k].userId)) entries.splice(k, 1);
+      }
       if (entries.length === 0) {
         setError("Tidak ada baris yang bisa diimpor. Pastikan kolom 'Username' terisi dan sesuai dengan data karyawan.");
       } else {
@@ -16829,7 +16970,7 @@ function JadwalAdminPage() {
       fontSize: 14,
       marginTop: 2
     }
-  }, "Import jadwal bulanan dari Excel & pantau siapa yang belum presensi sesuai jadwal.")), /*#__PURE__*/React.createElement("div", {
+  }, "Import jadwal bulanan dari Excel & pantau siapa yang belum presensi sesuai jadwal.")), /*#__PURE__*/React.createElement(AreaFilterChips, { value: areaFilter, onChange: setAreaFilter }), /*#__PURE__*/React.createElement(QuickScheduleCard, { employees, areaFilter, canEdit }), /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: 20,
@@ -16861,7 +17002,7 @@ function JadwalAdminPage() {
   })), /*#__PURE__*/React.createElement(Button, {
     variant: "outline",
     size: "sm",
-    onClick: downloadScheduleTemplate
+    onClick: () => downloadScheduleTemplate(areaFilter)
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "download",
     size: 15
@@ -19002,7 +19143,13 @@ function SettingsPage({
       name: e.target.value
     }),
     placeholder: `Nama lokasi ${idx + 1}`
-  }), /*#__PURE__*/React.createElement("button", {
+  }), getAreas().length > 0 && /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    style: { width: 150, flexShrink: 0, fontSize: 13 },
+    value: loc.areaId || "",
+    "aria-label": "Area lokasi presensi",
+    onChange: e => upsertLocation(idx, { areaId: e.target.value || null })
+  }, /*#__PURE__*/React.createElement("option", { value: "" }, "Semua area"), getAreas().map(a => /*#__PURE__*/React.createElement("option", { key: a.id, value: a.id }, a.name))), /*#__PURE__*/React.createElement("button", {
     onClick: () => removeLocation(idx),
     title: "Hapus lokasi ini",
     style: {
@@ -19486,73 +19633,145 @@ function AreaSettingsCard() {
   const h = React.createElement;
   const [toast, setToast] = useState("");
   const [error, setError] = useState("");
+  const [openId, setOpenId] = useState(null);
+  const [query, setQuery] = useState("");
   const areas = getAreas();
   const areaMap = getUserAreaMap();
-  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE);
-  const unassigned = employees.filter(u => !areaMap[u.id]).length;
+  const settings = getSettings();
+  const locations = settings.officeLocations || [];
+  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE).sort((a, b) => a.name.localeCompare(b.name));
+  const unassigned = employees.filter(u => !areaMap[u.id]);
+  const scopedUsers = getUsers().filter(u => u.role !== ROLES.EMPLOYEE && u.role !== ROLES.ADMIN);
   function showToast(msg) {
     setToast(msg);
     setTimeout(() => setToast(""), 2200);
   }
-  async function save(next, msg) {
+  async function save(partial, msg) {
     setError("");
     try {
-      await updateSettings({ areas: next });
+      await updateSettings(partial);
       if (msg) showToast(msg);
     } catch (err) {
       setError(err.message || "Gagal menyimpan area ke server. Coba lagi.");
     }
   }
+  const saveAreas = (next, msg) => save({ areas: next }, msg);
   function addArea() {
-    save([...areas, { id: "area-" + Date.now().toString(36), name: `Area ${areas.length + 1}`, memberIds: [], weightAttendance: Math.round(SCORE_WEIGHT_ATTENDANCE * 100) }], "Area ditambahkan.");
+    const id = "area-" + Date.now().toString(36);
+    saveAreas([...areas, { id, name: `Area ${areas.length + 1}`, memberIds: [], weightAttendance: Math.round(SCORE_WEIGHT_ATTENDANCE * 100) }], "Area ditambahkan.");
+    setOpenId(id);
   }
   function patch(id, p, msg) {
-    save(areas.map(a => a.id === id ? { ...a, ...p } : a), msg);
+    saveAreas(areas.map(a => a.id === id ? { ...a, ...p } : a), msg);
   }
-  function removeArea(a) {
-    if (!window.confirm(`Hapus ${a.name}? Data presensi, patroli, dan laporan tidak ikut terhapus.`)) return;
-    save(areas.filter(x => x.id !== a.id), "Area dihapus.");
+  async function removeArea(a) {
+    const nLoc = locations.filter(l => l.areaId === a.id).length;
+    if (!window.confirm(`Hapus ${a.name}? ${nLoc > 0 ? `${nLoc} lokasi presensi milik area ini akan menjadi lokasi umum. ` : ""}Data presensi, patroli, dan laporan tidak ikut terhapus.`)) return;
+    setError("");
+    try {
+      await updateSettings({ areas: areas.filter(x => x.id !== a.id), officeLocations: locations.map(l => l.areaId === a.id ? { ...l, areaId: null } : l) });
+      for (const u of getUsers()) if (Array.isArray(u.areaAccess) && u.areaAccess.includes(a.id)) await updateUser(u.id, { areaAccess: u.areaAccess.filter(x => x !== a.id) });
+      if (openId === a.id) setOpenId(null);
+      showToast("Area dihapus.");
+    } catch (err) {
+      setError(err.message || "Gagal menghapus area. Coba lagi.");
+    }
   }
   // Pilih/lepas anggota. Memilih karyawan yang sudah di area lain = memindahkannya ke area ini.
   function toggleMember(a, uid) {
     const has = (a.memberIds || []).includes(uid);
-    save(areas.map(x => {
+    saveAreas(areas.map(x => {
       if (x.id === a.id) return { ...x, memberIds: has ? x.memberIds.filter(i => i !== uid) : [...(x.memberIds || []), uid] };
       return has ? x : { ...x, memberIds: (x.memberIds || []).filter(i => i !== uid) };
     }), "Anggota area diperbarui.");
   }
+  function addAllUnassigned(a) {
+    if (unassigned.length === 0) return;
+    saveAreas(areas.map(x => x.id === a.id ? { ...x, memberIds: [...(x.memberIds || []), ...unassigned.map(u => u.id)] } : x), `${unassigned.length} karyawan dimasukkan ke ${a.name}.`);
+  }
+  function toggleLocation(a, idx) {
+    const loc = locations[idx];
+    const mine = loc.areaId === a.id;
+    save({ officeLocations: locations.map((l, i) => i === idx ? { ...l, areaId: mine ? null : a.id } : l) }, mine ? "Lokasi dijadikan lokasi umum." : `Lokasi "${loc.name}" dipakai untuk ${a.name}.`);
+  }
+  const enforceValue = a => typeof a.enforceRadius === "boolean" ? (a.enforceRadius ? "on" : "off") : "global";
+  const enforceLabel = a => ({ on: "Wajib dalam radius", off: "Radius hanya peringatan", global: settings.enforceRadius ? "Radius: ikut umum (wajib)" : "Radius: ikut umum (peringatan)" })[enforceValue(a)];
+  const pill = (text, tone) => h("span", { style: { fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: tone === "warn" ? "var(--red-soft)" : "var(--slate-mist, #eef2f7)", color: tone === "warn" ? "var(--red)" : "var(--navy-700)", whiteSpace: "nowrap" } }, text);
+  const sectionTitle = t => h("p", { style: { fontSize: 12, fontWeight: 700, color: "var(--navy-700)", marginBottom: 6 } }, t);
   return h("div", { className: "card", style: { padding: 20, marginTop: 20, marginBottom: 20 } },
     h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 4 } },
       h("div", null,
-        h("h2", { style: { fontSize: 14, fontWeight: 700, color: "var(--navy-900)" } }, "Area Monitoring"),
-        h("p", { style: { fontSize: 13, color: "var(--navy-700)", marginTop: 2 } }, "Buat area (mis. Manado + Minut) lalu pilih karyawan yang masuk. Tiap area punya papan skor, patroli, dan laporan kejadian sendiri, dengan bobot skor sendiri.")),
+        h("h2", { style: { fontSize: 14, fontWeight: 700, color: "var(--navy-900)" } }, "Area"),
+        h("p", { style: { fontSize: 13, color: "var(--navy-700)", marginTop: 2 } }, "Kelompokkan karyawan per area (mis. Manado, Minut). Tiap area punya lokasi presensi, jadwal, papan skor, patroli, dan laporan sendiri.")),
       h(Button, { variant: "outline", size: "sm", onClick: addArea }, h(Icon, { name: "plus", size: 15 }), " Tambah Area")),
-    areas.length > 0 && unassigned > 0 && h("p", { style: { fontSize: 12, color: "var(--t-muted)", marginBottom: 14 } }, `${unassigned} karyawan belum dipilih masuk area mana pun.`),
+    areas.length > 0 && h("p", { style: { fontSize: 12, color: "var(--t-muted)", margin: "6px 0 10px" } }, `${areas.length} area · ${employees.length - unassigned.length} karyawan sudah punya area${unassigned.length ? ` · ${unassigned.length} belum` : ""}`),
     toast && h("div", { style: { marginBottom: 12, background: "var(--green-soft)", color: "var(--green)", fontSize: 13, fontWeight: 600, padding: "10px 14px", borderRadius: 10 } }, toast),
     error && h("div", { style: { marginBottom: 12, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, error),
     areas.length === 0 && h("p", { style: { fontSize: 13, color: "var(--t-muted)", marginTop: 10 } }, "Belum ada area. Klik Tambah Area."),
     areas.map(a => {
-      const members = employees.filter(u => areaMap[u.id] === a.id).length;
+      const open = openId === a.id;
+      const members = employees.filter(u => areaMap[u.id] === a.id);
+      const locCount = locations.filter(l => l.areaId === a.id).length;
       const w = Number.isFinite(Number(a.weightAttendance)) ? Number(a.weightAttendance) : Math.round(SCORE_WEIGHT_ATTENDANCE * 100);
-      return h("div", { key: a.id, style: { border: "1px solid var(--line)", borderRadius: 12, padding: 14, marginTop: 12 } },
-        h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" } },
-          h("div", { className: "flex", style: { alignItems: "center", gap: 10, flexWrap: "wrap" } },
-            h("input", { key: a.id + "|" + a.name, className: "input", style: { width: 200, fontWeight: 600 }, defaultValue: a.name, "aria-label": "Nama area", onBlur: e => { const v = e.target.value.trim(); if (v && v !== a.name) patch(a.id, { name: v }, "Nama area disimpan."); } }),
-            h("span", { style: { fontSize: 12, color: "var(--t-muted)" } }, `${members} anggota`)),
-          h("button", { onClick: () => removeArea(a), "aria-label": "Hapus area", style: { color: "var(--red)", padding: 4 } }, h(Icon, { name: "trash-2", size: 16 }))),
-        h("div", { style: { marginTop: 12 } },
-          h("p", { style: { fontSize: 12, fontWeight: 600, color: "var(--navy-700)", marginBottom: 6 } }, "Anggota area ini"),
-          employees.length === 0 ? h("p", { style: { fontSize: 12, color: "var(--t-muted)" } }, "Belum ada karyawan.") :
-          h("div", { style: { display: "flex", flexWrap: "wrap", gap: "6px 16px" } }, employees.map(u => {
-            const other = areaMap[u.id] && areaMap[u.id] !== a.id ? areas.find(x => x.id === areaMap[u.id]) : null;
-            return h("label", { key: u.id, style: { display: "flex", alignItems: "center", gap: 6, fontSize: 13 } },
-              h("input", { type: "checkbox", checked: areaMap[u.id] === a.id, onChange: () => toggleMember(a, u.id) }),
-              u.name, other ? h("span", { style: { fontSize: 11, color: "var(--t-muted)" } }, `(di ${other.name})`) : null);
-          }))),
-        h("div", { className: "flex", style: { alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 12 } },
-          h("label", { style: { fontSize: 12, fontWeight: 600, color: "var(--navy-700)" } }, "Bobot skor: Kehadiran"),
-          h("input", { key: a.id + "|w|" + w, type: "number", min: 0, max: 100, step: 5, className: "input", style: { width: 80 }, defaultValue: w, "aria-label": "Bobot kehadiran persen", onBlur: e => { let v = Math.round(Number(e.target.value)); if (!Number.isFinite(v)) return; v = Math.min(100, Math.max(0, v)); if (v !== w) patch(a.id, { weightAttendance: v }, "Bobot skor disimpan."); } }),
-          h("span", { style: { fontSize: 13, color: "var(--navy-700)" } }, `% + Patroli ${100 - w}%`)));
+      const q = query.trim().toLowerCase();
+      const shown = q ? employees.filter(u => (u.name || "").toLowerCase().includes(q) || (u.username || "").toLowerCase().includes(q)) : employees;
+      const admins = scopedUsers.filter(u => Array.isArray(u.areaAccess) && u.areaAccess.includes(a.id));
+      return h("div", { key: a.id, style: { border: "1px solid var(--line)", borderRadius: 12, marginTop: 10, overflow: "hidden" } },
+        h("div", { className: "flex", style: { alignItems: "center", gap: 10, padding: "12px 14px", cursor: "pointer", flexWrap: "wrap" }, onClick: () => { setOpenId(open ? null : a.id); setQuery(""); } },
+          h("div", { style: { flex: 1, minWidth: 140 } },
+            h("div", { style: { fontWeight: 700, fontSize: 14, color: "var(--navy-900)" } }, a.name),
+            h("div", { className: "flex", style: { gap: 6, flexWrap: "wrap", marginTop: 4 } },
+              pill(`${members.length} anggota`),
+              locCount > 0 ? pill(`${locCount} lokasi presensi`) : pill("Belum ada lokasi", "warn"),
+              pill(enforceLabel(a)))),
+          h(Icon, { name: open ? "chevron-up" : "chevron-down", size: 18 })),
+        open && h("div", { style: { padding: "4px 14px 14px", borderTop: "1px solid var(--line)" } },
+          h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginTop: 12 } },
+            h("div", null, h("label", { className: "label", style: { fontSize: 12 } }, "Nama area"),
+              h("input", { key: a.id + "|" + a.name, className: "input", style: { width: 220, fontWeight: 600 }, defaultValue: a.name, "aria-label": "Nama area", onBlur: e => { const v = e.target.value.trim(); if (v && v !== a.name) patch(a.id, { name: v }, "Nama area diperbarui."); } })),
+            h("button", { onClick: () => removeArea(a), "aria-label": "Hapus area", style: { color: "var(--red)", padding: 6, display: "flex", alignItems: "center", gap: 4, fontSize: 13 } }, h(Icon, { name: "trash-2", size: 16 }), " Hapus area")),
+
+          h("div", { style: { marginTop: 16 } },
+            sectionTitle("Lokasi presensi area ini"),
+            locations.length === 0 ? h("p", { style: { fontSize: 12, color: "var(--t-muted)" } }, "Belum ada lokasi presensi. Tambahkan dulu di Pengaturan → Jam & Presensi, lalu pilih di sini.") :
+            h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, locations.map((l, idx) => {
+              const other = l.areaId && l.areaId !== a.id ? getAreaName(l.areaId) : "";
+              return h("label", { key: idx, style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13 } },
+                h("input", { type: "checkbox", checked: l.areaId === a.id, onChange: () => toggleLocation(a, idx) }),
+                l.name || `Lokasi ${idx + 1}`,
+                h("span", { style: { fontSize: 11, color: "var(--t-muted)" } }, other ? `(dipakai ${other})` : !l.areaId ? "(umum — dipakai semua area)" : ""));
+            })),
+            h("p", { style: { fontSize: 11, color: "var(--t-faint)", marginTop: 6 } }, "Karyawan hanya bisa presensi di lokasi areanya (ditambah lokasi umum). Koordinat dan radius tiap lokasi diatur di Jam & Presensi.")),
+
+          h("div", { style: { marginTop: 16 } },
+            sectionTitle("Aturan radius"),
+            h("select", { className: "input", style: { width: "auto", fontSize: 13 }, value: enforceValue(a), onChange: e => { const v = e.target.value; const nx = { ...a }; if (v === "global") delete nx.enforceRadius; else nx.enforceRadius = v === "on"; saveAreas(areas.map(x => x.id === a.id ? nx : x), "Aturan radius diperbarui."); } },
+              h("option", { value: "global" }, `Ikuti pengaturan umum (${settings.enforceRadius ? "wajib" : "peringatan"})`),
+              h("option", { value: "on" }, "Wajib presensi dalam radius"),
+              h("option", { value: "off" }, "Hanya beri peringatan"))),
+
+          h("div", { style: { marginTop: 16 } },
+            h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 6 } },
+              sectionTitle(`Anggota (${members.length})`),
+              unassigned.length > 0 && h(Button, { variant: "outline", size: "sm", onClick: () => addAllUnassigned(a) }, `Masukkan ${unassigned.length} karyawan tanpa area`)),
+            employees.length === 0 ? h("p", { style: { fontSize: 12, color: "var(--t-muted)" } }, "Belum ada karyawan.") : h(React.Fragment, null,
+              employees.length > 8 && h("input", { className: "input", style: { marginBottom: 8, maxWidth: 260 }, placeholder: "Cari nama / username…", value: query, onChange: e => setQuery(e.target.value) }),
+              h("div", { style: { display: "flex", flexWrap: "wrap", gap: "6px 16px", maxHeight: 220, overflowY: "auto" } }, shown.map(u => {
+                const other = areaMap[u.id] && areaMap[u.id] !== a.id ? getAreaName(areaMap[u.id]) : "";
+                return h("label", { key: u.id, style: { display: "flex", alignItems: "center", gap: 6, fontSize: 13 } },
+                  h("input", { type: "checkbox", checked: areaMap[u.id] === a.id, onChange: () => toggleMember(a, u.id) }),
+                  u.name, other ? h("span", { style: { fontSize: 11, color: "var(--t-muted)" } }, `(di ${other})`) : null);
+              })))),
+
+          h("div", { style: { marginTop: 16 } },
+            sectionTitle("Admin / View Only yang hanya mengelola area ini"),
+            admins.length === 0 ? h("p", { style: { fontSize: 12, color: "var(--t-muted)" } }, "Belum ada. Atur di Pengaturan → Hak Akses (Edit pengguna → Batasi akses ke area). Admin tanpa batasan melihat semua area.") :
+            h("p", { style: { fontSize: 13 } }, admins.map(u => u.name).join(", "))),
+
+          h("div", { className: "flex", style: { alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 16 } },
+            h("label", { style: { fontSize: 12, fontWeight: 600, color: "var(--navy-700)" } }, "Bobot skor: Kehadiran"),
+            h("input", { key: a.id + "|w|" + w, type: "number", min: 0, max: 100, step: 5, className: "input", style: { width: 80 }, defaultValue: w, "aria-label": "Bobot kehadiran persen", onBlur: e => { let v = Math.round(Number(e.target.value)); if (!Number.isFinite(v)) return; v = Math.min(100, Math.max(0, v)); if (v !== w) patch(a.id, { weightAttendance: v }, "Bobot skor diperbarui."); } }),
+            h("span", { style: { fontSize: 13, color: "var(--navy-700)" } }, `% + Patroli ${100 - w}%`))));
     }));
 }
 
@@ -19840,7 +20059,7 @@ function RoleAccessCard() {
     style: {
       overflowX: "auto"
     }
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Nama"), /*#__PURE__*/React.createElement("th", null, "Username"), /*#__PURE__*/React.createElement("th", null, "Jabatan"), /*#__PURE__*/React.createElement("th", null, "Role"), /*#__PURE__*/React.createElement("th", null, "Leader Team"), canEdit && /*#__PURE__*/React.createElement("th", null, "Aksi"))), /*#__PURE__*/React.createElement("tbody", null, allUsers.map(u => {
+  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Nama"), /*#__PURE__*/React.createElement("th", null, "Username"), /*#__PURE__*/React.createElement("th", null, "Jabatan"), /*#__PURE__*/React.createElement("th", null, "Role"), /*#__PURE__*/React.createElement("th", null, "Area"), /*#__PURE__*/React.createElement("th", null, "Leader Team"), canEdit && /*#__PURE__*/React.createElement("th", null, "Aksi"))), /*#__PURE__*/React.createElement("tbody", null, allUsers.map(u => {
     const roleCell = /*#__PURE__*/React.createElement("select", {
       className: "input",
       style: {
@@ -19916,7 +20135,12 @@ function RoleAccessCard() {
         color: "var(--navy-700)",
         marginLeft: 6
       }
-    }, "(kamu)")), /*#__PURE__*/React.createElement("td", null, u.username), /*#__PURE__*/React.createElement("td", null, u.position || "-"), /*#__PURE__*/React.createElement("td", null, roleCell), /*#__PURE__*/React.createElement("td", null, u.role === ROLES.EMPLOYEE ? /*#__PURE__*/React.createElement("label", {
+    }, "(kamu)")), /*#__PURE__*/React.createElement("td", null, u.username), /*#__PURE__*/React.createElement("td", null, u.position || "-"), /*#__PURE__*/React.createElement("td", null, roleCell), /*#__PURE__*/React.createElement("td", { style: { fontSize: 12 } }, (() => {
+      const acc = Array.isArray(u.areaAccess) ? u.areaAccess.map(getAreaName).filter(Boolean) : [];
+      if (u.role === ROLES.ADMIN) return "Semua area";
+      if (u.role === ROLES.EMPLOYEE) { const home = getAreaName(getAreaIdOfUser(u.id)); return [home, ...acc.map(n => n + " (tambahan)")].filter(Boolean).join(", ") || "-"; }
+      return acc.length ? acc.join(", ") : "Semua area";
+    })()), /*#__PURE__*/React.createElement("td", null, u.role === ROLES.EMPLOYEE ? /*#__PURE__*/React.createElement("label", {
       className: "flex",
       style: {
         alignItems: "center",
@@ -21108,7 +21332,7 @@ function OvertimeAdminPage() {
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
   useStoreSync();
-  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE).sort((a, b) => a.name.localeCompare(b.name));
+  const employees = getScopedEmployees().sort((a, b) => a.name.localeCompare(b.name));
   const inMonth = getOvertimes().filter(o => o.date.startsWith(month));
   // Angka tab "Menunggu" mengikuti bulan yang dipilih (sama dengan isi daftar di bawahnya).
   const pendingMonth = inMonth.filter(o => o.status === LEAVE_STATUS.PENDING).length;
