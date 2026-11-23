@@ -17659,7 +17659,7 @@ function JadwalSayaPage({
     }, displayStatusLabel(type) || "-"));
   }))));
 }
-const MAX_OFFICE_LOCATIONS = 30;
+const MAX_OFFICE_LOCATIONS = 100;
 
 /* ======================= PANDUAN / PENJELASAN PERHITUNGAN ======================= */
 // Halaman statis (tidak menyentuh data) yang menjelaskan setiap logika perhitungan status,
@@ -20333,7 +20333,7 @@ function RoleAccessCard() {
     onSaved: handleAddSaved
   }));
 }
-const MAX_CHECKPOINTS = 30;
+const MAX_CHECKPOINTS = 100;
 // Kartu pengaturan untuk mengatur anggota dan urutan rute checkpoint Tim Manado & Tim Minut.
 // Perubahan langsung disimpan ke settings.routeTeams (Firestore) lewat updateSettings().
 function RouteTeamsSettingsCard() {
