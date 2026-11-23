@@ -1735,7 +1735,7 @@ function getSettings() {
   };
 }
 function getLeaveRequests() {
-  return store.leaves;
+  return store.leaves.filter(l => userInScope(l.userId));
 }
 function getLeaveRequestsByUser(userId) {
   return store.leaves.filter(l => l.userId === userId);
@@ -2045,7 +2045,7 @@ function generateOvertimeId() {
   return "ot-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 function getOvertimes() {
-  return store.overtimes;
+  return store.overtimes.filter(o => userInScope(o.userId));
 }
 function getOvertimesByUser(userId) {
   return store.overtimes.filter(o => o.userId === userId);
@@ -2151,6 +2151,7 @@ async function addOvertime(data) {
 async function decideOvertime(id, decision, byName) {
   const previous = store.overtimes.find(o => o.id === id);
   if (!previous) throw new Error("Data lembur tidak ditemukan.");
+  if (!userInScope(previous.userId)) throw new Error("Anda hanya bisa memproses lembur karyawan di area Anda.");
   const patch = {
     status: decision,
     decidedAt: decision === LEAVE_STATUS.PENDING ? null : new Date().toISOString(),
@@ -2226,6 +2227,7 @@ async function decideLeaveRequest(id, decision) {
   const idx = store.leaves.findIndex(l => l.id === id);
   if (idx === -1) return null;
   const previous = store.leaves[idx];
+  if (!userInScope(previous.userId)) throw new Error("Anda hanya bisa memproses izin/cuti karyawan di area Anda.");
   const updated = {
     ...previous,
     status: decision,
@@ -3025,7 +3027,7 @@ function kejadianTicketCode(category) {
 const KEJADIAN_AREA_PREFIX = [
   { match: "timur", prefix: "NIT" },
   { match: "tengah", prefix: "NITA" },
-  { match: "barat", prefix: "NITB" }
+  { match: "barat", prefix: "NIB" }
 ];
 function kejadianTicketPrefix(user) {
   const name = String(user && user.id ? getAreaName(getAreaIdOfUser(user.id)) : "").toLowerCase();
