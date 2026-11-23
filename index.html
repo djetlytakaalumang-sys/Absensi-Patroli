@@ -773,6 +773,22 @@ html:not([data-theme="dark"]) #root{background:transparent !important;}
 <style id="form-border">
 html:not([data-theme="dark"]) .input,html:not([data-theme="dark"]) select.input,html:not([data-theme="dark"]) textarea.input{border:1px solid #111111 !important;}
 html:not([data-theme="dark"]) .input:focus{border-color:var(--accent-600) !important;}
+
+/* ===== Tampilan halaman Izin/Cuti & Lembur per area ===== */
+.pg-h1{font-size:26px !important;letter-spacing:-.02em;line-height:1.15;}
+.area-chip{display:inline-flex;align-items:center;gap:8px;padding:9px 16px;}
+.area-dot{width:9px;height:9px;border-radius:50%;background:var(--ac,#6366f1);flex-shrink:0;box-shadow:0 0 0 3px color-mix(in srgb,var(--ac,#6366f1) 22%,transparent);}
+.area-chip.chip-active .area-dot{background:#fff;box-shadow:0 0 0 3px rgba(255,255,255,.3);}
+.area-count{min-width:20px;height:20px;padding:0 6px;border-radius:999px;font-size:11px;font-weight:800;line-height:20px;text-align:center;background:#ef4444;color:#fff;}
+.area-chip.chip-active .area-count{background:#fff;color:var(--accent-700);}
+.area-tag{display:inline-flex;align-items:center;gap:6px;margin-top:5px;padding:2px 10px 2px 8px;border-radius:999px;font-size:11px;font-weight:700;color:var(--ac);background:color-mix(in srgb,var(--ac) 12%,transparent);}
+.area-tag i{width:7px;height:7px;border-radius:50%;background:var(--ac);display:block;}
+.leave-grid .card{transition:transform .15s ease,box-shadow .15s ease;}
+.leave-grid .card:hover{transform:translateY(-2px);box-shadow:0 10px 26px rgba(17,24,39,.10) !important;}
+.ot-recap-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line);}
+.ot-recap-row:first-child{border-top:none;}
+.ot-bar{height:6px;border-radius:999px;background:rgba(99,102,241,.12);margin-top:7px;overflow:hidden;}
+.ot-bar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#6366f1,#8b5cf6);transition:width .5s ease;}
 </style>
 </head>
 <body>
@@ -1735,7 +1751,7 @@ function getSettings() {
   };
 }
 function getLeaveRequests() {
-  return store.leaves.filter(l => userInScope(l.userId));
+  return store.leaves.filter(l => userInDataScope(l.userId));
 }
 function getLeaveRequestsByUser(userId) {
   return store.leaves.filter(l => l.userId === userId);
@@ -2045,7 +2061,7 @@ function generateOvertimeId() {
   return "ot-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 function getOvertimes() {
-  return store.overtimes.filter(o => userInScope(o.userId));
+  return store.overtimes.filter(o => userInDataScope(o.userId));
 }
 function getOvertimesByUser(userId) {
   return store.overtimes.filter(o => o.userId === userId);
@@ -2151,7 +2167,7 @@ async function addOvertime(data) {
 async function decideOvertime(id, decision, byName) {
   const previous = store.overtimes.find(o => o.id === id);
   if (!previous) throw new Error("Data lembur tidak ditemukan.");
-  if (!userInScope(previous.userId)) throw new Error("Anda hanya bisa memproses lembur karyawan di area Anda.");
+  if (!userInDataScope(previous.userId)) throw new Error("Anda hanya bisa memproses lembur karyawan di area Anda.");
   const patch = {
     status: decision,
     decidedAt: decision === LEAVE_STATUS.PENDING ? null : new Date().toISOString(),
@@ -2227,7 +2243,7 @@ async function decideLeaveRequest(id, decision) {
   const idx = store.leaves.findIndex(l => l.id === id);
   if (idx === -1) return null;
   const previous = store.leaves[idx];
-  if (!userInScope(previous.userId)) throw new Error("Anda hanya bisa memproses izin/cuti karyawan di area Anda.");
+  if (!userInDataScope(previous.userId)) throw new Error("Anda hanya bisa memproses izin/cuti karyawan di area Anda.");
   const updated = {
     ...previous,
     status: decision,
@@ -2427,6 +2443,22 @@ function getCheckpointsForArea(areaFilter) {
   const cps = store.checkpoints;
   if (!areaFilter || areaFilter === "all" || getAreas().length === 0) return cps;
   return cps.filter(c => !c.areaId || c.areaId === areaFilter);
+}
+// Checkpoint untuk TAMPILAN PETA ADMIN. Super Admin (atau admin tanpa batasan area) = semua checkpoint.
+// View Only / Admin yang dibatasi area = hanya checkpoint umum + checkpoint di area yang boleh mereka lihat.
+function getScopedCheckpointsForMap(areaFilter) {
+  const scope = getScopeAreaIds();
+  if (!scope || getAreas().length === 0) return getCheckpointsForArea(areaFilter);
+  if (areaFilter && areaFilter !== "all") {
+    if (!scope.includes(areaFilter)) return [];
+    return store.checkpoints.filter(c => !c.areaId || c.areaId === areaFilter);
+  }
+  return store.checkpoints.filter(c => !c.areaId || scope.includes(c.areaId));
+}
+// Kunci area untuk fokus kamera peta di Dashboard: 1 area akses -> area itu; selain itu "all" (data sudah ter-scope).
+function getDashboardMapAreaKey() {
+  const scope = getScopeAreaIds();
+  return scope && scope.length === 1 ? scope[0] : "all";
 }
 function generateCheckpointId() {  return "cp-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
@@ -3082,8 +3114,16 @@ function KejadianSortSelect({ value, onChange }) {
     React.createElement("select", { className: "input", value, onChange: e => onChange(e.target.value), style: { width: "auto", padding: "6px 10px", fontSize: 12 } },
       KEJADIAN_SORT_OPTIONS.map(([v, l]) => React.createElement("option", { key: v, value: v }, l))));
 }
+// Laporan kejadian/darurat: Super Admin & Admin melihat SEMUA area. View Only dengan area akses terisi
+// hanya melihat laporan dari petugas di area-nya (area akses kosong = semua area).
+function isKejadianVisibleToActiveUser(k) {
+  const u = window.__activeUser;
+  if (!u || u.role !== ROLES.VIEWER) return true;
+  const scope = getScopeAreaIds(u);
+  return !scope || scope.includes(getAreaIdOfUser(k.userId));
+}
 function getKejadianReports() {
-  return store.kejadian.slice().sort((a, b) => a.createdAt < b.createdAt ? 1 : -1);
+  return store.kejadian.filter(isKejadianVisibleToActiveUser).sort((a, b) => a.createdAt < b.createdAt ? 1 : -1);
 }
 function getKejadianReportsByUser(userId) {
   return getKejadianReports().filter(k => k.userId === userId);
@@ -3599,6 +3639,13 @@ function getScopeAreaIds(user) {
   if (!u || u.role === ROLES.EMPLOYEE || u.role === ROLES.ADMIN) return null;
   return Array.isArray(u.areaAccess) && u.areaAccess.length > 0 ? u.areaAccess : null;
 }
+// Cakupan DATA notifikasi/pengajuan (izin, cuti, lembur, darurat): Super Admin & Admin melihat SEMUA area;
+// View Only dengan area akses terisi hanya melihat petugas di area-nya.
+function userInDataScope(userId) {
+  const u = window.__activeUser;
+  if (u && (u.role === ROLES.ADMIN || u.role === ROLES.STAFF_ADMIN)) return true;
+  return userInScope(userId);
+}
 function userInScope(userId) {
   const scope = getScopeAreaIds();
   return !scope || scope.includes(getAreaIdOfUser(userId));
@@ -3645,13 +3692,46 @@ function getAreaWeights(userId) {
   const att = Number.isFinite(w) ? Math.min(100, Math.max(0, w)) / 100 : SCORE_WEIGHT_ATTENDANCE;
   return { att, pat: 1 - att };
 }
-function AreaFilterChips({ value, onChange, noAll }) {
+// Versi "data": Super Admin & Admin melihat SEMUA area; View Only mengikuti area aksesnya.
+function getScopeAreaIdsForData() {
+  const u = window.__activeUser;
+  if (u && (u.role === ROLES.ADMIN || u.role === ROLES.STAFF_ADMIN)) return null;
+  return getScopeAreaIds();
+}
+function userInAreaData(userId, areaFilter) {
+  if (!userInDataScope(userId)) return false;
+  return !areaFilter || areaFilter === "all" || getAreaIdOfUser(userId) === areaFilter;
+}
+function countPendingByArea(list) {
+  const c = { all: 0 };
+  list.filter(x => x.status === LEAVE_STATUS.PENDING).forEach(x => {
+    c.all += 1;
+    const a = getAreaIdOfUser(x.userId);
+    if (a) c[a] = (c[a] || 0) + 1;
+  });
+  return c;
+}
+// Label area kecil berwarna (dipakai di kartu pengajuan)
+function AreaTag({ userId }) {
+  const id = getAreaIdOfUser(userId);
+  if (!id) return null;
+  const color = getAreaColor(id);
+  return React.createElement("span", { className: "area-tag", style: { "--ac": color } },
+    React.createElement("i", null), getAreaName(id));
+}
+function AreaFilterChips({ value, onChange, noAll, forData, counts }) {
   useStoreSync();
-  const areas = getVisibleAreas();
+  const dScope = forData ? getScopeAreaIdsForData() : getScopeAreaIds();
+  const areas = dScope ? getAreas().filter(a => dScope.includes(a.id)) : getAreas();
   if (areas.length === 0) return null;
   const h = React.createElement;
-  const chip = (key, label) => h("button", { key, onClick: () => onChange(key), className: `chip ${value === key ? "chip-active" : "chip-inactive"}` }, label);
-  return h("div", { className: "flex", style: { gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 16 } }, noAll ? null : chip("all", getScopeAreaIds() ? "Semua area saya" : "Semua area"), areas.map(a => chip(a.id, a.name)));
+  const chip = (key, label) => {
+    const n = counts ? (counts[key] || 0) : 0;
+    return h("button", { key, onClick: () => onChange(key), className: `chip area-chip ${value === key ? "chip-active" : "chip-inactive"}`, style: { "--ac": key === "all" ? "#6366f1" : getAreaColor(key) } },
+      h("i", { className: "area-dot" }), label,
+      counts && n > 0 ? h("b", { className: "area-count" }, n) : null);
+  };
+  return h("div", { className: "flex scrollbar-none", style: { gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 16 } }, noAll ? null : chip("all", dScope ? "Semua area saya" : "Semua area"), areas.map(a => chip(a.id, a.name)));
 }
 // Warna penanda per area (urut sesuai daftar area); checkpoint/lokasi umum = abu-abu.
 const AREA_COLORS = ["#0ea5e9", "#f59e0b", "#10b981", "#8b5cf6", "#ef4444", "#14b8a6"];
@@ -6940,6 +7020,18 @@ function AdminLivePatrolMap({
   }, [patrols, statusTick]);
   // Admin ganti filter area -> kamera peta otomatis pindah ke area tsb (petugas aktif + checkpoint area;
   // kalau belum ada keduanya, pakai lokasi kantor area itu). "Semua area" -> tampilkan semuanya.
+  // Fokus awal: kalau saat peta dibuat datanya belum siap (atau belum ada petugas aktif), begitu titik area
+  // (petugas / checkpoint / kantor area) tersedia kamera diarahkan ke sana — bukan menetap di posisi default.
+  useEffect(() => {
+    if (fittedOnceRef.current || areaKey === undefined) return;
+    const map = mapRef.current;
+    if (!map || !window.L) return;
+    const pts = getAreaFocusPoints(patrols, checkpoints, areaKey);
+    if (!pts.length) return;
+    if (pts.length === 1) map.setView(pts[0], 16);
+    else map.fitBounds(window.L.latLngBounds(pts).pad(0.25), { maxZoom: 17 });
+    fittedOnceRef.current = true;
+  }, [patrols.length, checkpoints.length, areaKey]);
   const prevAreaKeyRef = useRef(areaKey);
   useEffect(() => {
     if (prevAreaKeyRef.current === areaKey) return;
@@ -11710,8 +11802,8 @@ function AdminDashboard({
   const yesterdayRecords = allRecords.filter(r => r.date === yesterdayStr);
   const hadirYesterday = yesterdayRecords.filter(r => r.status === STATUS.HADIR || r.status === STATUS.TERLAMBAT || r.status === STATUS.PIKET_MALAM).length;
   const pikMalamYesterday = yesterdayRecords.filter(r => r.status === STATUS.PIKET_MALAM).length;
-  const activePatrols = useMemo(() => getPatrols().filter(p => p.status === PATROL_STATUS.ACTIVE && p.date === today), [store.patrols, today]);
-  const checkpoints = useMemo(() => getCheckpoints(), [store.checkpoints]);
+  const activePatrols = useMemo(() => getPatrols().filter(p => p.status === PATROL_STATUS.ACTIVE && p.date === today && userInScope(p.userId)), [store.patrols, store.settings, store.users, today]);
+  const checkpoints = useMemo(() => getScopedCheckpointsForMap("all"), [store.checkpoints, store.settings, store.users]);
   const dailyTrend = useMemo(() => buildDailyAttendanceTrend(allRecords, mk), [allRecords, mk]);
   const PAGE_SIZE = 10;
   const [page, setPage] = useState(1);
@@ -11894,7 +11986,8 @@ function AdminDashboard({
   }, /*#__PURE__*/React.createElement(AdminLivePatrolMap, {
     patrols: activePatrols,
     checkpoints: checkpoints,
-    height: 260
+    height: 260,
+    areaKey: getDashboardMapAreaKey()
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       padding: "14px 22px 20px"
@@ -14762,7 +14855,7 @@ function LeaveRequestCard({
       fontSize: 12,
       color: "var(--t-faint)"
     }
-  }, showName ? leaveRangeText(lv) + " · " : "", days, " hari"))), _h(LeaveStatusBadge, {
+  }, showName ? leaveRangeText(lv) + " · " : "", days, " hari"), showName && _h(AreaTag, { userId: lv.userId }))), _h(LeaveStatusBadge, {
     status: lv.status
   })), _h("p", {
     style: {
@@ -14860,13 +14953,15 @@ function LeaveRequestsPage({
     canDecide
   } = useAuth();
   const [tab, setTab] = useState("pending");
+  const [areaFilter, setAreaFilter] = useState("all");
   const [refreshKey, setRefreshKey] = useState(0);
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
   useStoreSync();
-  const allRequests = useMemo(() => getLeaveRequests(), [refreshKey, store.leaves]);
+  const allRequests = useMemo(() => getLeaveRequests().filter(l => userInAreaData(l.userId, areaFilter)), [refreshKey, store.leaves, store.settings, store.users, areaFilter]);
   const filtered = tab === "all" ? allRequests : allRequests.filter(l => l.status === tab);
   const pendingCount = allRequests.filter(l => l.status === LEAVE_STATUS.PENDING).length;
+  const areaCounts = countPendingByArea(getLeaveRequests());
   async function decide(id, decision) {
     setBusyId(id);
     setError("");
@@ -14929,6 +15024,7 @@ function LeaveRequestsPage({
       marginBottom: 24
     }
   }, /*#__PURE__*/React.createElement("h1", {
+    className: "pg-h1",
     style: {
       fontSize: 20,
       fontWeight: 700,
@@ -14949,7 +15045,12 @@ function LeaveRequestsPage({
       padding: "10px 14px",
       borderRadius: 10
     }
-  }, error), /*#__PURE__*/React.createElement("div", {
+  }, error), /*#__PURE__*/React.createElement(AreaFilterChips, {
+    value: areaFilter,
+    onChange: setAreaFilter,
+    forData: true,
+    counts: areaCounts
+  }), /*#__PURE__*/React.createElement("div", {
     className: "flex scrollbar-none",
     style: {
       gap: 8,
@@ -15578,7 +15679,7 @@ function AdminPatrolMapPage() {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
-  const checkpoints = useMemo(() => getCheckpointsForArea(areaFilter), [store.checkpoints, store.settings, areaFilter]);
+  const checkpoints = useMemo(() => getScopedCheckpointsForMap(areaFilter), [store.checkpoints, store.settings, store.users, areaFilter]);
   const visitCounts = useMemo(() => {
     // PENTING: dihitung PER PETUGAS (bukan digabung semua orang) — sebelumnya key cuma
     // checkpointId, jadi angka "X checkpoint hari ini" yang tampil di kartu Si A ikut kehitung
@@ -21397,7 +21498,7 @@ function OvertimeCard({
           h(Icon, { name: "timer", size: 18, style: { color: "var(--t-faint)" } })),
         h("div", { style: { minWidth: 0 } },
           h("p", { style: { fontWeight: 600, color: "var(--navy-900)", fontSize: 14, overflowWrap: "anywhere" } }, showName ? ot.userName : formatDateID(ot.date)),
-          h("p", { style: { fontSize: 12, color: "var(--t-faint)" } }, subText))),
+          h("p", { style: { fontSize: 12, color: "var(--t-faint)" } }, subText), showName && h(AreaTag, { userId: ot.userId }))),
       h(LeaveStatusBadge, { status: ot.status })),
     h("p", { style: { fontSize: 13, color: "var(--t-muted)", marginTop: 10, whiteSpace: "normal", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflowWrap: "anywhere" } }, ot.task),
     showDetail && h(OvertimeDetailModal, { ot, canDecide, busy, onDecide, onClose: () => setShowDetail(false) }),
@@ -21584,14 +21685,16 @@ function OvertimeAdminPage() {
   const [month, setMonth] = useState(todayDateStrWITA(getTrustedNow()).slice(0, 7));
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
+  const [areaFilter, setAreaFilter] = useState("all");
   useStoreSync();
   const employees = getScopedEmployees().sort((a, b) => a.name.localeCompare(b.name));
-  const inMonth = getOvertimes().filter(o => o.date.startsWith(month));
+  const overtimesInArea = getOvertimes().filter(o => userInAreaData(o.userId, areaFilter));
+  const inMonth = overtimesInArea.filter(o => o.date.startsWith(month));
   // Angka tab "Menunggu" mengikuti bulan yang dipilih (sama dengan isi daftar di bawahnya).
   const pendingMonth = inMonth.filter(o => o.status === LEAVE_STATUS.PENDING).length;
   // Pengajuan menunggu yang jatuh di bulan LAIN dikelompokkan per bulan, supaya tidak "hilang".
   const pendingElsewhere = {};
-  getOvertimes().filter(o => o.status === LEAVE_STATUS.PENDING).forEach(o => {
+  overtimesInArea.filter(o => o.status === LEAVE_STATUS.PENDING).forEach(o => {
     const m = String(o.date).slice(0, 7);
     if (m !== month) pendingElsewhere[m] = (pendingElsewhere[m] || 0) + 1;
   });
@@ -21634,12 +21737,13 @@ function OvertimeAdminPage() {
   return h("div", { className: "container-lg" },
     h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 12, flexWrap: "wrap" } },
       h("div", null,
-        h("h1", { style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Lembur Karyawan"),
+        h("h1", { className: "pg-h1", style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Lembur Karyawan"),
         h("p", { style: { color: "var(--t-muted)", fontSize: 14, marginTop: 2 } }, "Tinjau pengajuan lembur dari karyawan dan lihat rekap jam per bulan.")),
       h("div", { className: "flex", style: { gap: 8, flexWrap: "wrap" } },
         h(Button, { variant: "outline", onClick: exportExcel, disabled: inMonth.length === 0 }, h(Icon, { name: "download", size: 16 }), " Unduh Excel"),
         h(Button, { variant: "outline", onClick: exportPdf, disabled: inMonth.length === 0 }, h(Icon, { name: "download", size: 16 }), " Unduh PDF"))),
     error && h("div", { style: { marginBottom: 16, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, error),
+    h(AreaFilterChips, { value: areaFilter, onChange: setAreaFilter, forData: true, counts: countPendingByArea(getOvertimes()) }),
     h("div", { style: { marginBottom: 14 } },
       h("label", { className: "label" }, "Bulan"),
       h("input", { className: "input", type: "month", value: month, onChange: e => e.target.value && setMonth(e.target.value), style: { maxWidth: 190 } })),
@@ -21651,9 +21755,13 @@ function OvertimeAdminPage() {
         h("p", { style: { fontSize: 14, fontWeight: 700, color: "var(--navy-900)" } }, "Rekap lembur disetujui bulan ini"),
         h("p", { style: { fontSize: 13, color: "var(--accent-700)", fontWeight: 700 } }, "Total " + (totalMin ? formatOvertimeDuration(totalMin) : "0 jam"))),
       recap.length === 0 ? h("p", { style: { fontSize: 13, color: "var(--t-faint)", marginTop: 6 } }, "Belum ada lembur yang disetujui di bulan ini.") : h("div", { style: { display: "flex", flexDirection: "column" } },
-        recap.map((r, i) => h("div", { key: r.name + i, className: "flex", style: { justifyContent: "space-between", gap: 10, padding: "8px 0", borderTop: i ? "1px solid var(--line)" : "none", fontSize: 13 } },
-          h("span", { style: { color: "var(--navy-900)", fontWeight: 500 } }, r.name),
-          h("span", { style: { color: "var(--t-muted)", whiteSpace: "nowrap" } }, formatOvertimeDuration(r.minutes) + " · " + r.count + "x"))))),
+        recap.map((r, i) => h("div", { key: r.name + i, className: "ot-recap-row" },
+          h(Avatar, { name: r.name, size: 32 }),
+          h("div", { style: { flex: 1, minWidth: 0 } },
+            h("div", { className: "flex", style: { justifyContent: "space-between", gap: 10, fontSize: 13 } },
+              h("span", { style: { color: "var(--navy-900)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, r.name),
+              h("span", { style: { color: "var(--t-muted)", whiteSpace: "nowrap", fontWeight: 600 } }, formatOvertimeDuration(r.minutes) + " · " + r.count + "x")),
+            h("div", { className: "ot-bar" }, h("i", { style: { width: Math.max(6, Math.round(r.minutes / (recap[0].minutes || 1) * 100)) + "%" } }))))))),
     h("div", { className: "flex scrollbar-none", style: { gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 16 } },
       TABS.map(t => h("button", { key: t.key, onClick: () => setTab(t.key), className: `chip ${tab === t.key ? "chip-active" : "chip-inactive"}` },
         t.label, t.key === "pending" && pendingMonth > 0 ? ` (${pendingMonth})` : ""))),
@@ -22126,19 +22234,19 @@ function App() {
   const pendingLeaveCount = useMemo(() => {
     if (!canAccessAdminPanel(user)) return 0;
     return getLeaveRequests().filter(l => l.status === LEAVE_STATUS.PENDING).length;
-  }, [user, leaveTick, page]);
+  }, [user, leaveTick, page, store.leaves, store.settings, store.users]);
   const pendingOvertimeCount = useMemo(() => {
     if (!canAccessAdminPanel(user)) return 0;
     return getOvertimes().filter(o => o.status === LEAVE_STATUS.PENDING).length;
-  }, [user, page, store.overtimes]);
+  }, [user, page, store.overtimes, store.settings, store.users]);
   const baruKejadianCount = useMemo(() => {
     if (!canAccessAdminPanel(user)) return 0;
     return getKejadianReports().filter(k => k.status === KEJADIAN_STATUS.BARU).length;
-  }, [user, page, store.kejadian]);
+  }, [user, page, store.kejadian, store.settings, store.users]);
   const emergencyActiveCount = useMemo(() => {
     if (!canAccessAdminPanel(user)) return 0;
     return getKejadianReports().filter(k => k.darurat && k.status !== KEJADIAN_STATUS.SELESAI).length;
-  }, [user, page, store.kejadian]);
+  }, [user, page, store.kejadian, store.settings, store.users]);
   // Daftar notifikasi lonceng (khusus admin): laporan darurat aktif + pengajuan lembur menunggu
   const notifItems = useMemo(() => {
     if (!canAccessAdminPanel(user)) return [];
@@ -22152,7 +22260,7 @@ function App() {
       sub: formatDateShortID(o.date) + " · " + o.startTime + "–" + o.endTime + " · " + formatOvertimeDuration(o.minutes || 0)
     }));
     return [...dar, ...lem];
-  }, [user, page, store.kejadian, store.overtimes]);
+  }, [user, page, store.kejadian, store.overtimes, store.settings, store.users]);
   const notifCount = emergencyActiveCount + pendingOvertimeCount;
   const adminNav = useMemo(() => [{
     key: "home",
