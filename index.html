@@ -6552,11 +6552,36 @@ function hexToRgba(hex, alpha) {
     b = parseInt(h.substring(4, 6), 16);
   return `rgba(${r},${g},${b},${alpha})`;
 }
+// Titik-titik yang jadi fokus kamera peta untuk satu area: posisi terakhir petugas aktif + checkpoint area.
+// Checkpoint "umum" (tanpa area) tidak ikut dipakai kalau area itu punya checkpoint sendiri, supaya kamera
+// tidak melebar ke checkpoint umum yang jauh. Kalau tetap kosong, dipakai lokasi kantor area tsb.
+function getAreaFocusPoints(patrols, checkpoints, areaKey) {
+  const ok = pt => pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng);
+  const pts = [];
+  (patrols || []).forEach(p => {
+    const path = p.path || [];
+    for (let i = path.length - 1; i >= 0; i--) {
+      if (ok(path[i])) { pts.push([path[i].lat, path[i].lng]); break; }
+    }
+  });
+  const specific = areaKey && areaKey !== "all";
+  let cps = (checkpoints || []).filter(ok);
+  if (specific) {
+    const own = cps.filter(c => c.areaId === areaKey);
+    if (own.length) cps = own;
+  }
+  cps.forEach(c => pts.push([c.lat, c.lng]));
+  if (!pts.length && specific) {
+    (getSettings().officeLocations || []).forEach(l => { if (l.areaId === areaKey && ok(l)) pts.push([l.lat, l.lng]); });
+  }
+  return pts;
+}
 function AdminLivePatrolMap({
   patrols,
   checkpoints,
   height = 420,
-  followUserId
+  followUserId,
+  areaKey // opsional: id area terpilih ("all" = semua). Kalau berubah, kamera peta otomatis pindah ke area itu.
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -6668,6 +6693,11 @@ function AdminLivePatrolMap({
     }).addTo(map)];
     const firstPos = patrols.find(p => p.path?.length)?.path.slice(-1)[0] || checkpoints.find(c => c.lat != null);
     map.setView([firstPos?.lat ?? -8.6, firstPos?.lng ?? 115.2], 15);
+    if (areaKey !== undefined) {
+      const _pts = getAreaFocusPoints(patrols, checkpoints, areaKey);
+      if (_pts.length === 1) map.setView(_pts[0], 16);
+      else if (_pts.length > 1) map.fitBounds(window.L.latLngBounds(_pts).pad(0.25), { maxZoom: 17 });
+    }
     mapRef.current = map;
     return () => {
       map.remove();
@@ -6892,6 +6922,20 @@ function AdminLivePatrolMap({
       }
     };
   }, [patrols, statusTick]);
+  // Admin ganti filter area -> kamera peta otomatis pindah ke area tsb (petugas aktif + checkpoint area;
+  // kalau belum ada keduanya, pakai lokasi kantor area itu). "Semua area" -> tampilkan semuanya.
+  const prevAreaKeyRef = useRef(areaKey);
+  useEffect(() => {
+    if (prevAreaKeyRef.current === areaKey) return;
+    prevAreaKeyRef.current = areaKey;
+    const map = mapRef.current;
+    if (!map || !window.L) return;
+    const pts = getAreaFocusPoints(patrols, checkpoints, areaKey);
+    if (!pts.length) return;
+    if (pts.length === 1) map.setView(pts[0], 16, { animate: true });
+    else map.fitBounds(window.L.latLngBounds(pts).pad(0.25), { animate: true, maxZoom: 17 });
+    fittedOnceRef.current = true;
+  }, [areaKey]);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !window.L) return;
@@ -15741,7 +15785,8 @@ function AdminPatrolMapPage() {
     patrols: activePatrols,
     checkpoints: checkpoints,
     height: 420,
-    followUserId: followUserId
+    followUserId: followUserId,
+    areaKey: areaFilter
   })), /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
