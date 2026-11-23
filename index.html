@@ -845,6 +845,23 @@ function isTeamLeader(user) {
 function canEditData(user) {
   return !!user && user.role === ROLES.ADMIN;
 }
+// ADMIN AREA = pengguna berperan "Admin" yang dibatasi ke satu/beberapa area (Hak Akses -> Batasi akses ke area).
+// Boleh mengatur lokasi presensi, checkpoint, anggota, dan rute tim HANYA di area yang dikelolanya.
+// Tidak boleh: menambah/menghapus area, mengubah jam kerja, data karyawan di luar areanya, atau pengaturan lain.
+// Catatan: pembatasan ini di sisi aplikasi; aturan keamanan Firestore tetap perlu disesuaikan bila ingin ketat di server.
+function isAreaAdmin(user) {
+  return !!user && user.role === ROLES.STAFF_ADMIN && Array.isArray(user.areaAccess) && user.areaAccess.length > 0;
+}
+function canEditAreaSettings(user) {
+  return canEditData(user) || isAreaAdmin(user);
+}
+function areaAdminOwns(areaId) {
+  const u = window.__activeUser;
+  return !isAreaAdmin(u) || (!!areaId && u.areaAccess.includes(areaId));
+}
+function assertAreaOwned(areaId) {
+  if (!areaAdminOwns(areaId)) throw new Error("Kamu hanya bisa mengubah data di area yang kamu kelola.");
+}
 function roleLabel(role) {
   if (role === ROLES.ADMIN) return "Super Admin";
   if (role === ROLES.STAFF_ADMIN) return "Admin";
@@ -1659,7 +1676,7 @@ function recordAutoLogoutLog(userName) {
     at: iso,
     userAgent,
     deviceTzOffsetMin: tzOffsetMin,
-    note: `${userName} otomatis di-logout karena pergantian hari (00:00 WITA). Wajib login ulang.`
+    note: `${userName} otomatis di-logout karena pergantian hari (00:00 ${getWorkTzOfUser().label}). Wajib login ulang.`
   };
   db.collection(COL.LOGIN_LOGS).doc(logEntry.id).set(logEntry).catch(console.error);
 }
@@ -1781,7 +1798,7 @@ function setSession(userId) {
     // device sengaja dimanipulasi (selisih besar) dia akan "false" dan kita malah jatuh balik
     // ke jam device mentah yang tidak bisa dipercaya. Yang benar: selama PERNAH berhasil
     // sinkron, getTrustedNow() SELALU sudah terkoreksi ke jam server, berapa pun selisihnya.
-    loginDateWITA: todayDateStrWITA(_serverTimeSyncedOnce ? getTrustedNow() : new Date())
+    loginDateWITA: todayDateStrWITA(_serverTimeSyncedOnce ? getTrustedNow() : new Date(), getWorkTzOfUser().offset)
   }));
 }
 function getSession() {
@@ -2439,9 +2456,14 @@ function isCheckpointOtherArea(cp, user) {
   return !!home && cp.areaId !== home;
 }
 const CROSS_AREA_BONUS_AMOUNT = 0.1; // +10 poin pada skor sesi bila petugas melewati checkpoint di jalur/area lain
+// Rekap CP per area: hanya Super Admin yang melihat semua area. Admin / View Only yang dibatasi area
+// hanya melihat checkpoint umum + checkpoint di area aksesnya.
 function getCheckpointsForArea(areaFilter) {
   const cps = store.checkpoints;
-  if (!areaFilter || areaFilter === "all" || getAreas().length === 0) return cps;
+  if (getAreas().length === 0) return cps;
+  const scope = getScopeAreaIds();
+  if (!areaFilter || areaFilter === "all") return scope ? cps.filter(c => !c.areaId || scope.includes(c.areaId)) : cps;
+  if (scope && !scope.includes(areaFilter)) return [];
   return cps.filter(c => !c.areaId || c.areaId === areaFilter);
 }
 // Checkpoint untuk TAMPILAN PETA ADMIN. Super Admin (atau admin tanpa batasan area) = semua checkpoint.
@@ -2465,6 +2487,7 @@ function generateCheckpointId() {  return "cp-" + Date.now().toString(36) + Math
 // Sama polanya spt fungsi2 sebelumnya — kalau gagal tersimpan, checkpoint baru/perubahannya
 // tidak akan muncul di HP petugas lapangan padahal admin kira sudah tersimpan.
 async function addCheckpoint(data) {
+  assertAreaOwned(data.areaId);
   const cp = {
     id: generateCheckpointId(),
     name: (data.name || `Checkpoint ${store.checkpoints.length + 1}`).trim(),
@@ -2490,6 +2513,8 @@ async function updateCheckpoint(id, data) {
   const idx = store.checkpoints.findIndex(c => c.id === id);
   if (idx === -1) return null;
   const previous = store.checkpoints[idx];
+  assertAreaOwned(previous.areaId);
+  if (data && data.areaId !== undefined && data.areaId !== previous.areaId && data.areaId !== null) assertAreaOwned(data.areaId);
   const updated = {
     ...previous,
     ...data
@@ -2506,6 +2531,8 @@ async function updateCheckpoint(id, data) {
   }
 }
 async function deleteCheckpoint(id) {
+  const cpToDelete = store.checkpoints.find(c => c.id === id);
+  if (cpToDelete) assertAreaOwned(cpToDelete.areaId);
   const previous = store.checkpoints;
   store.checkpoints = store.checkpoints.filter(c => c.id !== id);
   _notifyStore();
@@ -3395,7 +3422,9 @@ function getRemovedRouteTeamMarkers() {
 // Tim yang dibandingkan di Rekap CP: tim pada area terpilih (+ tim yang belum diberi area).
 function getRouteCompareTeams(areaFilter) {
   const teams = getRouteTeamsConfig();
-  if (!areaFilter || areaFilter === "all") return teams;
+  const scope = getScopeAreaIds();
+  if (!areaFilter || areaFilter === "all") return scope ? teams.filter(t => !t.areaId || scope.includes(t.areaId)) : teams;
+  if (scope && !scope.includes(areaFilter)) return [];
   return teams.filter(t => !t.areaId || t.areaId === areaFilter);
 }
 // Ambil state EDITABLE untuk 1 tim (dipakai halaman Pengaturan): memberIds & routeCheckpointIds
@@ -3840,14 +3869,30 @@ function todayDateStr(d = new Date()) {
     day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
-// Versi "todayDateStr" yang DIPAKSA hitung pakai zona waktu WITA (UTC+8), TIDAK
+// ---- ZONA WAKTU = ZONA PERANGKAT ----
+// Jam dan tanggal presensi mengikuti zona waktu perangkat yang dipakai petugas:
+// HP di area NIT (WITA, UTC+8) -> WITA, HP di area NITA / NIB (WIB, UTC+7) -> WIB.
+// Label (WIB / WITA / WIT) diturunkan dari zona perangkat itu supaya tidak bingung.
+function getWorkTzOfUser() {
+  const offset = -new Date().getTimezoneOffset() / 60;
+  const label = offset === 7 ? "WIB" : offset === 8 ? "WITA" : offset === 9 ? "WIT" : "UTC" + (offset >= 0 ? "+" : "") + offset;
+  return { offset, label };
+}
+// Jam digital dalam zona perangkat, mis. "08:15:30"
+function formatClockWork(d) {
+  return nowTimeStr(d, getWorkTzOfUser().offset);
+}
+// Versi "todayDateStr" yang DIPAKSA hitung pakai zona waktu kerja area (WITA/WIB, bukan setelan perangkat), TIDAK
 // bergantung pada setelan zona waktu perangkat yang menjalankan kode ini. Ini
 // supaya kalau ada satu device (mis. laptop admin buka dashboard) yang zona
 // waktunya salah/ke-set ke zona lain, perhitungan "hari ini" untuk keperluan
 // auto-close TETAP benar — tidak bisa keliru menutup record hari yang sedang
 // berjalan hanya karena device tsb salah setelan zona waktu.
-function todayDateStrWITA(d = new Date()) {
-  const wita = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+function todayDateStrWITA(d = new Date(), tzOffset) {
+  // tzOffset (jam dari UTC) opsional; kalau kosong dipakai zona waktu PERANGKAT (WITA untuk NIT, WIB untuk NITA & NIB).
+  // Nama fungsi tetap "WITA" supaya semua pemanggil lama tidak perlu diubah.
+  const off = typeof tzOffset === "number" ? tzOffset : getWorkTzOfUser().offset;
+  const wita = new Date(d.getTime() + off * 60 * 60 * 1000);
   const y = wita.getUTCFullYear(),
     m = String(wita.getUTCMonth() + 1).padStart(2, "0"),
     day = String(wita.getUTCDate()).padStart(2, "0");
@@ -3858,8 +3903,9 @@ function todayDateStrWITA(d = new Date()) {
 // Kalau HP petugas zona waktunya nggak persis WITA (auto-detect meleset, dsb), jam yang
 // kesimpen sebagai checkInTime/checkOutTime bisa geser beberapa jam walau TANGGALnya sudah
 // benar WITA — dan jam inilah dasar penentuan status Hadir/Terlambat serta pulang cepat.
-function nowTimeStr(d = new Date()) {
-  const wita = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+function nowTimeStr(d = new Date(), tzOffset) {
+  const off = typeof tzOffset === "number" ? tzOffset : getWorkTzOfUser().offset;
+  const wita = new Date(d.getTime() + off * 60 * 60 * 1000);
   const h = String(wita.getUTCHours()).padStart(2, "0");
   const m = String(wita.getUTCMinutes()).padStart(2, "0");
   const s = String(wita.getUTCSeconds()).padStart(2, "0");
@@ -5932,13 +5978,15 @@ function getLupaAbsenPulang(users, checkOutReminderHour = 17) {
   // Pakai jam server terpercaya + WITA dipaksa (bukan jam/tanggal device polos) supaya
   // pengingat ini konsisten dengan seluruh logika presensi lain, dan tidak salah muncul/
   // tidak muncul gara-gara zona waktu perangkat yang membuka dashboard berbeda-beda.
+  // Jam & tanggal dihitung per petugas sesuai zona waktu area masing-masing (WITA untuk NIT, WIB untuk NITA/NIB).
   const trustedNow = getTrustedNow();
-  const today = todayDateStrWITA(trustedNow);
-  const nowHour = Number(nowTimeStr(trustedNow).slice(0, 2));
-  if (nowHour < checkOutReminderHour) return [];
-  const records = getRecords().filter(r => r.date === today);
+  const records = getRecords();
   return users.filter(u => {
-    const rec = records.find(r => r.userId === u.id);
+    const off = getWorkTzOfUser().offset;
+    const today = todayDateStrWITA(trustedNow, off);
+    const nowHour = Number(nowTimeStr(trustedNow, off).slice(0, 2));
+    if (nowHour < checkOutReminderHour) return false;
+    const rec = records.find(r => r.userId === u.id && r.date === today);
     return rec && rec.checkInTime && !rec.checkOutTime;
   }).map(u => u.id);
 }
@@ -7327,6 +7375,7 @@ function AuthProvider({
       logout,
       refreshCurrentUser,
       canEdit: canEditData(user),
+      canEditArea: canEditAreaSettings(user),
       canDecide: canDecideRequests(user),
       canViewAdmin: canAccessAdminPanel(user)
     }
@@ -8183,9 +8232,16 @@ function AttendanceCard({
       color: "rgba(231,237,245,.7)",
       fontSize: 14
     }
-  }, formatDateID(todayDateStr(now))), /*#__PURE__*/React.createElement("p", {
+  }, formatDateID(todayDateStrWITA(now, getWorkTzOfUser().offset))), /*#__PURE__*/React.createElement("p", {
     className: "att-clock tabular"
-  }, formatClock(now))), record && /*#__PURE__*/React.createElement(StatusBadge, {
+  }, formatClockWork(now), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14,
+      fontWeight: 700,
+      marginLeft: 8,
+      opacity: .75
+    }
+  }, getWorkTzOfUser().label))), record && /*#__PURE__*/React.createElement(StatusBadge, {
     status: record.status
   })), /*#__PURE__*/React.createElement("div", {
     className: "relative grid-2",
@@ -18224,7 +18280,7 @@ function PanduanPage() {
       items: [
         "Checkpoint yang SAMA tidak dihitung sebagai CP baru dua kali berturut-turut \u2014 petugas wajib melewati (CP) checkpoint LAIN dulu di antaranya supaya checkpoint tsb bisa dihitung lagi.",
         "Dipakai buffer keluar-radius +15 meter supaya jitter GPS di pinggir radius tidak dihitung berkali-kali sebagai CP baru.",
-        "Cukup SATU checkpoint lain di antaranya \u2014 tidak perlu melewati semua checkpoint. Pengecekan berlaku per petugas per hari (tanggal WITA); besoknya mulai dari awal.",
+        "Cukup SATU checkpoint lain di antaranya \u2014 tidak perlu melewati semua checkpoint. Pengecekan berlaku per petugas per hari (tanggal mengikuti zona waktu perangkat: WITA untuk NIT, WIB untuk NITA dan NIB); besoknya mulai dari awal.",
         "Pengecekan memakai catatan lintasan asli di server DAN catatan lintasan terakhir yang disimpan di HP petugas, jadi tetap berlaku walau aplikasi dimuat ulang atau ditutup paksa sistem di tengah patroli.",
         "Di HP, lintasan baru baru dicatat setelah data lintasan selesai dimuat (beberapa detik setelah login), supaya aturan di atas tidak terlewat."
       ]
@@ -18438,7 +18494,7 @@ function RekapRitPage() {
       setTimeout(() => setNotice(null), 5000);
     }
   }
-  const checkpoints = useMemo(() => getCheckpointsForArea(areaFilter), [store.checkpoints, store.settings, areaFilter]);
+  const checkpoints = useMemo(() => getCheckpointsForArea(areaFilter), [store.checkpoints, store.settings, store.users, areaFilter]);
 
   // ---- Mode Harian (existing) ----
   const dailyRecap = useMemo(() => getRitRecap(dateFilter, checkpointFilter || null, areaFilter), [dateFilter, checkpointFilter, areaFilter, store.checkpointPasses, store.users, store.settings]);
@@ -18989,8 +19045,12 @@ function SettingsPage({
   section = "jam"
 } = {}) {
   const {
-    canEdit
+    canEdit,
+    canEditArea
   } = useAuth();
+  // Admin Area boleh mengubah bagian "checkpoint" (lokasi, checkpoint, area, rute tim) untuk areanya saja.
+  const editable = canEdit || section === "checkpoint" && canEditArea;
+  const areaAdminNow = !canEdit && canEditArea ? window.__activeUser : null;
   const [settings, setSettingsState] = useState(getSettings());
   const [locatingIdx, setLocatingIdx] = useState(null);
   const [cpTab, setCpTab] = useState("lokasi");
@@ -19024,6 +19084,13 @@ function SettingsPage({
     return settings.officeLocations || [];
   }
   async function upsertLocation(idx, patch) {
+    try {
+      assertAreaOwned(getLocations()[idx] && getLocations()[idx].areaId);
+      if (patch && patch.areaId) assertAreaOwned(patch.areaId);
+    } catch (err) {
+      setError(err.message);
+      return;
+    }
     const locs = [...getLocations()];
     locs[idx] = {
       ...locs[idx],
@@ -19036,12 +19103,20 @@ function SettingsPage({
   }
   async function addLocation() {
     if (getLocations().length >= MAX_OFFICE_LOCATIONS) return;
+    const me = window.__activeUser;
+    const newLocArea = cpAreaFilter !== "all" ? cpAreaFilter : isAreaAdmin(me) ? me.areaAccess[0] : null;
+    try {
+      assertAreaOwned(newLocArea);
+    } catch (err) {
+      setError(err.message);
+      return;
+    }
     const locs = [...getLocations(), {
       name: `Lokasi ${getLocations().length + 1}`,
       lat: null,
       lng: null,
       radius: Number(settings.radiusMeters) || DEFAULT_SETTINGS.radiusMeters,
-      areaId: cpAreaFilter !== "all" ? cpAreaFilter : null
+      areaId: newLocArea
     }];
     setError("");
     try {
@@ -19054,6 +19129,12 @@ function SettingsPage({
     }
   }
   async function removeLocation(idx) {
+    try {
+      assertAreaOwned(getLocations()[idx] && getLocations()[idx].areaId);
+    } catch (err) {
+      setError(err.message);
+      return;
+    }
     const locs = getLocations().filter((_, i) => i !== idx);
     setError("");
     try {
@@ -19148,15 +19229,22 @@ function SettingsPage({
       borderRadius: 10
     }
   }, error), section === "akses" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(RoleAccessCard, null), /*#__PURE__*/React.createElement(LoginHistoryCard, null)), section === "backup" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(BackupArchiveCard, null), /*#__PURE__*/React.createElement(ImportArchiveCard, null)), /*#__PURE__*/React.createElement("fieldset", {
-    disabled: !canEdit,
+    disabled: !editable,
     style: {
       border: 0,
       padding: 0,
       margin: 0,
       minWidth: 0,
-      opacity: canEdit ? 1 : 0.55
+      opacity: editable ? 1 : 0.55
     }
-  }, !canEdit && section !== "backup" && section !== "akses" && /*#__PURE__*/React.createElement("p", {
+  }, areaAdminNow && section === "checkpoint" && /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12,
+      color: "var(--navy-700)",
+      marginBottom: 10,
+      fontWeight: 600
+    }
+  }, "Admin Area — kamu mengelola: " + (areaAdminNow.areaAccess.map(id => getAreaName(id)).join(", ") || "-") + ". Lokasi, checkpoint, anggota, dan rute tim hanya bisa diubah di area ini."), !editable && section !== "backup" && section !== "akses" && /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 12,
       color: "var(--navy-700)",
@@ -19896,6 +19984,13 @@ function AreaSettingsCard() {
   const locations = settings.officeLocations || [];
   const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE).sort((a, b) => a.name.localeCompare(b.name));
   const unassigned = employees.filter(u => !areaMap[u.id]);
+  const me = window.__activeUser;
+  const restricted = isAreaAdmin(me);
+  const deny = id => {
+    if (!restricted || id && me.areaAccess.includes(id)) return false;
+    setError("Kamu hanya bisa mengubah area yang kamu kelola.");
+    return true;
+  };
   const scopedUsers = getUsers().filter(u => u.role !== ROLES.EMPLOYEE && u.role !== ROLES.ADMIN);
   function showToast(msg) {
     setToast(msg);
@@ -19912,14 +20007,17 @@ function AreaSettingsCard() {
   }
   const saveAreas = (next, msg) => save({ areas: next }, msg);
   function addArea() {
+    if (restricted) { setError("Hanya Super Admin yang bisa menambah area."); return; }
     const id = "area-" + Date.now().toString(36);
     saveAreas([...areas, { id, name: `Area ${areas.length + 1}`, memberIds: [], weightAttendance: Math.round(SCORE_WEIGHT_ATTENDANCE * 100) }], "Area ditambahkan.");
     setOpenId(id);
   }
   function patch(id, p, msg) {
+    if (deny(id)) return;
     saveAreas(areas.map(a => a.id === id ? { ...a, ...p } : a), msg);
   }
   async function removeArea(a) {
+    if (restricted) { setError("Hanya Super Admin yang bisa menghapus area."); return; }
     const nLoc = locations.filter(l => l.areaId === a.id).length;
     if (!window.confirm(`Hapus ${a.name}? ${nLoc > 0 ? `${nLoc} lokasi presensi milik area ini akan menjadi lokasi umum. ` : ""}${checkpointsAll.some(c => c.areaId === a.id) ? "Checkpoint patroli milik area ini akan menjadi checkpoint umum. " : ""}Data presensi, patroli, dan laporan tidak ikut terhapus.`)) return;
     setError("");
@@ -19935,6 +20033,9 @@ function AreaSettingsCard() {
   }
   // Pilih/lepas anggota. Memilih karyawan yang sudah di area lain = memindahkannya ke area ini.
   function toggleMember(a, uid) {
+    if (deny(a.id)) return;
+    const fromArea = getAreaIdOfUser(uid);
+    if (restricted && fromArea && fromArea !== a.id && !me.areaAccess.includes(fromArea)) { setError("Karyawan ini ada di area lain yang bukan kamu kelola."); return; }
     const has = (a.memberIds || []).includes(uid);
     saveAreas(areas.map(x => {
       if (x.id === a.id) return { ...x, memberIds: has ? x.memberIds.filter(i => i !== uid) : [...(x.memberIds || []), uid] };
@@ -19942,16 +20043,21 @@ function AreaSettingsCard() {
     }), "Anggota area diperbarui.");
   }
   function addAllUnassigned(a) {
+    if (deny(a.id)) return;
     if (unassigned.length === 0) return;
     saveAreas(areas.map(x => x.id === a.id ? { ...x, memberIds: [...(x.memberIds || []), ...unassigned.map(u => u.id)] } : x), `${unassigned.length} karyawan dimasukkan ke ${a.name}.`);
   }
   function toggleLocation(a, idx) {
+    if (deny(a.id)) return;
     const loc = locations[idx];
+    if (restricted && loc.areaId && loc.areaId !== a.id && !me.areaAccess.includes(loc.areaId)) { setError("Lokasi ini dipakai area lain yang bukan kamu kelola."); return; }
     const mine = loc.areaId === a.id;
     save({ officeLocations: locations.map((l, i) => i === idx ? { ...l, areaId: mine ? null : a.id } : l) }, mine ? "Lokasi dijadikan lokasi umum." : `Lokasi "${loc.name}" dipakai untuk ${a.name}.`);
   }
   const checkpointsAll = getCheckpoints();
   async function toggleCheckpoint(a, cp) {
+    if (deny(a.id)) return;
+    if (restricted && cp.areaId && cp.areaId !== a.id && !me.areaAccess.includes(cp.areaId)) { setError("Checkpoint ini dipakai area lain yang bukan kamu kelola."); return; }
     const mine = cp.areaId === a.id;
     setError("");
     try {
@@ -19970,12 +20076,12 @@ function AreaSettingsCard() {
       h("div", null,
         h("h2", { style: { fontSize: 14, fontWeight: 700, color: "var(--navy-900)" } }, "Area"),
         h("p", { style: { fontSize: 13, color: "var(--navy-700)", marginTop: 2 } }, "Kelompokkan karyawan per area (mis. Manado, Minut). Tiap area punya lokasi presensi, jadwal, papan skor, patroli, dan laporan sendiri.")),
-      h(Button, { variant: "outline", size: "sm", onClick: addArea }, h(Icon, { name: "plus", size: 15 }), " Tambah Area")),
+      !restricted && h(Button, { variant: "outline", size: "sm", onClick: addArea }, h(Icon, { name: "plus", size: 15 }), " Tambah Area")),
     areas.length > 0 && h("p", { style: { fontSize: 12, color: "var(--t-muted)", margin: "6px 0 10px" } }, `${areas.length} area · ${employees.length - unassigned.length} karyawan sudah punya area${unassigned.length ? ` · ${unassigned.length} belum` : ""}`),
     toast && h("div", { style: { marginBottom: 12, background: "var(--green-soft)", color: "var(--green)", fontSize: 13, fontWeight: 600, padding: "10px 14px", borderRadius: 10 } }, toast),
     error && h("div", { style: { marginBottom: 12, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, error),
     areas.length === 0 && h("p", { style: { fontSize: 13, color: "var(--t-muted)", marginTop: 10 } }, "Belum ada area. Klik Tambah Area."),
-    areas.map(a => {
+    areas.filter(a => !restricted || me.areaAccess.includes(a.id)).map(a => {
       const open = openId === a.id;
       const members = employees.filter(u => areaMap[u.id] === a.id);
       const locCount = locations.filter(l => l.areaId === a.id).length;
@@ -19998,7 +20104,7 @@ function AreaSettingsCard() {
           h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginTop: 12 } },
             h("div", null, h("label", { className: "label", style: { fontSize: 12 } }, "Nama area"),
               h("input", { key: a.id + "|" + a.name, className: "input", style: { width: 220, fontWeight: 600 }, defaultValue: a.name, "aria-label": "Nama area", onBlur: e => { const v = e.target.value.trim(); if (v && v !== a.name) patch(a.id, { name: v }, "Nama area diperbarui."); } })),
-            h("button", { onClick: () => removeArea(a), "aria-label": "Hapus area", style: { color: "var(--red)", padding: 6, display: "flex", alignItems: "center", gap: 4, fontSize: 13 } }, h(Icon, { name: "trash-2", size: 16 }), " Hapus area")),
+            !restricted && h("button", { onClick: () => removeArea(a), "aria-label": "Hapus area", style: { color: "var(--red)", padding: 6, display: "flex", alignItems: "center", gap: 4, fontSize: 13 } }, h(Icon, { name: "trash-2", size: 16 }), " Hapus area")),
 
           h("div", { style: { marginTop: 16 } },
             sectionTitle("Lokasi presensi area ini"),
@@ -20465,6 +20571,13 @@ function RouteTeamsSettingsCard() {
   const checkpoints = getCheckpoints();
   async function saveTeam(teamId, patch) {
     const current = getEditableRouteTeamState(teamId);
+    try {
+      assertAreaOwned(current.areaId);
+      if (patch && patch.areaId) assertAreaOwned(patch.areaId);
+    } catch (err) {
+      setError(err.message);
+      return;
+    }
     const updated = {
       id: teamId,
       ...current,
@@ -20531,12 +20644,17 @@ function RouteTeamsSettingsCard() {
     }
   }
   function addTeam(areaId) {
+    const meNow = window.__activeUser;
+    if (isAreaAdmin(meNow)) {
+      if (!areaId || !meNow.areaAccess.includes(areaId)) areaId = meNow.areaAccess[0];
+    }
     const id = "team-" + Date.now().toString(36);
     const list = getRouteTeamIds().map(i => ({ id: i, ...getEditableRouteTeamState(i) }));
     persistTeams([...list, { id, label: "Tim Baru", memberIds: [], areaId: areaId || null, routeCheckpointIds: [] }], "Tim rute ditambahkan.");
   }
   async function removeTeam(teamId) {
     const t = getEditableRouteTeamState(teamId);
+    if (!areaAdminOwns(t && t.areaId)) { setError("Kamu hanya bisa menghapus tim rute di area yang kamu kelola."); return; }
     if (!window.confirm(`Hapus ${t ? t.label : "tim ini"}? Anggota dan rutenya dilepas dari tim ini. Data patroli dan skor yang sudah ada tidak ikut terhapus.`)) return;
     const list = getRouteTeamIds().filter(i => i !== teamId).map(i => ({ id: i, ...getEditableRouteTeamState(i) }));
     const isDefault = ROUTE_TEAMS_DEFAULT.some(d => d.id === teamId);
@@ -20764,7 +20882,9 @@ function RouteTeamsSettingsCard() {
     const groups = areas.map(a => ({ key: a.id, areaId: a.id, name: a.name, teams: all.filter(x => x.areaId === a.id) }));
     const orphan = all.filter(x => !x.areaId || !areas.some(a => a.id === x.areaId));
     if (orphan.length > 0 || areas.length === 0) groups.push({ key: "none", areaId: null, name: areas.length ? "Tanpa area" : "Semua tim", teams: orphan });
-    return groups.map(g => React.createElement("div", { key: g.key, style: { marginTop: 8, marginBottom: 20 } },
+    const meNow = window.__activeUser;
+    const visibleGroups = isAreaAdmin(meNow) ? groups.filter(g => g.areaId && meNow.areaAccess.includes(g.areaId)) : groups;
+    return visibleGroups.map(g => React.createElement("div", { key: g.key, style: { marginTop: 8, marginBottom: 20 } },
       React.createElement("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", padding: "8px 12px", borderRadius: 10, background: "var(--slate-mist, #eef2f7)", borderLeft: "4px solid " + getAreaColor(g.areaId), marginBottom: 14 } },
         React.createElement("span", { style: { fontWeight: 700, fontSize: 13, color: "var(--navy-900)" } }, g.name, React.createElement("span", { style: { fontWeight: 500, fontSize: 11.5, color: "var(--navy-700)", marginLeft: 8 } }, `${g.teams.length} tim`)),
         React.createElement(Button, { type: "button", variant: "outline", size: "sm", onClick: () => addTeam(g.areaId) }, React.createElement(Icon, { name: "plus", size: 14 }), " Tambah Tim")),
