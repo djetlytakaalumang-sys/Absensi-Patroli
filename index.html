@@ -3721,6 +3721,15 @@ function getAreaWeights(userId) {
   const att = Number.isFinite(w) ? Math.min(100, Math.max(0, w)) / 100 : SCORE_WEIGHT_ATTENDANCE;
   return { att, pat: 1 - att };
 }
+// Cakupan area untuk Dashboard (Analitik Kehadiran, Aktivitas Terkini, statistik, patroli live):
+// HANYA Super Admin yang melihat semua area. Admin / View Only hanya melihat area aksesnya
+// (daftar kosong = belum diberi area, jadi belum ada data yang tampil). null = semua area.
+// Kalau belum ada area sama sekali di Pengaturan -> Area, tidak ada pembatasan.
+function getDashboardAreaIds(user) {
+  const u = user || window.__activeUser;
+  if (!u || u.role === ROLES.ADMIN || getAreas().length === 0) return null;
+  return Array.isArray(u.areaAccess) ? u.areaAccess : [];
+}
 // Versi "data": Super Admin & Admin melihat SEMUA area; View Only mengikuti area aksesnya.
 function getScopeAreaIdsForData() {
   const u = window.__activeUser;
@@ -3748,9 +3757,9 @@ function AreaTag({ userId }) {
   return React.createElement("span", { className: "area-tag", style: { "--ac": color } },
     React.createElement("i", null), getAreaName(id));
 }
-function AreaFilterChips({ value, onChange, noAll, forData, counts }) {
+function AreaFilterChips({ value, onChange, noAll, forData, counts, scopeIds }) {
   useStoreSync();
-  const dScope = forData ? getScopeAreaIdsForData() : getScopeAreaIds();
+  const dScope = scopeIds !== undefined ? scopeIds : forData ? getScopeAreaIdsForData() : getScopeAreaIds();
   const areas = dScope ? getAreas().filter(a => dScope.includes(a.id)) : getAreas();
   if (areas.length === 0) return null;
   const h = React.createElement;
@@ -11799,10 +11808,14 @@ function AdminDashboard({
   const [showExcel, setShowExcel] = useState(false);
   useStoreSync();
   const checkOutReminderHour = 17;
-  const users = useMemo(() => getScopedEmployees(), [store.users, store.settings]);
+  // Dashboard per area: hanya Super Admin yang melihat semua area (lihat getDashboardAreaIds).
+  const [areaFilter, setAreaFilter] = useState("all");
+  const dashScope = getDashboardAreaIds();
+  const inDashArea = uid => (dashScope === null || dashScope.includes(getAreaIdOfUser(uid))) && (areaFilter === "all" || getAreaIdOfUser(uid) === areaFilter);
+  const users = useMemo(() => getScopedEmployees().filter(u => inDashArea(u.id)), [store.users, store.settings, areaFilter]);
   const mk = currentMonthKey();
   const allRecords = useMemo(() => {
-    const real = getRecords().map(withEffectiveStatus);
+    const real = getRecords().filter(r => inDashArea(r.userId)).map(withEffectiveStatus);
     const realKeys = new Set(real.map(r => `${r.userId}__${r.date}`));
     const synthetic = [];
     users.forEach(u => {
@@ -11835,16 +11848,16 @@ function AdminDashboard({
   const lupaAbsenPulangIds = useMemo(() => getLupaAbsenPulang(users, checkOutReminderHour), [users]);
   const lupaAbsenPulangUsers = users.filter(u => lupaAbsenPulangIds.includes(u.id));
   const kejadianFeed = useMemo(() => {
-    const aktif = getKejadianReports().filter(k => k.status !== KEJADIAN_STATUS.SELESAI).sort((a, b) => {
+    const aktif = getKejadianReports().filter(k => k.status !== KEJADIAN_STATUS.SELESAI && inDashArea(k.userId)).sort((a, b) => {
       if (a.darurat !== b.darurat) return a.darurat ? -1 : 1;
       return a.createdAt < b.createdAt ? 1 : -1;
     });
     return aktif.slice(0, 4);
-  }, [store.kejadian]);
-  const kejadianBaruCount = useMemo(() => getKejadianReports().filter(k => k.status === KEJADIAN_STATUS.BARU).length, [store.kejadian]);
+  }, [store.kejadian, store.settings, areaFilter]);
+  const kejadianBaruCount = useMemo(() => getKejadianReports().filter(k => k.status === KEJADIAN_STATUS.BARU && inDashArea(k.userId)).length, [store.kejadian, store.settings, areaFilter]);
   const [feedDetailId, setFeedDetailId] = useState(null);
   const feedDetailK = feedDetailId ? getKejadianReports().find(x => x.id === feedDetailId) || null : null;
-  const teamLeaderboard = useMemo(() => getLeaderboard(mk), [mk, store.records, store.leaves, store.patrols, store.users, store.checkpoints]);
+  const teamLeaderboard = useMemo(() => getLeaderboard(mk, areaFilter).filter(r => inDashArea(r.userId)), [mk, areaFilter, store.records, store.leaves, store.patrols, store.users, store.checkpoints, store.settings]);
   const teamScored = teamLeaderboard.filter(r => r.total != null);
   const teamAvgScore = teamScored.length ? Math.round(teamScored.reduce((s, r) => s + r.total, 0) / teamScored.length) : null;
   const teamTopPerformer = teamLeaderboard[0];
@@ -11858,8 +11871,8 @@ function AdminDashboard({
   const yesterdayRecords = allRecords.filter(r => r.date === yesterdayStr);
   const hadirYesterday = yesterdayRecords.filter(r => r.status === STATUS.HADIR || r.status === STATUS.TERLAMBAT || r.status === STATUS.PIKET_MALAM).length;
   const pikMalamYesterday = yesterdayRecords.filter(r => r.status === STATUS.PIKET_MALAM).length;
-  const activePatrols = useMemo(() => getPatrols().filter(p => p.status === PATROL_STATUS.ACTIVE && p.date === today && userInScope(p.userId)), [store.patrols, store.settings, store.users, today]);
-  const checkpoints = useMemo(() => getScopedCheckpointsForMap("all"), [store.checkpoints, store.settings, store.users]);
+  const activePatrols = useMemo(() => getPatrols().filter(p => p.status === PATROL_STATUS.ACTIVE && p.date === today && inDashArea(p.userId)), [store.patrols, store.settings, store.users, today, areaFilter]);
+  const checkpoints = useMemo(() => getScopedCheckpointsForMap(areaFilter), [store.checkpoints, store.settings, store.users, areaFilter]);
   const dailyTrend = useMemo(() => buildDailyAttendanceTrend(allRecords, mk), [allRecords, mk]);
   const PAGE_SIZE = 10;
   const [page, setPage] = useState(1);
@@ -11885,7 +11898,20 @@ function AdminDashboard({
       color: "var(--navy-900)",
       lineHeight: 1.2
     }
-  }, "Presensi & Patroli Tim")), /*#__PURE__*/React.createElement("div", {
+  }, "Presensi & Patroli Tim")), dashScope && dashScope.length === 0 && /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 13,
+      color: "var(--red)",
+      background: "var(--red-soft)",
+      padding: "10px 14px",
+      borderRadius: 10,
+      marginBottom: 16
+    }
+  }, "Akunmu belum punya area akses, jadi data dashboard belum tampil. Hubungi Super Admin untuk mengatur area aksesmu."), /*#__PURE__*/React.createElement(AreaFilterChips, {
+    value: areaFilter,
+    onChange: setAreaFilter,
+    scopeIds: dashScope
+  }), /*#__PURE__*/React.createElement("div", {
     className: "grid-6",
     style: {
       marginBottom: 20
