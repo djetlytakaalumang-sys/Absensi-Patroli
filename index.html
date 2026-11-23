@@ -3007,7 +3007,7 @@ const KEJADIAN_PRIORITY_STYLE = {
   sedang: { background: "var(--amber-soft)", color: "var(--amber)" },
   tinggi: { background: "var(--red-soft)", color: "var(--red)" }
 };
-// Nomor tiket: NIT-<KODE KATEGORI>-<NNN>, mis. NIT-OSP-001. Tiap kategori punya nomor urut sendiri yang
+// Nomor tiket: <AWALAN AREA>-<KODE KATEGORI>-<NNN>, mis. NIT-OSP-001 / NITA-OSP-001 (awalan: lihat KEJADIAN_AREA_PREFIX). Tiap kategori punya nomor urut sendiri yang
 // dimulai dari 001 dan terus berlanjut (002, 003, ...). Tiket lama berformat NIT-YYYYMMDD-NNN tidak diubah.
 // Kategori baru (mis. "FO Cut" kode FOC): tambahkan nama ke KEJADIAN_CATEGORIES dan kodenya di sini.
 const KEJADIAN_TICKET_CODE = {
@@ -3020,12 +3020,24 @@ const KEJADIAN_TICKET_CODE = {
 function kejadianTicketCode(category) {
   return KEJADIAN_TICKET_CODE[category] || "LNY";
 }
-function formatKejadianTicketId(code, n) {
-  return "NIT-" + code + "-" + String(n).padStart(3, "0");
+// Awalan nomor tiket mengikuti Network Area pelapor (area di Pengaturan -> Area, dikenali dari nama area).
+// Ubah di sini kalau awalan perlu diganti. Area lain / pelapor tanpa area -> "NIT".
+const KEJADIAN_AREA_PREFIX = [
+  { match: "timur", prefix: "NIT" },
+  { match: "tengah", prefix: "NITA" },
+  { match: "barat", prefix: "NITB" }
+];
+function kejadianTicketPrefix(user) {
+  const name = String(user && user.id ? getAreaName(getAreaIdOfUser(user.id)) : "").toLowerCase();
+  const hit = KEJADIAN_AREA_PREFIX.find(x => name.includes(x.match));
+  return hit ? hit.prefix : "NIT";
+}
+function formatKejadianTicketId(code, n, prefix = "NIT") {
+  return prefix + "-" + code + "-" + String(n).padStart(3, "0");
 }
 // Nomor terbesar yang sudah dipakai untuk kode ini di data yang sedang dimuat (+1 = kandidat berikutnya)
-function nextLocalTicketSeq(code) {
-  const re = new RegExp("^NIT-" + code + "-(\\d+)$");
+function nextLocalTicketSeq(code, prefix = "NIT") {
+  const re = new RegExp("^" + prefix + "-" + code + "-(\\d+)$");
   let max = 0;
   store.kejadian.forEach(k => {
     const m = re.exec(k.ticketId || "");
@@ -3079,6 +3091,7 @@ function getKejadianReportsByUser(userId) {
 async function addKejadianReport(user, data) {
   const nowIso = new Date().toISOString();
   const code = kejadianTicketCode(data.category);
+  const prefix = kejadianTicketPrefix(user);
   const base = {
     title: (data.title || "").trim() || null,
     category: data.category || null,
@@ -3098,10 +3111,10 @@ async function addKejadianReport(user, data) {
     updatedAt: nowIso
   };
   const col = db.collection(COL.KEJADIAN);
-  let seq = nextLocalTicketSeq(code);
+  let seq = nextLocalTicketSeq(code, prefix);
   // Data HP hanya memuat laporan terbaru, jadi cek juga nomor tertinggi di server (best effort).
   try {
-    const top = await withTimeout(col.where(firebase.firestore.FieldPath.documentId(), ">=", "NIT-" + code + "-").where(firebase.firestore.FieldPath.documentId(), "<", "NIT-" + code + "-\uf8ff").orderBy(firebase.firestore.FieldPath.documentId(), "desc").limit(1).get(), 8000, "cek nomor tiket");
+    const top = await withTimeout(col.where(firebase.firestore.FieldPath.documentId(), ">=", prefix + "-" + code + "-").where(firebase.firestore.FieldPath.documentId(), "<", prefix + "-" + code + "-\uf8ff").orderBy(firebase.firestore.FieldPath.documentId(), "desc").limit(1).get(), 8000, "cek nomor tiket");
     top.forEach(d => {
       const m = /-(\d+)$/.exec(d.id);
       if (m) seq = Math.max(seq, parseInt(m[1], 10) + 1);
@@ -3112,12 +3125,13 @@ async function addKejadianReport(user, data) {
   // mengirim bersamaan dan mengambil nomor yang sama, hanya satu yang berhasil; yang lain otomatis
   // pindah ke nomor berikutnya. Jadi nomor tiket tidak pernah duplikat.
   for (let tries = 0; tries < 60 && !report; tries++) {
-    const ticketId = formatKejadianTicketId(code, seq);
+    const ticketId = formatKejadianTicketId(code, seq, prefix);
     const candidate = {
       ...base,
       id: ticketId,
       ticketId,
       ticketCode: code,
+      ticketPrefix: prefix,
       ticketSeq: seq
     };
     const ref = col.doc(ticketId);
