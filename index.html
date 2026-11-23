@@ -392,7 +392,7 @@ html[data-theme="dark"] .leaflet-control-zoom a{background:#2a232f !important;}
 html[data-theme="dark"] .leaflet-container .leaflet-control-attribution{background:rgba(20,16,26,.75) !important; color:#b8adb3 !important;}
 html[data-theme="dark"] .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.9);}
 /* Penanda versi di halaman login (memastikan versi terbaru yang terpasang, bukan cache lama) */
-.login-glass-wrap::after{content:"Versi 2026-11-23.area"; position:absolute; left:0; right:0; bottom:calc(8px + env(safe-area-inset-bottom)); text-align:center; font-size:11px; color:rgba(255,255,255,.7); pointer-events:none;}
+.login-glass-wrap::after{content:"Versi 2026-11-23.area-rute"; position:absolute; left:0; right:0; bottom:calc(8px + env(safe-area-inset-bottom)); text-align:center; font-size:11px; color:rgba(255,255,255,.7); pointer-events:none;}
 /* Form ringkas (mis. pengajuan izin/cuti): jarak & ukuran input dirapatkan supaya tidak terlalu panjang */
 .compact-form .label{font-size:11px; margin-bottom:4px;}
 .compact-form .input{padding:9px 12px; font-size:15px;}
@@ -2406,8 +2406,27 @@ function getCheckpoints() {
 function getCheckpointById(id) {
   return store.checkpoints.find(c => c.id === id) || null;
 }
-function generateCheckpointId() {
-  return "cp-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+// ---- CHECKPOINT PER AREA (jalur SEA-US / IGG) ----
+// cp.areaId kosong = checkpoint umum (dipakai semua area). Kalau belum ada area sama sekali, semua checkpoint berlaku.
+function getCheckpointsForUser(user) {
+  const cps = store.checkpoints;
+  if (!user || getAreas().length === 0) return cps;
+  const allowed = getAttendanceAreaIds(user);
+  return cps.filter(c => !c.areaId || allowed.includes(c.areaId));
+}
+// Checkpoint di area LAIN (di luar area utama + akses tambahan petugas) = "jalur lain" -> dapat nilai tambahan.
+function isCheckpointOtherArea(cp, user) {
+  if (!cp || !cp.areaId || !user || getAreas().length === 0) return false;
+  const home = getAreaIdOfUser(user.id);
+  return !!home && cp.areaId !== home;
+}
+const CROSS_AREA_BONUS_AMOUNT = 0.1; // +10 poin pada skor sesi bila petugas melewati checkpoint di jalur/area lain
+function getCheckpointsForArea(areaFilter) {
+  const cps = store.checkpoints;
+  if (!areaFilter || areaFilter === "all" || getAreas().length === 0) return cps;
+  return cps.filter(c => !c.areaId || c.areaId === areaFilter);
+}
+function generateCheckpointId() {  return "cp-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 // Sama polanya spt fungsi2 sebelumnya — kalau gagal tersimpan, checkpoint baru/perubahannya
 // tidak akan muncul di HP petugas lapangan padahal admin kira sudah tersimpan.
@@ -2419,7 +2438,8 @@ async function addCheckpoint(data) {
     lng: data.lng ?? null,
     radius: Number(data.radius) || DEFAULT_CHECKPOINT_RADIUS,
     order: store.checkpoints.length,
-    address: data.address || null
+    address: data.address || null,
+    areaId: data.areaId || null
   };
   store.checkpoints = [...store.checkpoints, cp];
   _notifyStore();
@@ -2488,7 +2508,7 @@ function getRitRecapMonthly(monthStr, areaFilter = "all") {
   const daysInMonth = new Date(y, m, 0).getDate();
   const end = `${monthStr}-${String(daysInMonth).padStart(2, "0")}`;
   const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE && userInArea(u.id, areaFilter));
-  const checkpoints = getCheckpoints();
+  const checkpoints = getCheckpointsForArea(areaFilter);
   const passesInRange = store.checkpointPasses.filter(p => p.date >= start && p.date <= end);
   return employees.map(u => {
     const userPasses = passesInRange.filter(p => p.userId === u.id);
@@ -2593,7 +2613,7 @@ function getLastCheckpointPassForUserOnDate(userId, dateStr) {
 // checkpointId null/undefined = hitung semua checkpoint digabung (byCheckpoint tetap dipecah per checkpoint).
 function getRitRecap(dateStr, checkpointId, areaFilter = "all") {
   const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE && userInArea(u.id, areaFilter));
-  const allCheckpoints = getCheckpoints();
+  const allCheckpoints = getCheckpointsForArea(areaFilter);
   const passesOnDate = store.checkpointPasses.filter(p => p.date === dateStr && (!checkpointId || p.checkpointId === checkpointId));
   return employees.map(u => {
     const userPasses = passesOnDate.filter(p => p.userId === u.id).sort((a, b) => a.time < b.time ? -1 : 1);
@@ -3297,6 +3317,7 @@ function getRouteTeamsConfig() {
         id: def.id,
         label: custom.label || def.label,
         memberIds: custom.memberIds || [],
+        areaId: custom.areaId || null,
         route: route.length > 0 ? route : def.routeNames
       };
     }
@@ -3304,6 +3325,7 @@ function getRouteTeamsConfig() {
       id: def.id,
       label: def.label,
       memberIds: null,
+      areaId: null,
       memberNamesLower: def.memberNamesLower,
       route: def.routeNames
     };
@@ -3319,6 +3341,7 @@ function getEditableRouteTeamState(teamId) {
     return {
       label: saved.label || def.label,
       memberIds: saved.memberIds || [],
+      areaId: saved.areaId || null,
       routeCheckpointIds: saved.routeCheckpointIds || []
     };
   }
@@ -3332,6 +3355,7 @@ function getEditableRouteTeamState(teamId) {
   return {
     label: def.label,
     memberIds,
+    areaId: null,
     routeCheckpointIds
   };
 }
@@ -3474,16 +3498,21 @@ function getLiveVisitedCheckpoints(p, checkpointList) {
 function computePatrolScore(userId, monthKey) {
   const sessions = getPatrolsByUser(userId).filter(p => p.status === PATROL_STATUS.COMPLETED && p.date.startsWith(monthKey));
   if (sessions.length === 0) return null;
-  const totalCp = Math.max(1, getCheckpoints().length);
+  const scoreUser = getUserById(userId);
+  const totalCp = Math.max(1, getCheckpointsForUser(scoreUser).filter(c => !isCheckpointOtherArea(c, scoreUser)).length);
   const userTeams = getUserRouteTeams(getUserById(userId));
   const total = sessions.reduce((sum, p) => {
     let sessionScore;
     if (p.usesCheckpoints === false) {
       sessionScore = 1; // Piket Malam tanpa checkpoint = penuh
     } else {
-      const visitedCount = getSessionCheckpointNames(p).size;
+      const sessionNames = getSessionCheckpointNames(p);
+      const otherNames = new Set(getCheckpointsForUser(scoreUser).filter(c => isCheckpointOtherArea(c, scoreUser)).map(c => matchCheckpointNameLoose(c.name)));
+      const crossCount = [...sessionNames].filter(n => otherNames.has(n)).length;
+      const visitedCount = sessionNames.size - crossCount;
       const ratio = Math.min(1, visitedCount / totalCp);
       sessionScore = PATROL_SESSION_BASELINE + ratio * (1 - PATROL_SESSION_BASELINE);
+      if (crossCount > 0) sessionScore = Math.min(1, sessionScore + CROSS_AREA_BONUS_AMOUNT);
     }
     if (userTeams.length > 0 && hasRouteBonusOnDate(p.date)) {
       sessionScore = Math.min(1, sessionScore + ROUTE_BONUS_AMOUNT);
@@ -3577,6 +3606,45 @@ function AreaFilterChips({ value, onChange, noAll }) {
   const h = React.createElement;
   const chip = (key, label) => h("button", { key, onClick: () => onChange(key), className: `chip ${value === key ? "chip-active" : "chip-inactive"}` }, label);
   return h("div", { className: "flex", style: { gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 16 } }, noAll ? null : chip("all", getScopeAreaIds() ? "Semua area saya" : "Semua area"), areas.map(a => chip(a.id, a.name)));
+}
+// Warna penanda per area (urut sesuai daftar area); checkpoint/lokasi umum = abu-abu.
+const AREA_COLORS = ["#0ea5e9", "#f59e0b", "#10b981", "#8b5cf6", "#ef4444", "#14b8a6"];
+function getAreaColor(areaId) {
+  if (!areaId) return "#94a3b8";
+  const i = getAreas().findIndex(a => a.id === areaId);
+  return i < 0 ? "#94a3b8" : AREA_COLORS[i % AREA_COLORS.length];
+}
+// Tab menu Pengaturan -> Checkpoint & Lokasi: Lokasi Kantor, Checkpoint Patroli, Area, Tim Rute.
+function CheckpointSettingsTabBar({ tab, onChange, areaFilter, onAreaFilter }) {
+  useStoreSync();
+  const h = React.createElement;
+  const areas = getAreas();
+  const locs = getSettings().officeLocations || [];
+  const cps = getCheckpoints();
+  const tabs = [
+    { id: "lokasi", label: "Lokasi Kantor", icon: "building-2", count: locs.length, desc: "Titik presensi kantor per area. Karyawan hanya bisa presensi di lokasi areanya (ditambah lokasi umum)." },
+    { id: "checkpoint", label: "Checkpoint Patroli", icon: "map-pin", count: cps.length, desc: "Titik checkpoint patroli per area. Petugas hanya patroli di checkpoint areanya (ditambah checkpoint umum)." },
+    { id: "area", label: "Area", icon: "layers", count: areas.length, desc: "Kelompokkan karyawan per area (mis. jalur SEA-US dan jalur IGG), lalu pilih lokasi dan checkpoint tiap area." },
+    { id: "rute", label: "Tim Rute", icon: "route", count: null, desc: "Atur anggota, area, dan urutan checkpoint tiap tim rute patroli beserta bonusnya." }
+  ];
+  const cur = tabs.find(t => t.id === tab) || tabs[0];
+  const items = tab === "checkpoint" ? cps : tab === "lokasi" ? locs : null;
+  const summary = items && areas.length > 0 ? [
+    ...areas.map(a => ({ key: a.id, name: a.name, color: getAreaColor(a.id), n: items.filter(x => x.areaId === a.id).length })),
+    { key: "umum", name: "Umum", color: "#94a3b8", n: items.filter(x => !x.areaId || !areas.some(a => a.id === x.areaId)).length }
+  ] : null;
+  return h("div", { className: "card", style: { padding: 16, marginBottom: 16 } },
+    h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, tabs.map(t => h("button", {
+      key: t.id, type: "button", onClick: () => onChange(t.id),
+      className: `chip ${tab === t.id ? "chip-active" : "chip-inactive"}`,
+      style: { display: "inline-flex", alignItems: "center", gap: 6 }
+    }, h(Icon, { name: t.icon, size: 14 }), t.label, t.count != null ? h("span", { style: { fontSize: 11, opacity: 0.75 } }, `(${t.count})`) : null))),
+    h("p", { style: { fontSize: 12.5, color: "var(--navy-700)", margin: "10px 2px 0" } }, cur.desc),
+    (tab === "lokasi" || tab === "checkpoint") && areas.length > 0 && h("div", { style: { marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--line)" } },
+      h("p", { style: { fontSize: 12, fontWeight: 700, color: "var(--navy-700)", marginBottom: 8 } }, "Tampilkan area"),
+      h(AreaFilterChips, { value: areaFilter, onChange: onAreaFilter }),
+      summary && h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, summary.map(x => h("span", { key: x.key, style: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: "var(--slate-mist, #eef2f7)", color: "var(--navy-700)" } },
+        h("span", { style: { width: 8, height: 8, borderRadius: 999, background: x.color } }), `${x.name}: ${x.n}`)))));
 }
 // Skor tim gabungan: kehadiran + patroli (bobot default 60/40, bisa beda per area). Jika belum ada data patroli, skor 100% dari kehadiran.
 function computeTeamScore(userId, monthKey) {
@@ -4602,7 +4670,7 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian", filte
 // ===== Ekspor Rekap Checkpoint (CP): Excel & PDF, per tanggal / per bulan =====
 // Mengikuti mode & filter yang sedang aktif di halaman Rekap Checkpoint (CP).
 function buildRitRecapExport({ mode, dateStr, monthStr, checkpointId, nameQuery, areaFilter = "all" }) {
-  const allCps = getCheckpoints();
+  const allCps = getCheckpointsForArea(areaFilter);
   const cps = checkpointId ? allCps.filter(c => c.id === checkpointId) : allCps;
   const q = (nameQuery || "").toLowerCase();
   const keep = r => !q || r.userName.toLowerCase().includes(q);
@@ -10685,6 +10753,9 @@ function RekapPDFModal({
   const [loadingMonth, setLoadingMonth] = useState(null);
   const [monthLoadError, setMonthLoadError] = useState("");
   useEffect(() => {
+    if (areaId !== "all") setSelectedUserId("all");
+  }, [areaId]);
+  useEffect(() => {
     if (selectedUserId !== "all" && !users.some(u => u.id === selectedUserId)) setSelectedUserId("all");
   }, [areaId, users]);
   const selectedUser = users.find(u => u.id === selectedUserId);
@@ -10900,7 +10971,7 @@ function RekapPDFModal({
     className: "input",
     value: areaId,
     onChange: e => setAreaId(e.target.value)
-  }, /*#__PURE__*/React.createElement("option", { value: "all" }, getScopeAreaIds() ? "Semua area saya" : "Semua area"), getVisibleAreas().map(a => /*#__PURE__*/React.createElement("option", { key: a.id, value: a.id }, a.name)))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+  }, /*#__PURE__*/React.createElement("option", { value: "all" }, getScopeAreaIds() ? "Semua area saya" : "Semua area"), getVisibleAreas().map(a => /*#__PURE__*/React.createElement("option", { key: a.id, value: a.id }, a.name)))), areaId !== "all" ? /*#__PURE__*/React.createElement("p", { style: { fontSize: 12.5, color: "var(--navy-700)", margin: 0 } }, "Rekap mencakup semua karyawan di area " + getAreaName(areaId) + " (" + users.length + " orang). Tidak perlu memilih nama.") : /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "label"
   }, "Karyawan"), /*#__PURE__*/React.createElement("select", {
     className: "input",
@@ -13203,7 +13274,7 @@ function PatrolTracker({
     // titik yang justru MEMICU checkpoint/rit tercatat bisa saja tidak pernah masuk ke `path` yang
     // ditampilkan di peta (karena pengecekan checkpoint di bawah tidak tunduk pada ambang 8m ini),
     // sehingga checkpoint sudah sah tercatat tapi garis jejak di peta terlihat tidak melewatinya.
-    const checkpointsForForceSave = currentPatrol && currentPatrol.usesCheckpoints !== false ? getCheckpoints() : [];
+    const checkpointsForForceSave = currentPatrol && currentPatrol.usesCheckpoints !== false ? getCheckpointsForUser(getUserById(currentPatrol.userId)) : [];
     const nearAnyCheckpoint = checkpointsForForceSave.some(cp => cp.lat != null && cp.lng != null && distanceMeters(lat, lng, cp.lat, cp.lng) <= (cp.radius || DEFAULT_CHECKPOINT_RADIUS));
 
     // Simpan ke Firestore hanya jika berpindah cukup jauh dari titik tersimpan terakhir (hemat penulisan),
@@ -13412,7 +13483,7 @@ function TeamRouteCardSingle({
       fontWeight: 700,
       color: "var(--navy-900)"
     }
-  }, "Rute Wajib — ", team.label), bonusToday && /*#__PURE__*/React.createElement("span", {
+  }, "Rute Wajib — ", team.label, team.areaId ? " (" + getAreaName(team.areaId) + ")" : ""), bonusToday && /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 11,
       fontWeight: 700,
@@ -13481,7 +13552,15 @@ function PatrolPage({
   user
 }) {
   useStoreSync();
-  const checkpoints = useMemo(() => getCheckpoints(), [store.checkpoints]);
+  const checkpoints = useMemo(() => {
+    const all = getCheckpointsForUser(user);
+    const own = all.filter(c => !isCheckpointOtherArea(c, user));
+    const other = all.filter(c => isCheckpointOtherArea(c, user)).map(c => ({
+      ...c,
+      name: c.name + " (jalur " + getAreaName(c.areaId) + " · +bonus)"
+    }));
+    return [...own, ...other];
+  }, [store.checkpoints, store.settings, user.id]);
   const activePatrol = useMemo(() => getActivePatrolForUser(user.id), [user.id, store.patrols]);
   const [kejadianSort, setKejadianSort] = useState("status");
   const myReports = useMemo(() => {
@@ -15409,7 +15488,7 @@ function AdminPatrolMapPage() {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
-  const checkpoints = useMemo(() => getCheckpoints(), [store.checkpoints]);
+  const checkpoints = useMemo(() => getCheckpointsForArea(areaFilter), [store.checkpoints, store.settings, areaFilter]);
   const visitCounts = useMemo(() => {
     // PENTING: dihitung PER PETUGAS (bukan digabung semua orang) — sebelumnya key cuma
     // checkpointId, jadi angka "X checkpoint hari ini" yang tampil di kartu Si A ikut kehitung
@@ -15666,9 +15745,11 @@ function AdminPatrolMapPage() {
     // path terakhir untuk sesi lama yang belum sempat punya field lastSeen.
     const lastSeenIso = p.lastSeen || lastPt?.t;
     const lastAgoSec = lastSeenIso ? Math.floor((now - new Date(lastSeenIso).getTime()) / 1000) : null;
-    const visited = getLiveVisitedCheckpoints(p, checkpoints);
+    const _pUser = getUserById(p.userId);
+    const _userCps = getCheckpointsForUser(_pUser).filter(c => !isCheckpointOtherArea(c, _pUser));
+    const visited = getLiveVisitedCheckpoints(p, _userCps);
     const visitedIds = new Set(visited.map(v => v.checkpointId));
-    const pending = checkpoints.filter(cp => !visitedIds.has(cp.id));
+    const pending = _userCps.filter(cp => !visitedIds.has(cp.id));
     return /*#__PURE__*/React.createElement("div", {
       key: p.id,
       style: {
@@ -15702,7 +15783,7 @@ function AdminPatrolMapPage() {
         fontSize: 12,
         color: "var(--navy-700)"
       }
-    }, "Durasi ", formatDurationShort(elapsed), " · ", visited.length, "/", checkpoints.length, " checkpoint · ±", Math.round(p.totalDistanceMeters || 0), " m")), /*#__PURE__*/React.createElement("span", {
+    }, "Durasi ", formatDurationShort(elapsed), " · ", visited.length, "/", _userCps.length, " checkpoint · ±", Math.round(p.totalDistanceMeters || 0), " m")), /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 11,
         fontWeight: 700,
@@ -15725,7 +15806,7 @@ function AdminPatrolMapPage() {
         color: "var(--red)",
         fontWeight: 600
       }
-    }, endingId === p.id ? "Mengakhiri…" : "Akhiri Paksa")), checkpoints.length > 0 && /*#__PURE__*/React.createElement("div", {
+    }, endingId === p.id ? "Mengakhiri…" : "Akhiri Paksa")), _userCps.length > 0 && /*#__PURE__*/React.createElement("div", {
       className: "flex",
       style: {
         gap: 6,
@@ -18125,10 +18206,10 @@ function RekapRitPage() {
   const [monthFilter, setMonthFilter] = useState(todayDateStrWITA(getTrustedNow()).slice(0, 7));
   const [checkpointFilter, setCheckpointFilter] = useState("");
   const [nameFilter, setNameFilter] = useState("");
-  const [areaFilter, setAreaFilter] = useState(() => { const v = getVisibleAreas(); return v.length ? v[0].id : "all"; });
+  const [areaFilter, setAreaFilter] = useState("all");
   useEffect(() => {
     const v = getVisibleAreas();
-    if (v.length > 0 && !v.some(a => a.id === areaFilter)) setAreaFilter(v[0].id);
+    if (areaFilter !== "all" && !v.some(a => a.id === areaFilter)) setAreaFilter("all");
   }, [store.settings, areaFilter]);
   const [expandedUserId, setExpandedUserId] = useState(null);
   const { canEdit } = useAuth();
@@ -18165,7 +18246,7 @@ function RekapRitPage() {
       setTimeout(() => setNotice(null), 5000);
     }
   }
-  const checkpoints = useMemo(() => getCheckpoints(), [store.checkpoints]);
+  const checkpoints = useMemo(() => getCheckpointsForArea(areaFilter), [store.checkpoints, store.settings, areaFilter]);
 
   // ---- Mode Harian (existing) ----
   const dailyRecap = useMemo(() => getRitRecap(dateFilter, checkpointFilter || null, areaFilter), [dateFilter, checkpointFilter, areaFilter, store.checkpointPasses, store.users, store.settings]);
@@ -18203,7 +18284,7 @@ function RekapRitPage() {
     setMonthFilter(todayDateStrWITA(getTrustedNow()).slice(0, 7));
     setCheckpointFilter("");
     setNameFilter("");
-    { const v = getVisibleAreas(); setAreaFilter(v.length ? v[0].id : "all"); }
+    setAreaFilter("all");
   }
   const isFiltered = mode === "harian" ? (dateFilter !== todayDateStrWITA(getTrustedNow()) || checkpointFilter || nameFilter) : (monthFilter !== todayDateStrWITA(getTrustedNow()).slice(0, 7) || checkpointFilter || nameFilter);
 
@@ -18559,7 +18640,7 @@ function RekapRitPage() {
   const noticeEl = notice ? React.createElement("div", {
     style: { background: notice.ok ? "var(--green-soft)" : "var(--red-soft)", color: notice.ok ? "var(--green)" : "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10, marginBottom: 16 }
   }, notice.text) : null;
-  return React.createElement("div", { className: "container-app" }, headerEl, modeToggleEl, React.createElement(AreaFilterChips, { value: areaFilter, onChange: setAreaFilter, noAll: true }), summaryEl, teamRouteCompareEl, filterEl, noticeEl, listCardEl);
+  return React.createElement("div", { className: "container-app" }, headerEl, modeToggleEl, React.createElement(AreaFilterChips, { value: areaFilter, onChange: setAreaFilter }), summaryEl, teamRouteCompareEl, filterEl, noticeEl, listCardEl);
 }
 
 function LoginHistoryCard() {
@@ -18720,6 +18801,11 @@ function SettingsPage({
   } = useAuth();
   const [settings, setSettingsState] = useState(getSettings());
   const [locatingIdx, setLocatingIdx] = useState(null);
+  const [cpTab, setCpTab] = useState("lokasi");
+  const [cpAreaFilter, setCpAreaFilter] = useState("all");
+  useEffect(() => {
+    if (cpAreaFilter !== "all" && !getAreas().some(a => a.id === cpAreaFilter)) setCpAreaFilter("all");
+  }, [settings, cpAreaFilter]);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   function showToast(msg) {
@@ -18762,7 +18848,8 @@ function SettingsPage({
       name: `Lokasi ${getLocations().length + 1}`,
       lat: null,
       lng: null,
-      radius: Number(settings.radiusMeters) || DEFAULT_SETTINGS.radiusMeters
+      radius: Number(settings.radiusMeters) || DEFAULT_SETTINGS.radiusMeters,
+      areaId: cpAreaFilter !== "all" ? cpAreaFilter : null
     }];
     setError("");
     try {
@@ -19013,13 +19100,14 @@ function SettingsPage({
     type: "submit",
     variant: "primary",
     size: "sm"
-  }, "Simpan")), section === "checkpoint" && /*#__PURE__*/React.createElement(AreaSettingsCard, null), section === "checkpoint" && /*#__PURE__*/React.createElement(RouteTeamsSettingsCard, null), section === "checkpoint" && /*#__PURE__*/React.createElement("div", {
+  }, "Simpan")), section === "checkpoint" && /*#__PURE__*/React.createElement(CheckpointSettingsTabBar, { tab: cpTab, onChange: setCpTab, areaFilter: cpAreaFilter, onAreaFilter: setCpAreaFilter }), section === "checkpoint" && cpTab === "area" && /*#__PURE__*/React.createElement(AreaSettingsCard, null), section === "checkpoint" && cpTab === "rute" && /*#__PURE__*/React.createElement(RouteTeamsSettingsCard, null), section === "checkpoint" && (cpTab === "lokasi" || cpTab === "checkpoint") && /*#__PURE__*/React.createElement("div", {
     className: "grid-2-responsive",
     style: {
-      marginTop: 20,
-      marginBottom: 20
+      marginTop: 0,
+      marginBottom: 20,
+      gridTemplateColumns: "1fr"
     }
-  }, /*#__PURE__*/React.createElement(PatrolCheckpointSettings, null), /*#__PURE__*/React.createElement("div", {
+  }, cpTab === "checkpoint" && /*#__PURE__*/React.createElement(PatrolCheckpointSettings, { areaFilter: cpAreaFilter }), cpTab === "lokasi" && /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: 20
@@ -19076,10 +19164,11 @@ function SettingsPage({
       gap: 16,
       marginTop: locs.length ? 16 : 0
     }
-  }, locs.map((loc, idx) => /*#__PURE__*/React.createElement("div", {
+  }, locs.map((loc, idx) => cpAreaFilter !== "all" && loc.areaId && loc.areaId !== cpAreaFilter ? null : /*#__PURE__*/React.createElement("div", {
     key: idx,
     style: {
       border: "1px solid var(--line)",
+      borderTop: "3px solid " + getAreaColor(loc.areaId),
       borderRadius: 12,
       padding: 16
     }
@@ -19640,10 +19729,11 @@ function AreaSettingsCard() {
   }
   async function removeArea(a) {
     const nLoc = locations.filter(l => l.areaId === a.id).length;
-    if (!window.confirm(`Hapus ${a.name}? ${nLoc > 0 ? `${nLoc} lokasi presensi milik area ini akan menjadi lokasi umum. ` : ""}Data presensi, patroli, dan laporan tidak ikut terhapus.`)) return;
+    if (!window.confirm(`Hapus ${a.name}? ${nLoc > 0 ? `${nLoc} lokasi presensi milik area ini akan menjadi lokasi umum. ` : ""}${checkpointsAll.some(c => c.areaId === a.id) ? "Checkpoint patroli milik area ini akan menjadi checkpoint umum. " : ""}Data presensi, patroli, dan laporan tidak ikut terhapus.`)) return;
     setError("");
     try {
       await updateSettings({ areas: areas.filter(x => x.id !== a.id), officeLocations: locations.map(l => l.areaId === a.id ? { ...l, areaId: null } : l) });
+      for (const c of checkpointsAll) if (c.areaId === a.id) await updateCheckpoint(c.id, { areaId: null });
       for (const u of getUsers()) if (Array.isArray(u.areaAccess) && u.areaAccess.includes(a.id)) await updateUser(u.id, { areaAccess: u.areaAccess.filter(x => x !== a.id) });
       if (openId === a.id) setOpenId(null);
       showToast("Area dihapus.");
@@ -19668,6 +19758,17 @@ function AreaSettingsCard() {
     const mine = loc.areaId === a.id;
     save({ officeLocations: locations.map((l, i) => i === idx ? { ...l, areaId: mine ? null : a.id } : l) }, mine ? "Lokasi dijadikan lokasi umum." : `Lokasi "${loc.name}" dipakai untuk ${a.name}.`);
   }
+  const checkpointsAll = getCheckpoints();
+  async function toggleCheckpoint(a, cp) {
+    const mine = cp.areaId === a.id;
+    setError("");
+    try {
+      await updateCheckpoint(cp.id, { areaId: mine ? null : a.id });
+      showToast(mine ? "Checkpoint dijadikan checkpoint umum." : `Checkpoint "${cp.name}" dipakai untuk ${a.name}.`);
+    } catch (err) {
+      setError(err.message || "Gagal menyimpan area checkpoint. Coba lagi.");
+    }
+  }
   const enforceValue = a => typeof a.enforceRadius === "boolean" ? (a.enforceRadius ? "on" : "off") : "global";
   const enforceLabel = a => ({ on: "Wajib dalam radius", off: "Radius hanya peringatan", global: settings.enforceRadius ? "Radius: ikut umum (wajib)" : "Radius: ikut umum (peringatan)" })[enforceValue(a)];
   const pill = (text, tone) => h("span", { style: { fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: tone === "warn" ? "var(--red-soft)" : "var(--slate-mist, #eef2f7)", color: tone === "warn" ? "var(--red)" : "var(--navy-700)", whiteSpace: "nowrap" } }, text);
@@ -19686,6 +19787,7 @@ function AreaSettingsCard() {
       const open = openId === a.id;
       const members = employees.filter(u => areaMap[u.id] === a.id);
       const locCount = locations.filter(l => l.areaId === a.id).length;
+      const cpCount = checkpointsAll.filter(c => c.areaId === a.id).length;
       const w = Number.isFinite(Number(a.weightAttendance)) ? Number(a.weightAttendance) : Math.round(SCORE_WEIGHT_ATTENDANCE * 100);
       const q = query.trim().toLowerCase();
       const shown = q ? employees.filter(u => (u.name || "").toLowerCase().includes(q) || (u.username || "").toLowerCase().includes(q)) : employees;
@@ -19697,6 +19799,7 @@ function AreaSettingsCard() {
             h("div", { className: "flex", style: { gap: 6, flexWrap: "wrap", marginTop: 4 } },
               pill(`${members.length} anggota`),
               locCount > 0 ? pill(`${locCount} lokasi presensi`) : pill("Belum ada lokasi", "warn"),
+              pill(`${cpCount} checkpoint patroli`),
               pill(enforceLabel(a)))),
           h(Icon, { name: open ? "chevron-up" : "chevron-down", size: 18 })),
         open && h("div", { style: { padding: "4px 14px 14px", borderTop: "1px solid var(--line)" } },
@@ -19716,6 +19819,18 @@ function AreaSettingsCard() {
                 h("span", { style: { fontSize: 11, color: "var(--t-muted)" } }, other ? `(dipakai ${other})` : !l.areaId ? "(umum — dipakai semua area)" : ""));
             })),
             h("p", { style: { fontSize: 11, color: "var(--t-faint)", marginTop: 6 } }, "Karyawan hanya bisa presensi di lokasi areanya (ditambah lokasi umum). Koordinat dan radius tiap lokasi diatur di Jam & Presensi.")),
+
+          h("div", { style: { marginTop: 16 } },
+            sectionTitle("Checkpoint patroli area ini"),
+            checkpointsAll.length === 0 ? h("p", { style: { fontSize: 12, color: "var(--t-muted)" } }, "Belum ada checkpoint patroli. Tambahkan dulu di Checkpoint Patroli, lalu pilih di sini.") :
+            h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, checkpointsAll.map(cp => {
+              const other = cp.areaId && cp.areaId !== a.id ? getAreaName(cp.areaId) : "";
+              return h("label", { key: cp.id, style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13 } },
+                h("input", { type: "checkbox", checked: cp.areaId === a.id, onChange: () => toggleCheckpoint(a, cp) }),
+                cp.name || "Checkpoint",
+                h("span", { style: { fontSize: 11, color: "var(--t-muted)" } }, other ? `(dipakai ${other})` : !cp.areaId ? "(umum — dipakai semua area)" : ""));
+            })),
+            h("p", { style: { fontSize: 11, color: "var(--t-faint)", marginTop: 6 } }, "Petugas hanya patroli di checkpoint areanya (ditambah checkpoint umum), sama seperti lokasi presensi. Koordinat dan radius diatur di Checkpoint Patroli.")),
 
           h("div", { style: { marginTop: 16 } },
             sectionTitle("Aturan radius"),
@@ -20235,7 +20350,32 @@ function RouteTeamsSettingsCard() {
         marginBottom: 12,
         maxWidth: 260
       }
-    }), /*#__PURE__*/React.createElement("p", {
+    }), getAreas().length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginBottom: 12
+      }
+    }, /*#__PURE__*/React.createElement("p", {
+      style: {
+        fontSize: 12,
+        color: "var(--navy-700)",
+        marginBottom: 6
+      }
+    }, "Area / Jalur tim:"), /*#__PURE__*/React.createElement("select", {
+      className: "input",
+      value: t.areaId || "",
+      onChange: e => saveTeam(teamId, {
+        areaId: e.target.value || null
+      }),
+      style: {
+        width: "auto",
+        fontSize: 13
+      }
+    }, /*#__PURE__*/React.createElement("option", {
+      value: ""
+    }, "Semua area"), getAreas().map(a => /*#__PURE__*/React.createElement("option", {
+      key: a.id,
+      value: a.id
+    }, a.name)))), /*#__PURE__*/React.createElement("p", {
       style: {
         fontSize: 12,
         color: "var(--navy-700)",
@@ -20364,7 +20504,7 @@ function RouteTeamsSettingsCard() {
       }
     }, /*#__PURE__*/React.createElement("option", {
       value: ""
-    }, "+ Tambah checkpoint ke rute"), checkpoints.filter(cp => !t.routeCheckpointIds.includes(cp.id)).map(cp => /*#__PURE__*/React.createElement("option", {
+    }, "+ Tambah checkpoint ke rute"), checkpoints.filter(cp => !t.routeCheckpointIds.includes(cp.id) && (!t.areaId || !cp.areaId || cp.areaId === t.areaId)).map(cp => /*#__PURE__*/React.createElement("option", {
       key: cp.id,
       value: cp.id
     }, cp.name))));
@@ -20392,7 +20532,7 @@ function RouteTeamsSettingsCard() {
       color: "var(--navy-700)",
       marginTop: 2
     }
-  }, "Atur anggota dan urutan checkpoint tiap tim. Kalau di hari yang sama kedua tim melewati rute checkpoint yang berbeda, keduanya dapat bonus pada Skor Patroli bulanan.")), toast && /*#__PURE__*/React.createElement("div", {
+  }, "Atur anggota dan urutan checkpoint tiap tim. Kalau di hari yang sama kedua tim melewati rute checkpoint yang berbeda, keduanya dapat bonus pada Skor Patroli bulanan. Petugas yang melewati checkpoint di jalur/area lain (mis. petugas IGG ke checkpoint SEA-US, lewat akses area tambahan di data karyawan) juga mendapat nilai tambahan.")), toast && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 16,
       background: "var(--green-soft)",
@@ -20413,7 +20553,7 @@ function RouteTeamsSettingsCard() {
     }
   }, error), ROUTE_TEAMS_DEFAULT.map(renderTeamEditor));
 }
-function PatrolCheckpointSettings() {
+function PatrolCheckpointSettings({ areaFilter = "all" } = {}) {
   useStoreSync();
   const [locatingId, setLocatingId] = useState(null);
   const [toast, setToast] = useState("");
@@ -20438,7 +20578,8 @@ function PatrolCheckpointSettings() {
       name: `Checkpoint ${checkpoints.length + 1}`,
       lat: null,
       lng: null,
-      radius: DEFAULT_CHECKPOINT_RADIUS
+      radius: DEFAULT_CHECKPOINT_RADIUS,
+      areaId: areaFilter !== "all" ? areaFilter : null
     }).catch(err => showToast(err.message || "Gagal menambah checkpoint ke server."));
   }
   async function saveCheckpoint(cp) {
@@ -20541,10 +20682,11 @@ function PatrolCheckpointSettings() {
       gap: 16,
       marginTop: checkpoints.length ? 16 : 0
     }
-  }, checkpoints.map((cp, idx) => /*#__PURE__*/React.createElement("div", {
+  }, checkpoints.map((cp, idx) => areaFilter !== "all" && cp.areaId && cp.areaId !== areaFilter ? null : /*#__PURE__*/React.createElement("div", {
     key: cp.id,
     style: {
       border: "1px solid var(--line)",
+      borderTop: "3px solid " + getAreaColor(cp.areaId),
       borderRadius: 12,
       padding: 16
     }
@@ -20603,7 +20745,27 @@ function PatrolCheckpointSettings() {
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "trash-2",
     size: 16
-  }))), /*#__PURE__*/React.createElement(CheckpointMiniMap, {
+  }))), getAreas().length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "label",
+    style: {
+      fontSize: 12
+    }
+  }, "Area / Jalur"), /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    value: cp.areaId || "",
+    onChange: e => updateCheckpoint(cp.id, {
+      areaId: e.target.value || null
+    }).catch(err => showToast(err.message || "Gagal menyimpan area checkpoint."))
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "Semua area (checkpoint umum)"), getAreas().map(a => /*#__PURE__*/React.createElement("option", {
+    key: a.id,
+    value: a.id
+  }, a.name)))), /*#__PURE__*/React.createElement(CheckpointMiniMap, {
     lat: cp.lat,
     lng: cp.lng,
     radius: cp.radius || DEFAULT_CHECKPOINT_RADIUS,
