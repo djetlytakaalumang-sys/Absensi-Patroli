@@ -3308,43 +3308,54 @@ function matchCheckpointNameLoose(name) {
 // Bentuk tim yang SUDAH di-resolve untuk dipakai di seluruh app: { id, label, memberIds, route (array nama) }.
 // memberIds null artinya belum pernah diatur admin — dicocokkan lewat nama (fallback lama).
 function getRouteTeamsConfig() {
-  const saved = getSettings().routeTeams;
-  return ROUTE_TEAMS_DEFAULT.map(def => {
-    const custom = saved && saved.find(t => t.id === def.id);
+  const savedList = Array.isArray(getSettings().routeTeams) ? getSettings().routeTeams : [];
+  const resolveRoute = ids => (ids || []).map(id => getCheckpointById(id)).filter(Boolean).map(cp => cp.name);
+  const out = [];
+  // Tim bawaan (Manado & Minut) — tetap ada kecuali dihapus admin (ditandai { id, removed: true }).
+  ROUTE_TEAMS_DEFAULT.forEach(def => {
+    const custom = savedList.find(t => t && t.id === def.id);
+    if (custom && custom.removed) return;
     if (custom) {
-      const route = (custom.routeCheckpointIds || []).map(id => getCheckpointById(id)).filter(Boolean).map(cp => cp.name);
-      return {
-        id: def.id,
-        label: custom.label || def.label,
-        memberIds: custom.memberIds || [],
-        areaId: custom.areaId || null,
-        route: route.length > 0 ? route : def.routeNames
-      };
+      const route = resolveRoute(custom.routeCheckpointIds);
+      out.push({ id: def.id, label: custom.label || def.label, memberIds: custom.memberIds || [], areaId: custom.areaId || null, route: route.length > 0 ? route : def.routeNames });
+    } else {
+      out.push({ id: def.id, label: def.label, memberIds: null, areaId: null, memberNamesLower: def.memberNamesLower, route: def.routeNames });
     }
-    return {
-      id: def.id,
-      label: def.label,
-      memberIds: null,
-      areaId: null,
-      memberNamesLower: def.memberNamesLower,
-      route: def.routeNames
-    };
   });
+  // Tim tambahan buatan admin (per area).
+  savedList.forEach(t => {
+    if (!t || t.removed || ROUTE_TEAMS_DEFAULT.some(d => d.id === t.id)) return;
+    out.push({ id: t.id, label: t.label || "Tim Baru", memberIds: t.memberIds || [], areaId: t.areaId || null, route: resolveRoute(t.routeCheckpointIds) });
+  });
+  return out;
+}
+function getRouteTeamIds() {
+  return getRouteTeamsConfig().map(t => t.id);
+}
+function getRemovedRouteTeamMarkers() {
+  const l = getSettings().routeTeams;
+  return Array.isArray(l) ? l.filter(t => t && t.removed) : [];
+}
+// Tim yang dibandingkan di Rekap CP: tim pada area terpilih (+ tim yang belum diberi area).
+function getRouteCompareTeams(areaFilter) {
+  const teams = getRouteTeamsConfig();
+  if (!areaFilter || areaFilter === "all") return teams;
+  return teams.filter(t => !t.areaId || t.areaId === areaFilter);
 }
 // Ambil state EDITABLE untuk 1 tim (dipakai halaman Pengaturan): memberIds & routeCheckpointIds
 // selalu berupa ID asli, walau belum pernah disimpan (di-derive otomatis dari nama saat itu juga).
 function getEditableRouteTeamState(teamId) {
   const def = ROUTE_TEAMS_DEFAULT.find(t => t.id === teamId);
-  if (!def) return null;
-  const saved = (getSettings().routeTeams || []).find(t => t.id === teamId);
+  const saved = (Array.isArray(getSettings().routeTeams) ? getSettings().routeTeams : []).find(t => t && t.id === teamId && !t.removed);
   if (saved) {
     return {
-      label: saved.label || def.label,
+      label: saved.label || (def ? def.label : "Tim Baru"),
       memberIds: saved.memberIds || [],
       areaId: saved.areaId || null,
       routeCheckpointIds: saved.routeCheckpointIds || []
     };
   }
+  if (!def) return null;
   const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE);
   const memberIds = employees.filter(u => u.name && def.memberNamesLower.some(m => u.name.toLowerCase().includes(m))).map(u => u.id);
   const checkpoints = getCheckpoints();
@@ -3352,12 +3363,7 @@ function getEditableRouteTeamState(teamId) {
     const cp = checkpoints.find(c => matchCheckpointNameLoose(c.name) === matchCheckpointNameLoose(name));
     return cp ? cp.id : null;
   }).filter(Boolean);
-  return {
-    label: def.label,
-    memberIds,
-    areaId: null,
-    routeCheckpointIds
-  };
+  return { label: def.label, memberIds, areaId: null, routeCheckpointIds };
 }
 // Semua tim yang diikuti user (BUKAN cuma yang pertama cocok) — beberapa petugas SENGAJA
 // ditugaskan merangkap di lebih dari 1 tim (mis. Rivaldo di Tim Manado & Tim Minut sekaligus),
@@ -3422,8 +3428,32 @@ function routeSetsDiffer(a, b) {
 // Apakah pada tanggal ini Tim Manado & Tim Minut sama-sama patroli DAN melewati rute checkpoint
 // yang berbeda satu sama lain — sesuai aturan: "kalau rit tim Manado & Minut beda, dapat nilai plus".
 function hasRouteBonusOnDate(dateStr) {
-  const [manado, minut] = getRouteTeamsConfig();
-  return routeSetsDiffer(getTeamCheckpointNamesForDate(manado, dateStr), getTeamCheckpointNamesForDate(minut, dateStr));
+  return getRouteBonusTeamIdsOnDate(dateStr).size > 0;
+}
+// Id tim yang dapat bonus rute pada 1 tanggal: dua tim di AREA YANG SAMA (atau sama-sama belum punya area)
+// yang sama-sama patroli dan melewati checkpoint yang berbeda -> keduanya dapat bonus.
+let _routeBonusCache = { key: "", ids: new Set() };
+function getRouteBonusTeamIdsOnDate(dateStr) {
+  const teams = getRouteTeamsConfig();
+  const key = [dateStr, store.checkpointPasses.length, store.users.length, JSON.stringify(getSettings().routeTeams || []), store.checkpoints.length].join("|");
+  if (_routeBonusCache.key === key) return _routeBonusCache.ids;
+  const sets = new Map(teams.map(t => [t.id, getTeamCheckpointNamesForDate(t, dateStr)]));
+  const ids = new Set();
+  for (let i = 0; i < teams.length; i++) {
+    for (let j = i + 1; j < teams.length; j++) {
+      const a = teams[i], b = teams[j];
+      if ((a.areaId || null) !== (b.areaId || null)) continue;
+      if (routeSetsDiffer(sets.get(a.id), sets.get(b.id))) { ids.add(a.id); ids.add(b.id); }
+    }
+  }
+  _routeBonusCache = { key, ids };
+  return ids;
+}
+function userRouteBonusOnDate(user, dateStr) {
+  const teams = getUserRouteTeams(user);
+  if (teams.length === 0) return false;
+  const ids = getRouteBonusTeamIdsOnDate(dateStr);
+  return teams.some(t => ids.has(t.id));
 }
 // Jumlah checkpoint UNIK yang dianggap dilewati petugas pada sebuah sesi, dipakai untuk Skor
 // Patroli. Digabung dari 2 sumber supaya tidak ada checkpoint yang sebenarnya sudah tercatat
@@ -3514,7 +3544,7 @@ function computePatrolScore(userId, monthKey) {
       sessionScore = PATROL_SESSION_BASELINE + ratio * (1 - PATROL_SESSION_BASELINE);
       if (crossCount > 0) sessionScore = Math.min(1, sessionScore + CROSS_AREA_BONUS_AMOUNT);
     }
-    if (userTeams.length > 0 && hasRouteBonusOnDate(p.date)) {
+    if (userRouteBonusOnDate(scoreUser, p.date)) {
       sessionScore = Math.min(1, sessionScore + ROUTE_BONUS_AMOUNT);
     }
     return sum + sessionScore;
@@ -4692,9 +4722,9 @@ function buildRitRecapExport({ mode, dateStr, monthStr, checkpointId, nameQuery,
     // Perbandingan rute Tim Manado vs Tim Minut (sama dengan kartu Bonus CP di halaman)
     let teamCompare = null;
     try {
-      const [tA, tB] = getRouteTeamsConfig();
-      const mA = getTeamCheckpointOriginalNamesForDate(tA, dateStr);
-      const mB = getTeamCheckpointOriginalNamesForDate(tB, dateStr);
+      const cmpTeams = getRouteCompareTeams(areaFilter);
+      const cmpMaps = cmpTeams.map(t => getTeamCheckpointOriginalNamesForDate(t, dateStr));
+      const bonusIds = getRouteBonusTeamIdsOnDate(dateStr);
       const col = (t, map) => {
         const routeLower = new Set(t.route.map(matchCheckpointNameLoose));
         return {
@@ -4703,11 +4733,11 @@ function buildRitRecapExport({ mode, dateStr, monthStr, checkpointId, nameQuery,
           extra: [...map.entries()].filter(([lower]) => !routeLower.has(lower)).map(([, orig]) => orig)
         };
       };
-      teamCompare = {
-        teams: [col(tA, mA), col(tB, mB)],
-        bothPatrolled: mA.size > 0 && mB.size > 0,
-        bonus: routeSetsDiffer(new Set(mA.keys()), new Set(mB.keys()))
-      };
+      teamCompare = cmpTeams.length >= 2 ? {
+        teams: cmpTeams.map((t, i) => col(t, cmpMaps[i])),
+        bothPatrolled: cmpMaps.filter(m => m.size > 0).length >= 2,
+        bonus: cmpTeams.some(t => bonusIds.has(t.id))
+      } : null;
     } catch (e) { teamCompare = null; }
     return { mode, periodLabel: formatDateShortID(dateStr), fileKey: dateStr, cps, cpLabel, rows, teamCompare };
   }
@@ -4891,7 +4921,7 @@ function exportRitRecapToPDF(opts) {
   // ---------- Kartu Bonus CP / Perbandingan Rute Tim (hanya per tanggal) ----------
   if (harian && d.teamCompare) {
     const tc = d.teamCompare;
-    const colW = (CW - 10 - 8) / 2;
+    const colW = (CW - 10 - 8 * (tc.teams.length - 1)) / tc.teams.length;
     const colItems = t => [
       ...t.known.map(n => ({ text: n + " \u00b7 Rute Utama", bg: C.greenSoft, fg: C.green })),
       ...t.extra.map(n => ({ text: n + " \u00b7 Rute Bantuan (di luar rute tim)", bg: C.amberSoft, fg: C.amber }))
@@ -13461,7 +13491,7 @@ function TeamRouteCardSingle({
   // pentingnya ini utk konsistensi dgn tanggal yang tersimpan di data.
   const today = todayDateStrWITA(getTrustedNow());
   const doneMap = useMemo(() => getTeamCheckpointOriginalNamesForDate(team, today), [today, store.checkpointPasses, store.users]);
-  const bonusToday = useMemo(() => hasRouteBonusOnDate(today), [today, store.checkpointPasses, store.users]);
+  const bonusToday = useMemo(() => getRouteBonusTeamIdsOnDate(today).has(team.id), [today, team.id, store.checkpointPasses, store.users, store.settings]);
   const routeLowerSet = new Set(team.route.map(matchCheckpointNameLoose));
   const outOfRoute = [...doneMap.entries()].filter(([lower]) => !routeLowerSet.has(lower)).map(([, original]) => original);
   return /*#__PURE__*/React.createElement("div", {
@@ -18343,16 +18373,17 @@ function RekapRitPage() {
   // benar-benar dilewati tiap tim hari itu — termasuk kalau ada yang di luar rute resminya — supaya
   // admin bisa langsung lihat kenapa bonus rute didapat/tidak.
   const teamRouteCompareEl = mode === "harian" ? (() => {
-    const [manadoTeam, minutTeam] = getRouteTeamsConfig();
-    const manadoMap = getTeamCheckpointOriginalNamesForDate(manadoTeam, dateFilter);
-    const minutMap = getTeamCheckpointOriginalNamesForDate(minutTeam, dateFilter);
-    const bonus = routeSetsDiffer(new Set(manadoMap.keys()), new Set(minutMap.keys()));
-    const bothPatrolled = manadoMap.size > 0 && minutMap.size > 0;
+    const cmpTeams = getRouteCompareTeams(areaFilter);
+    if (cmpTeams.length < 2) return null;
+    const cmpMaps = cmpTeams.map(t => getTeamCheckpointOriginalNamesForDate(t, dateFilter));
+    const bonusIds = getRouteBonusTeamIdsOnDate(dateFilter);
+    const bonus = cmpTeams.some(t => bonusIds.has(t.id));
+    const bothPatrolled = cmpMaps.filter(m => m.size > 0).length >= 2;
     function renderTeamColumn(team, map) {
       const routeLowerSet = new Set(team.route.map(matchCheckpointNameLoose));
       const known = team.route.filter(name => map.has(matchCheckpointNameLoose(name)));
       const extra = [...map.entries()].filter(([lower]) => !routeLowerSet.has(lower)).map(([, original]) => original);
-      return React.createElement("div", null,
+      return React.createElement("div", { key: team.id },
         React.createElement("p", { style: { fontSize: 12.5, fontWeight: 700, color: "var(--navy-800)", marginBottom: 6 } }, team.label),
         map.size === 0
           ? React.createElement("p", { style: { fontSize: 12.5, color: "var(--t-faint)" } }, "Belum ada CP tanggal ini.")
@@ -18380,13 +18411,12 @@ function RekapRitPage() {
           }
         }, bonus ? "🟢 Bonus CP Didapat" : "⚪ Tidak Ada Bonus") : null
       ),
-      React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 } },
-        renderTeamColumn(manadoTeam, manadoMap),
-        renderTeamColumn(minutTeam, minutMap)
+      React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16 } },
+        ...cmpTeams.map((t, i) => renderTeamColumn(t, cmpMaps[i]))
       ),
       bothPatrolled && React.createElement("p", { style: { fontSize: 11.5, color: "var(--t-faint)", marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--line)" } },
         bonus
-          ? "Bonus ini berlaku untuk SEMUA anggota kedua tim yang sesi patrolinya sudah Selesai hari ini — bukan cuma satu orang tertentu."
+          ? "Bonus ini berlaku untuk SEMUA anggota tim yang rutenya berbeda dari tim lain di areanya dan sesi patrolinya sudah Selesai hari ini — bukan cuma satu orang tertentu."
           : "Belum ada bonus karena checkpoint yang dilewati kedua tim hari ini masih sama.")
     );
   })() : null;
@@ -20285,7 +20315,7 @@ function RouteTeamsSettingsCard() {
     setError("");
     try {
       await updateSettings({
-        routeTeams: [...others, updated]
+        routeTeams: [...getRouteTeamIds().map(id => id === teamId ? updated : ({ id, ...getEditableRouteTeamState(id) })), ...getRemovedRouteTeamMarkers()]
       });
       showToast("Pengaturan tim berhasil disimpan.");
     } catch (err) {
@@ -20329,15 +20359,42 @@ function RouteTeamsSettingsCard() {
       label
     });
   }
-  function renderTeamEditor(def, idx) {
+  async function persistTeams(list, msg) {
+    setError("");
+    try {
+      await updateSettings({ routeTeams: [...list, ...getRemovedRouteTeamMarkers()] });
+      if (msg) showToast(msg);
+    } catch (err) {
+      setError(err.message || "Gagal menyimpan tim rute ke server. Coba lagi.");
+    }
+  }
+  function addTeam(areaId) {
+    const id = "team-" + Date.now().toString(36);
+    const list = getRouteTeamIds().map(i => ({ id: i, ...getEditableRouteTeamState(i) }));
+    persistTeams([...list, { id, label: "Tim Baru", memberIds: [], areaId: areaId || null, routeCheckpointIds: [] }], "Tim rute ditambahkan.");
+  }
+  async function removeTeam(teamId) {
+    const t = getEditableRouteTeamState(teamId);
+    if (!window.confirm(`Hapus ${t ? t.label : "tim ini"}? Anggota dan rutenya dilepas dari tim ini. Data patroli dan skor yang sudah ada tidak ikut terhapus.`)) return;
+    const list = getRouteTeamIds().filter(i => i !== teamId).map(i => ({ id: i, ...getEditableRouteTeamState(i) }));
+    const isDefault = ROUTE_TEAMS_DEFAULT.some(d => d.id === teamId);
+    setError("");
+    try {
+      await updateSettings({ routeTeams: [...list, ...getRemovedRouteTeamMarkers(), ...(isDefault ? [{ id: teamId, removed: true }] : [])] });
+      showToast("Tim rute dihapus.");
+    } catch (err) {
+      setError(err.message || "Gagal menghapus tim rute di server. Coba lagi.");
+    }
+  }
+  function renderTeamEditor(def, idx, arrLen) {
     const teamId = def.id;
     const t = getEditableRouteTeamState(teamId);
     return /*#__PURE__*/React.createElement("div", {
       key: teamId,
       style: {
-        marginBottom: idx < ROUTE_TEAMS_DEFAULT.length - 1 ? 24 : 0,
-        paddingBottom: idx < ROUTE_TEAMS_DEFAULT.length - 1 ? 24 : 0,
-        borderBottom: idx < ROUTE_TEAMS_DEFAULT.length - 1 ? "1px solid var(--line)" : "none"
+        marginBottom: idx < arrLen - 1 ? 24 : 0,
+        paddingBottom: idx < arrLen - 1 ? 24 : 0,
+        borderBottom: idx < arrLen - 1 ? "1px solid var(--line)" : "none"
       }
     }, /*#__PURE__*/React.createElement("input", {
       type: "text",
@@ -20350,32 +20407,20 @@ function RouteTeamsSettingsCard() {
         marginBottom: 12,
         maxWidth: 260
       }
-    }), getAreas().length > 0 && /*#__PURE__*/React.createElement("div", {
-      style: {
-        marginBottom: 12
-      }
-    }, /*#__PURE__*/React.createElement("p", {
-      style: {
-        fontSize: 12,
-        color: "var(--navy-700)",
-        marginBottom: 6
-      }
-    }, "Area / Jalur tim:"), /*#__PURE__*/React.createElement("select", {
-      className: "input",
-      value: t.areaId || "",
-      onChange: e => saveTeam(teamId, {
-        areaId: e.target.value || null
-      }),
-      style: {
-        width: "auto",
-        fontSize: 13
-      }
-    }, /*#__PURE__*/React.createElement("option", {
-      value: ""
-    }, "Semua area"), getAreas().map(a => /*#__PURE__*/React.createElement("option", {
-      key: a.id,
-      value: a.id
-    }, a.name)))), /*#__PURE__*/React.createElement("p", {
+    }), React.createElement("div", { style: { marginBottom: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" } },
+      getAreas().length > 0 && React.createElement("span", { style: { fontSize: 12, color: "var(--navy-700)" } }, "Area / Jalur tim:"),
+      getAreas().length > 0 && React.createElement("select", {
+        className: "input",
+        value: t.areaId || "",
+        onChange: e => saveTeam(teamId, { areaId: e.target.value || null }),
+        style: { width: "auto", fontSize: 13 }
+      }, React.createElement("option", { value: "" }, "Tanpa area"), getAreas().map(a => React.createElement("option", { key: a.id, value: a.id }, a.name))),
+      React.createElement("button", {
+        type: "button",
+        onClick: () => removeTeam(teamId),
+        title: "Hapus tim rute ini",
+        style: { color: "var(--red)", padding: 6, display: "flex", alignItems: "center", gap: 4, fontSize: 12, marginLeft: "auto" }
+      }, React.createElement(Icon, { name: "trash-2", size: 14 }), " Hapus tim")), /*#__PURE__*/React.createElement("p", {
       style: {
         fontSize: 12,
         color: "var(--navy-700)",
@@ -20532,7 +20577,7 @@ function RouteTeamsSettingsCard() {
       color: "var(--navy-700)",
       marginTop: 2
     }
-  }, "Atur anggota dan urutan checkpoint tiap tim. Kalau di hari yang sama kedua tim melewati rute checkpoint yang berbeda, keduanya dapat bonus pada Skor Patroli bulanan. Petugas yang melewati checkpoint di jalur/area lain (mis. petugas IGG ke checkpoint SEA-US, lewat akses area tambahan di data karyawan) juga mendapat nilai tambahan.")), toast && /*#__PURE__*/React.createElement("div", {
+  }, "Buat tim rute per area (mis. Tim Manado dan Tim Minut untuk area timur), lalu atur anggota dan urutan checkpoint tiap tim. Kalau di hari yang sama dua tim di area yang sama melewati rute checkpoint yang berbeda, keduanya dapat bonus pada Skor Patroli bulanan. Petugas yang melewati checkpoint di jalur/area lain (mis. petugas IGG ke checkpoint SEA-US, lewat akses area tambahan di data karyawan) juga mendapat nilai tambahan.")), toast && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 16,
       background: "var(--green-soft)",
@@ -20551,7 +20596,18 @@ function RouteTeamsSettingsCard() {
       padding: "10px 14px",
       borderRadius: 10
     }
-  }, error), ROUTE_TEAMS_DEFAULT.map(renderTeamEditor));
+  }, error), (() => {
+    const areas = getAreas();
+    const all = getRouteTeamIds().map(id => ({ id, ...getEditableRouteTeamState(id) }));
+    const groups = areas.map(a => ({ key: a.id, areaId: a.id, name: a.name, teams: all.filter(x => x.areaId === a.id) }));
+    const orphan = all.filter(x => !x.areaId || !areas.some(a => a.id === x.areaId));
+    if (orphan.length > 0 || areas.length === 0) groups.push({ key: "none", areaId: null, name: areas.length ? "Tanpa area" : "Semua tim", teams: orphan });
+    return groups.map(g => React.createElement("div", { key: g.key, style: { marginTop: 8, marginBottom: 20 } },
+      React.createElement("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", padding: "8px 12px", borderRadius: 10, background: "var(--slate-mist, #eef2f7)", borderLeft: "4px solid " + getAreaColor(g.areaId), marginBottom: 14 } },
+        React.createElement("span", { style: { fontWeight: 700, fontSize: 13, color: "var(--navy-900)" } }, g.name, React.createElement("span", { style: { fontWeight: 500, fontSize: 11.5, color: "var(--navy-700)", marginLeft: 8 } }, `${g.teams.length} tim`)),
+        React.createElement(Button, { type: "button", variant: "outline", size: "sm", onClick: () => addTeam(g.areaId) }, React.createElement(Icon, { name: "plus", size: 14 }), " Tambah Tim")),
+      g.teams.length === 0 ? React.createElement("p", { style: { fontSize: 12.5, color: "var(--t-faint)" } }, "Belum ada tim rute di area ini.") : g.teams.map((tm, i) => renderTeamEditor(tm, i, g.teams.length))));
+  })());
 }
 function PatrolCheckpointSettings({ areaFilter = "all" } = {}) {
   useStoreSync();
