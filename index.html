@@ -311,6 +311,8 @@ tbody tr:hover{background:rgba(0,0,0,.025);}
 @media (max-width:480px){.grid-3{grid-template-columns:minmax(0,1fr);}}
 .grid-2-responsive{display:grid; grid-template-columns:1fr; gap:16px; align-items:start;}
 .grid-charts{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; align-items:stretch;}
+.grid-charts.stack{grid-template-columns:minmax(0,1fr); gap:16px;}
+.grid-charts.stack .chart-compare{order:-1;}
 @media (max-width:600px){.grid-charts{gap:8px;} .chart-card{padding:12px !important;} .chart-card h2{font-size:12px !important;} .chart-strip{font-size:11px; gap:6px 10px; padding:6px 8px;}}
 .chart-card{display:flex; flex-direction:column; min-width:0; box-sizing:border-box;}
 .chart-strip{display:flex; flex-wrap:wrap; align-items:center; gap:8px 18px; min-height:38px; margin-bottom:12px; padding:8px 12px; background:var(--slate-mist); border-radius:10px; font-size:13px; font-weight:600; color:var(--navy-900); box-sizing:border-box;}
@@ -12495,12 +12497,7 @@ function AdminDashboard({
     dataKey: "Terlambat",
     stroke: "#00b4d8",
     strokeWidth: 2.5,
-    dot: {
-      r: 4,
-      fill: "#ffffff",
-      stroke: "#00b4d8",
-      strokeWidth: 2
-    },
+    dot: false,
     activeDot: {
       r: 6,
       fill: "#00b4d8",
@@ -16998,7 +16995,7 @@ function PenilaianAdminPage() {
     colorVar: "var(--amber)",
     softVar: "var(--amber-soft)"
   })), /*#__PURE__*/React.createElement("div", {
-    className: "grid-charts",
+    className: "grid-charts stack",
     style: {
       marginBottom: 20
     }
@@ -17078,7 +17075,7 @@ function PenilaianAdminPage() {
       stroke: "none"
     }
   })))), compareData.length > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "card chart-card",
+    className: "card chart-card chart-compare",
     style: {
       padding: 20
     }
@@ -17145,7 +17142,7 @@ function PenilaianAdminPage() {
     }
   }, /*#__PURE__*/React.createElement(ResponsiveContainer, {
     width: "100%",
-    height: 270
+    height: 320
   }, /*#__PURE__*/React.createElement(BarChart, {
     data: compareData,
     barGap: 3,
@@ -17193,7 +17190,7 @@ function PenilaianAdminPage() {
     dataKey: "Kehadiran",
     fill: "#64748b",
     radius: [4, 4, 0, 0],
-    maxBarSize: 20
+    maxBarSize: 28
   }, compareData.map((d, i) => /*#__PURE__*/React.createElement(Cell, {
     key: `k-${i}`,
     fill: `rgb(${scoreBarRGB(d.Kehadiran).join(",")})`
@@ -17211,7 +17208,7 @@ function PenilaianAdminPage() {
     dataKey: "Patroli",
     fill: "#b6bfcc",
     radius: [4, 4, 0, 0],
-    maxBarSize: 20
+    maxBarSize: 28
   }, compareData.map((d, i) => /*#__PURE__*/React.createElement(Cell, {
     key: `p-${i}`,
     fill: `rgb(${scoreBarRGB(d.Patroli).join(",")})`,
