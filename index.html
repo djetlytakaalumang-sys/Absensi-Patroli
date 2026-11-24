@@ -862,6 +862,12 @@ function areaAdminOwns(areaId) {
 function assertAreaOwned(areaId) {
   if (!areaAdminOwns(areaId)) throw new Error("Kamu hanya bisa mengubah data di area yang kamu kelola.");
 }
+// Admin Area boleh memproses (setujui/tolak/hapus) dan mengatur jadwal hanya untuk karyawan di area yang dikelolanya.
+function assertUserAreaOwned(userId) {
+  const u = window.__activeUser;
+  if (!isAreaAdmin(u)) return;
+  if (!u.areaAccess.includes(getAreaIdOfUser(userId))) throw new Error("Kamu hanya bisa memproses data karyawan di area yang kamu kelola.");
+}
 function roleLabel(role) {
   if (role === ROLES.ADMIN) return "Super Admin";
   if (role === ROLES.STAFF_ADMIN) return "Admin";
@@ -1826,7 +1832,12 @@ function findUserByCredentials(username, password) {
 }
 // Sama polanya spt fungsi2 sebelumnya — kalau gagal tersimpan, admin bisa mengira akun sudah
 // dibuat/diubah/dihapus padahal tidak, membingungkan saat karyawan itu coba login.
+function assertNoAreaAdminUserMgmt(targetId) {
+  const u = window.__activeUser;
+  if (isAreaAdmin(u) && targetId !== u.id) throw new Error("Admin Area tidak bisa menambah, mengubah, atau menghapus karyawan. Hubungi Super Admin.");
+}
 async function addUser(data) {
+  assertNoAreaAdminUserMgmt(null);
   const newUser = {
     id: generateUserId(),
     username: data.username.trim(),
@@ -1853,6 +1864,7 @@ async function addUser(data) {
   }
 }
 async function updateUser(id, data) {
+  assertNoAreaAdminUserMgmt(id);
   const idx = store.users.findIndex(u => u.id === id);
   if (idx === -1) return null;
   const previous = store.users[idx];
@@ -1873,6 +1885,7 @@ async function updateUser(id, data) {
   }
 }
 async function deleteUser(id) {
+  assertNoAreaAdminUserMgmt(null);
   const previousUsers = store.users;
   const previousRecords = store.records;
   const previousPatrols = store.patrols;
@@ -2185,6 +2198,7 @@ async function decideOvertime(id, decision, byName) {
   const previous = store.overtimes.find(o => o.id === id);
   if (!previous) throw new Error("Data lembur tidak ditemukan.");
   if (!userInDataScope(previous.userId)) throw new Error("Anda hanya bisa memproses lembur karyawan di area Anda.");
+  assertUserAreaOwned(previous.userId);
   const patch = {
     status: decision,
     decidedAt: decision === LEAVE_STATUS.PENDING ? null : new Date().toISOString(),
@@ -2203,6 +2217,7 @@ async function decideOvertime(id, decision, byName) {
 async function deleteOvertime(id) {
   const previous = store.overtimes.find(o => o.id === id);
   if (!previous) return;
+  assertUserAreaOwned(previous.userId);
   store.overtimes = store.overtimes.filter(o => o.id !== id);
   _notifyStore();
   try {
@@ -2261,6 +2276,7 @@ async function decideLeaveRequest(id, decision) {
   if (idx === -1) return null;
   const previous = store.leaves[idx];
   if (!userInDataScope(previous.userId)) throw new Error("Anda hanya bisa memproses izin/cuti karyawan di area Anda.");
+  assertUserAreaOwned(previous.userId);
   const updated = {
     ...previous,
     status: decision,
@@ -2423,6 +2439,8 @@ async function revokeLeaveApproval(id, opts) {
 }
 
 function deleteLeaveRequest(id) {
+  const lvToDelete = store.leaves.find(l => l.id === id);
+  if (lvToDelete) assertUserAreaOwned(lvToDelete.userId);
   return revokeLeaveApproval(id, {
     remove: true
   });
@@ -2831,6 +2849,7 @@ async function reconcileRecordStatuses() {
   }
 }
 async function importSchedules(entries) {
+  entries.forEach(en => assertUserAreaOwned(en.userId));
   const batchSize = 400; // batas aman Firestore batch write
   let written = 0;
   for (let i = 0; i < entries.length; i += batchSize) {
@@ -3250,6 +3269,8 @@ async function updateKejadianStatus(id, status, extra = {}) {
 
 // Hapus permanen satu laporan kejadian (beserta foto & riwayat update, karena semuanya satu dokumen)
 async function deleteKejadian(id) {
+  const kejToDelete = store.kejadian.find(k => k.id === id);
+  if (kejToDelete) assertUserAreaOwned(kejToDelete.userId);
   const previous = store.kejadian;
   store.kejadian = store.kejadian.filter(k => k.id !== id);
   _notifyStore();
@@ -3274,10 +3295,27 @@ const SCORE_WEIGHT_PATROL = 0.4;
 const EARLY_CHECKOUT_TOLERANCE_MIN = 10; // toleransi pulang lebih awal sebelum dianggap pelanggaran
 const EARLY_CHECKOUT_PENALTY = 15; // poin yang dipotong jika pulang lebih awal dari jadwal
 
+// Jam presensi per area: tiap area boleh punya jam sendiri (area.jam), yang kosong memakai jam Bawaan (Pengaturan).
+// Diatur di Pengaturan -> Jam & Presensi oleh Super Admin (semua area) atau Admin Area (areanya).
+function getWorkHoursForUser(userId) {
+  const g = getSettings();
+  let j = null;
+  try {
+    const aid = userId ? getAreaIdOfUser(userId) : null;
+    const a = aid ? getAreas().find(x => x.id === aid) : null;
+    j = a && a.jam ? a.jam : null;
+  } catch (e) {}
+  return {
+    checkInDeadline: j && j.checkInDeadline || g.checkInDeadline,
+    shiftEndTime: j && j.shiftEndTime || g.shiftEndTime,
+    nightShiftStart: j && j.nightShiftStart || g.nightShiftStart,
+    nightShiftEnd: j && j.nightShiftEnd || g.nightShiftEnd
+  };
+}
 // Menghitung berapa menit keterlambatan check-in dibanding batas jam masuk (0 jika tidak terlambat)
 function getLateMinutes(record) {
   if (!record || record.status !== STATUS.TERLAMBAT || !record.checkInTime) return 0;
-  const [dh, dm] = getSettings().checkInDeadline.split(":").map(Number);
+  const [dh, dm] = getWorkHoursForUser(record.userId).checkInDeadline.split(":").map(Number);
   const [ch, cm] = record.checkInTime.split(":").map(Number);
   return Math.max(0, ch * 60 + cm - (dh * 60 + dm));
 }
@@ -3294,7 +3332,7 @@ function latePointFromMinutes(min) {
 function isEarlyCheckout(record) {
   if (!record || !record.checkOutTime) return false;
   if (record.status !== STATUS.HADIR && record.status !== STATUS.TERLAMBAT && record.status !== STATUS.PIKET_MALAM) return false;
-  const s = getSettings();
+  const s = getWorkHoursForUser(record.userId);
   const expectedEnd = record.status === STATUS.PIKET_MALAM ? s.nightShiftEnd : s.shiftEndTime;
   if (!expectedEnd) return false;
   const [eh, em] = expectedEnd.split(":").map(Number);
@@ -3730,6 +3768,13 @@ function getDashboardAreaIds(user) {
   if (!u || u.role === ROLES.ADMIN || getAreas().length === 0) return null;
   return Array.isArray(u.areaAccess) ? u.areaAccess : [];
 }
+// Notifikasi (lonceng, lencana menu, banner & alarm darurat) mengikuti area akses akun:
+// hanya Super Admin yang menerima notifikasi semua area; Admin Area / View Only hanya dari area aksesnya.
+// userId = pembuat laporan/pengajuan; areanya diambil dari keanggotaan area karyawan itu.
+function inNotifScope(userId, user) {
+  const sc = getDashboardAreaIds(user);
+  return sc === null || sc.includes(getAreaIdOfUser(userId));
+}
 // Versi "data": Super Admin & Admin melihat SEMUA area; View Only mengikuti area aksesnya.
 function getScopeAreaIdsForData() {
   const u = window.__activeUser;
@@ -3962,11 +4007,11 @@ function formatDateTimeShortID(iso) {
   });
   return `${tgl}, ${jam}`;
 }
-function isLate(t) {
-  return t > getSettings().checkInDeadline + ":00";
+function isLate(t, userId) {
+  return t > getWorkHoursForUser(userId).checkInDeadline + ":00";
 }
-function isNightShift(t) {
-  const s = getSettings();
+function isNightShift(t, userId) {
+  const s = getWorkHoursForUser(userId);
   const start = (s.nightShiftStart || "17:01") + ":00";
   const end = (s.nightShiftEnd || "05:59") + ":59";
   if (start <= end) {
@@ -3982,12 +4027,12 @@ function isNightShift(t) {
 // hanya karena jam absennya di luar jendela waktu piket malam otomatis. Kalau Jadwal bilang Masuk,
 // baru dibandingkan ke jam potong (checkInDeadline). Kalau tidak ada Jadwal untuk hari itu sama sekali,
 // baru dipakai deteksi otomatis dari jam absen seperti sebelumnya (fallback).
-function computeStatus(t, scheduledType) {
+function computeStatus(t, scheduledType, userId) {
   if (!t) return STATUS.ALPHA;
   if (scheduledType === SCHEDULE_TYPE.PIKET_MALAM) return STATUS.PIKET_MALAM;
-  if (scheduledType === SCHEDULE_TYPE.MASUK) return isLate(t) ? STATUS.TERLAMBAT : STATUS.HADIR;
-  if (isNightShift(t)) return STATUS.PIKET_MALAM;
-  return isLate(t) ? STATUS.TERLAMBAT : STATUS.HADIR;
+  if (scheduledType === SCHEDULE_TYPE.MASUK) return isLate(t, userId) ? STATUS.TERLAMBAT : STATUS.HADIR;
+  if (isNightShift(t, userId)) return STATUS.PIKET_MALAM;
+  return isLate(t, userId) ? STATUS.TERLAMBAT : STATUS.HADIR;
 }
 function currentMonthKey(d = new Date()) {
   return todayDateStr(d).slice(0, 7);
@@ -4016,7 +4061,7 @@ function effectiveRecordStatus(r) {
   if (!r || !r.checkInTime) return r ? r.status : r;
   if (r.status !== STATUS.HADIR && r.status !== STATUS.TERLAMBAT && r.status !== STATUS.PIKET_MALAM) return r.status;
   const sch = getScheduleFor(r.userId, r.date);
-  return computeStatus(r.checkInTime, sch ? sch.type : undefined);
+  return computeStatus(r.checkInTime, sch ? sch.type : undefined, r.userId);
 }
 function withEffectiveStatus(r) {
   const status = effectiveRecordStatus(r);
@@ -7385,6 +7430,7 @@ function AuthProvider({
       refreshCurrentUser,
       canEdit: canEditData(user),
       canEditArea: canEditAreaSettings(user),
+      canManage: canEditAreaSettings(user),
       canDecide: canDecideRequests(user),
       canViewAdmin: canAccessAdminPanel(user)
     }
@@ -8136,7 +8182,7 @@ function AttendanceCard({
     try {
       if (mode === "in") {
         const scheduledType = getScheduleFor(user.id, dateStr)?.type;
-        const status = computeStatus(timeStr, scheduledType);
+        const status = computeStatus(timeStr, scheduledType, user.id);
         await saveCheckIn({
           id: `att-${user.id}-${dateStr}`,
           userId: user.id,
@@ -11436,7 +11482,7 @@ function AdminRecordDetail({
     setFixMsg("");
     try {
       const sch = getScheduleFor(record.userId, record.date);
-      const newStatus = computeStatus(record.checkInTime, sch ? sch.type : undefined);
+      const newStatus = computeStatus(record.checkInTime, sch ? sch.type : undefined, record.userId);
       await withTimeout(db.collection(COL.RECORDS).doc(record.id).update({
         status: newStatus
       }), 20000, "Gagal menyimpan status ke server");
@@ -12044,7 +12090,7 @@ function AdminDashboard({
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "file-spreadsheet",
     size: 15
-  }), " Excel"), /*#__PURE__*/React.createElement(Button, {
+  }), " Excel"), canEditData(window.__activeUser) && /*#__PURE__*/React.createElement(Button, {
     variant: "primary",
     size: "sm",
     onClick: () => onNavigate && onNavigate("settings-akses")
@@ -15031,7 +15077,8 @@ function LeaveRequestsPage({
   onChanged
 }) {
   const {
-    canEdit,
+    user,
+    canManage: canEdit,
     canDecide
   } = useAuth();
   const [tab, setTab] = useState("pending");
@@ -15040,10 +15087,10 @@ function LeaveRequestsPage({
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
   useStoreSync();
-  const allRequests = useMemo(() => getLeaveRequests().filter(l => userInAreaData(l.userId, areaFilter)), [refreshKey, store.leaves, store.settings, store.users, areaFilter]);
+  const allRequests = useMemo(() => getLeaveRequests().filter(l => inNotifScope(l.userId, user) && userInAreaData(l.userId, areaFilter)), [refreshKey, store.leaves, store.settings, store.users, areaFilter]);
   const filtered = tab === "all" ? allRequests : allRequests.filter(l => l.status === tab);
   const pendingCount = allRequests.filter(l => l.status === LEAVE_STATUS.PENDING).length;
-  const areaCounts = countPendingByArea(getLeaveRequests());
+  const areaCounts = countPendingByArea(getLeaveRequests().filter(l => inNotifScope(l.userId, user)));
   async function decide(id, decision) {
     setBusyId(id);
     setError("");
@@ -15130,9 +15177,9 @@ function LeaveRequestsPage({
   }, error), /*#__PURE__*/React.createElement(AreaFilterChips, {
     value: areaFilter,
     onChange: setAreaFilter,
-    forData: true,
+    scopeIds: getDashboardAreaIds(user),
     counts: areaCounts
-  }), /*#__PURE__*/React.createElement("div", {
+  }), getDashboardAreaIds(user) && getDashboardAreaIds(user).length === 0 && /*#__PURE__*/React.createElement("p", { style: { fontSize: 13, color: "var(--red)", background: "var(--red-soft)", padding: "10px 14px", borderRadius: 10, marginBottom: 14 } }, "Akunmu belum punya area akses, jadi data belum tampil. Hubungi Super Admin untuk mengatur area aksesmu."), /*#__PURE__*/React.createElement("div", {
     className: "flex scrollbar-none",
     style: {
       gap: 8,
@@ -15361,7 +15408,8 @@ function MyKejadianItem({ k, user }) {
 function KejadianPage() {
   useStoreSync();
   const {
-    canEdit
+    user,
+    canManage: canEdit
   } = useAuth();
   const [tab, setTab] = useState("aktif");
   const [handlingId, setHandlingId] = useState(null);
@@ -15373,7 +15421,7 @@ function KejadianPage() {
   const [dateFilter, setDateFilter] = useState("");
   const [detailId, setDetailId] = useState(null);
   const [areaFilter, setAreaFilter] = useState("all");
-  const all = useMemo(() => getKejadianReports().filter(k => userInArea(k.userId, areaFilter)), [store.kejadian, store.records, store.settings, areaFilter]);
+  const all = useMemo(() => getKejadianReports().filter(k => inNotifScope(k.userId, user) && userInArea(k.userId, areaFilter)), [store.kejadian, store.records, store.settings, areaFilter]);
   const [pdfMenuOpen, setPdfMenuOpen] = useState(false);
   function exportPdfBy(mode) {
     setPdfMenuOpen(false);
@@ -15509,7 +15557,7 @@ function KejadianPage() {
     style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, width: "100%", textAlign: "left", padding: "9px 12px", borderRadius: 8, color: "var(--navy-900)", fontSize: 13 },
     onMouseEnter: e => e.currentTarget.style.background = "var(--navy-50)",
     onMouseLeave: e => e.currentTarget.style.background = "transparent"
-  }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", { style: { fontWeight: 600, display: "block" } }, title), /*#__PURE__*/React.createElement("span", { style: { fontSize: 11, color: "var(--t-muted)" } }, sub)), /*#__PURE__*/React.createElement("span", { style: { fontSize: 12, color: "var(--t-muted)" } }, n)))))))), /*#__PURE__*/React.createElement(AreaFilterChips, { value: areaFilter, onChange: setAreaFilter }), actionError && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", { style: { fontWeight: 600, display: "block" } }, title), /*#__PURE__*/React.createElement("span", { style: { fontSize: 11, color: "var(--t-muted)" } }, sub)), /*#__PURE__*/React.createElement("span", { style: { fontSize: 12, color: "var(--t-muted)" } }, n)))))))), /*#__PURE__*/React.createElement(AreaFilterChips, { value: areaFilter, onChange: setAreaFilter, scopeIds: getDashboardAreaIds(user) }), getDashboardAreaIds(user) && getDashboardAreaIds(user).length === 0 && /*#__PURE__*/React.createElement("p", { style: { fontSize: 13, color: "var(--red)", background: "var(--red-soft)", padding: "10px 14px", borderRadius: 10, marginBottom: 14 } }, "Akunmu belum punya area akses, jadi data belum tampil. Hubungi Super Admin untuk mengatur area aksesmu."), actionError && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 16,
       background: "var(--red-soft)",
@@ -17194,7 +17242,7 @@ function MonthStepper({ value, onChange, auto }) {
 function JadwalAdminPage() {
   useStoreSync();
   const {
-    canEdit
+    canManage: canEdit
   } = useAuth();
   const fileRef = useRef(null);
   const [importMonth, setImportMonth] = useState(currentMonthKey());
@@ -18032,7 +18080,7 @@ function PanduanPage() {
     React.createElement(GuideList, {
       items: [
         "Jam dan tanggal presensi mengikuti zona waktu PERANGKAT yang dipakai petugas: HP di area NIT memakai WITA, HP di area NITA dan NIB memakai WIB.",
-        "Batas jam di Pengaturan \u2192 Jam & Presensi dibaca sebagai jam lokal area. Contoh: batas masuk 08:00 berarti 08:00 WITA untuk petugas NIT dan 08:00 WIB untuk petugas NITA/NIB.",
+        "Batas jam di Pengaturan \u2192 Jam & Presensi bisa berbeda per area (Super Admin atau Admin Area yang mengatur) dan dibaca sebagai jam lokal area. Contoh: batas masuk 08:00 berarti 08:00 WITA untuk petugas NIT dan 08:00 WIB untuk petugas NITA/NIB.",
         "Di layar presensi, jam digital diberi label WIB, WITA, atau WIT supaya jelas jam yang dipakai. Pergantian hari dan logout otomatis jam 00:00 juga mengikuti zona perangkat.",
         "Pastikan 'tanggal & waktu otomatis' dan 'zona waktu otomatis' aktif di HP semua petugas. Kalau zona di HP salah, jam dan tanggal presensinya ikut salah.",
         "Dashboard admin memakai zona waktu perangkat admin, jadi laptop admin sebaiknya diatur ke WITA. Selama 00:00\u201301:00 WITA, 'hari ini' untuk petugas WIB bisa berbeda satu hari."
@@ -18044,14 +18092,15 @@ function PanduanPage() {
         "Dashboard punya pilihan area di bawah judul. Analitik Kehadiran, Aktivitas Terkini, kartu statistik, laporan kejadian, peringkat tim, dan Peta Live Patroli hanya menghitung area yang dipilih.",
         "Hanya Super Admin yang bisa melihat semua area. Admin dan View Only hanya melihat area yang diberikan ke akunnya (pilihan 'Semua area saya' menggabungkan area itu).",
         "Kalau akun Admin atau View Only belum punya area akses, dashboard kosong dan muncul pesan untuk menghubungi Super Admin. Area akses diatur di Pengaturan \u2192 Hak Akses \u2192 Edit pengguna \u2192 Batasi akses ke area.",
+        "Aturan yang sama berlaku untuk notifikasi (lonceng, lencana menu, dan alarm darurat) serta halaman Lembur Karyawan, Izin/Cuti, dan Laporan Kejadian: Admin Area hanya menerima dan melihat data dari area aksesnya. Hanya Super Admin yang menerima semua area.",
         "Pembatasan ini berlaku di tampilan aplikasi. Aturan keamanan Firestore diatur terpisah."
       ]
     }),
     React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Admin Area (mengatur area kerja dan rute)"),
     React.createElement(GuideList, {
       items: [
-        "Admin Area boleh mengatur lokasi presensi, checkpoint, anggota, dan tim & rute di areanya sendiri lewat Pengaturan \u2192 Checkpoint & Lokasi.",
-        "Yang tetap hanya Super Admin: menambah/menghapus area, jam kerja, data karyawan, Hak Akses, dan Backup.",
+        "Admin Area boleh mengatur lokasi presensi, checkpoint, anggota, dan tim & rute di areanya sendiri lewat Pengaturan \u2192 Checkpoint & Lokasi. Admin Area juga boleh mengatur Jadwal Kerja (import Excel), menyetujui/menolak serta menghapus data Izin, Lembur, dan Laporan Kejadian, khusus karyawan di areanya.",
+        "Yang tetap hanya Super Admin: menambah/menghapus area, jam bawaan, data karyawan (tambah, ubah, hapus), Hak Akses, dan Backup. Super Admin juga bisa melihat jam presensi semua area.",
         "Lokasi, checkpoint, atau tim yang belum punya area (termasuk Tim Manado dan Tim Minut bawaan) hanya bisa diubah Super Admin sampai dimasukkan ke sebuah area."
       ]
     })
@@ -18060,7 +18109,7 @@ function PanduanPage() {
   const statusSection = React.createElement(GuideSection, { icon: "badge-check", title: "Status Kehadiran" },
     React.createElement(GuideBadgeRow, {
       label: "Hadir", color: "var(--green)", bg: "var(--green-soft)",
-      desc: `Check-in pada atau sebelum jam batas masuk (saat ini pukul ${s.checkInDeadline}, bisa diubah di Pengaturan \u2192 Jam & Presensi).`
+      desc: `Check-in pada atau sebelum jam batas masuk (jam bawaan pukul ${s.checkInDeadline}; tiap area bisa punya jam sendiri, diatur di Pengaturan \u2192 Jam & Presensi oleh Super Admin atau Admin Area).`
     }),
     React.createElement(GuideBadgeRow, {
       label: "Terlambat", color: "var(--amber)", bg: "var(--amber-soft)",
@@ -18238,7 +18287,7 @@ function PanduanPage() {
   const aksesSection = React.createElement(GuideSection, { icon: "shield", title: "Hak Akses: Super Admin, Admin, View Only & Karyawan" },
     React.createElement(GuideBadgeRow, { label: "Super Admin", color: "var(--navy-900)", bg: "var(--slate-mist)", desc: "Bisa melihat dan mengubah semua data: menyetujui izin dan lembur, mengubah pengaturan, mengelola pengguna, backup, dan lainnya." }),
     React.createElement(GuideBadgeRow, { label: "Admin", color: "var(--accent-700)", bg: "var(--slate-mist)", desc: "Bisa membuka dan mengunduh (Excel/PDF) data seperti Super Admin (di Dashboard hanya area yang diberikan ke akunnya), serta menyetujui, menolak, atau mengembalikan keputusan Izin dan Lembur. Tidak bisa mengubah pengaturan (jam, checkpoint, hak akses, backup), data karyawan, jadwal, atau menghapus data." }),
-    React.createElement(GuideBadgeRow, { label: "Admin Area", color: "var(--accent-700)", bg: "var(--slate-mist)", desc: "Pengguna berperan Admin yang dibatasi ke satu atau beberapa area (Pengaturan \u2192 Hak Akses \u2192 Edit pengguna \u2192 Batasi akses ke area). Selain hak Admin biasa, Admin Area boleh mengatur lokasi presensi, checkpoint patroli, anggota, dan tim & rute HANYA di area yang dikelolanya. Tidak bisa menambah/menghapus area, mengubah jam kerja, atau mengatur area lain. Lokasi, checkpoint, dan tim yang belum punya area hanya bisa diubah Super Admin." }),
+    React.createElement(GuideBadgeRow, { label: "Admin Area", color: "var(--accent-700)", bg: "var(--slate-mist)", desc: "Pengguna berperan Admin yang dibatasi ke satu atau beberapa area (Pengaturan \u2192 Hak Akses \u2192 Edit pengguna \u2192 Batasi akses ke area). Selain hak Admin biasa, Admin Area boleh mengatur Jadwal Kerja (import Excel), menyetujui/menolak, dan menghapus data Izin, Lembur, serta Laporan Kejadian, juga mengatur jam presensi, lokasi presensi, checkpoint patroli, anggota, dan tim & rute HANYA untuk area yang dikelolanya. Admin Area TIDAK bisa menambah, mengubah, atau menghapus karyawan. Super Admin tetap satu-satunya yang mengelola semua area dan semua pengaturan (jam kerja, Hak Akses, Backup, tambah/hapus area, data karyawan). Lokasi, checkpoint, dan tim yang belum punya area hanya bisa diubah Super Admin." }),
     React.createElement(GuideBadgeRow, { label: "View Only", color: "var(--accent-700)", bg: "var(--slate-mist)", desc: "Bisa membuka semua menu admin untuk MELIHAT saja: Dashboard, Presensi Karyawan (jam masuk), Jadwal Kerja, Lembur, Patroli, Laporan Kejadian, Izin, Pengaturan, Hak Akses, dan Backup. Di Dashboard hanya melihat area yang diberikan ke akunnya." }),
     React.createElement(GuideBadgeRow, { label: "Karyawan", color: "var(--green)", bg: "var(--green-soft)", desc: "Hanya mengakses presensi, patroli, jadwal, penilaian, riwayat, izin, dan lembur milik sendiri." }),
     React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Aturan akun View Only:"),
@@ -18439,7 +18488,7 @@ function PanduanPage() {
     React.createElement("p", null, "Halaman Pengaturan sekarang terbagi 4 tab:"),
     React.createElement(GuideList, {
       items: [
-        "Jam & Presensi \u2014 Jam Potong Masuk (checkInDeadline): batas jam check-in supaya masih dihitung \"Hadir\", lewat dari jam ini otomatis \"Terlambat\". Jam Pulang Normal (shiftEndTime): jam pulang yang diharapkan untuk shift Hadir/Terlambat, dipakai mendeteksi \"pulang lebih awal\". Mulai/Selesai Piket Malam (nightShiftStart/nightShiftEnd): jendela jam untuk mendeteksi otomatis status Piket Malam kalau tidak ada Jadwal resmi.",
+        "Jam & Presensi \u2014 Jam bisa diatur per area: pilih area di bagian atas form (Super Admin juga punya pilihan Bawaan dan melihat ringkasan jam semua area; Admin Area hanya areanya). Area yang belum punya jam sendiri memakai jam Bawaan. Jam Potong Masuk (checkInDeadline): batas jam check-in supaya masih dihitung \"Hadir\", lewat dari jam ini otomatis \"Terlambat\". Jam Pulang Normal (shiftEndTime): jam pulang yang diharapkan untuk shift Hadir/Terlambat, dipakai mendeteksi \"pulang lebih awal\". Mulai/Selesai Piket Malam (nightShiftStart/nightShiftEnd): jendela jam untuk mendeteksi otomatis status Piket Malam kalau tidak ada Jadwal resmi.",
         `Checkpoint & Lokasi \u2014 kartu Area (anggota, lokasi presensi, checkpoint, dan bobot skor per area; Admin Area hanya melihat areanya), kartu Tim & Rute Checkpoint (atur anggota tim & urutan rute, lihat bagian "Tim & Rute Patroli" di atas); daftar Checkpoint Patroli (nama, koordinat, radius), maksimal ${MAX_CHECKPOINTS} titik \u2014 checkpoint otomatis tercentang saat petugas berada dalam radiusnya; Lokasi Kantor (officeLocations), maksimal ${MAX_OFFICE_LOCATIONS} lokasi, tiap lokasi bisa punya radius toleransi sendiri (kalau kosong, dipakai Radius Presensi/radiusMeters sebagai nilai default); dan sakelar Wajib Dalam Radius (enforceRadius) \u2014 kalau aktif, karyawan di luar radius semua Lokasi Kantor tidak bisa presensi sama sekali.`,
         "Hak Akses \u2014 kartu Hak Akses Pengguna (atur siapa saja yang punya akses Admin, View Only, atau Karyawan, dan tempat menambah karyawan/pengguna baru lewat tombol \"Tambah Pengguna\"; kolom \"Leader Team\" dicentang untuk menjadikan seorang karyawan Leader Team yang ikut bisa memproses, mengupdate, dan menyelesaikan laporan kejadian anggota lain), serta kartu Riwayat Login (catatan waktu setiap pengguna login, memakai jam server \u2014 bukan jam perangkat \u2014 supaya tidak bisa direkayasa, bisa difilter per nama/tanggal). Di daftar yang sama juga otomatis muncul dua jenis kejadian sistem: (1) Tutup Otomatis (ikon \u26a0\ufe0f kuning) \u2014 saat ada presensi/sesi patroli yang lupa diakhiri dari hari sebelumnya, lalu ditutup paksa oleh sistem; dan (2) Logout Otomatis (ikon \ud83d\udeaa biru) \u2014 setiap pengguna yang sedang login otomatis dikeluarkan begitu tanggal berganti (00:00 WITA, jam server), sehingga wajib login ulang tiap hari.",
         "Backup & Arsip Data \u2014 kartu Backup & Arsipkan Data Lama: pilih rentang tanggal (dari\u2013sampai), lalu unduh presensi/patroli/checkpoint/laporan kejadian pada rentang itu sebagai file Excel (foto selfie & foto kejadian TIDAK disertakan, karena ukurannya terlalu besar untuk 1 sel Excel). Setelah file terunduh, admin bisa pilih menghapus data itu dari server (opsional, membantu menjaga kuota database tetap aman) \u2014 tindakan hapus ini tidak bisa dibatalkan setelah dijalankan. Di bawahnya ada kartu Import Data dari Excel, untuk mengembalikan data dari file backup itu ke server kapan saja (mis. kalau ternyata data yang sudah dihapus masih dibutuhkan) \u2014 aman diulang berkali-kali, data dengan id yang sama tidak akan dobel."
@@ -19108,7 +19157,7 @@ function SettingsPage({
     canEditArea
   } = useAuth();
   // Admin Area boleh mengubah bagian "checkpoint" (lokasi, checkpoint, area, rute tim) untuk areanya saja.
-  const editable = canEdit || section === "checkpoint" && canEditArea;
+  const editable = canEdit || (section === "checkpoint" || section === "jam") && canEditArea;
   const areaAdminNow = !canEdit && canEditArea ? window.__activeUser : null;
   const [settings, setSettingsState] = useState(getSettings());
   const [locatingIdx, setLocatingIdx] = useState(null);
@@ -19123,20 +19172,65 @@ function SettingsPage({
     setToast(msg);
     setTimeout(() => setToast(""), 2500);
   }
+  // ---- Jam presensi per area ----
+  // Super Admin: pilihan "Bawaan" + semua area (bisa melihat & mengubah jam semua area).
+  // Admin Area: hanya area aksesnya.
+  const meJam = window.__activeUser;
+  const jamAreaAdmin = isAreaAdmin(meJam) && !canEdit;
+  const jamTargets = [...(jamAreaAdmin ? [] : [{ id: "default", label: "Bawaan (dipakai area yang belum punya jam sendiri)" }]), ...getAreas().filter(a => !jamAreaAdmin || meJam.areaAccess.includes(a.id)).map(a => ({ id: a.id, label: a.name }))];
+  const JAM_KEYS = ["checkInDeadline", "shiftEndTime", "nightShiftStart", "nightShiftEnd"];
+  function jamSourceFrom(src, id) {
+    const g = {};
+    JAM_KEYS.forEach(k => { g[k] = src[k]; });
+    if (id === "default") return g;
+    const a = (src.areas || getAreas()).find(x => x.id === id);
+    return { ...g, ...(a && a.jam || {}) };
+  }
+  const [jamAreaId, setJamAreaId] = useState(() => jamTargets[0] ? jamTargets[0].id : "default");
+  const [jamDraft, setJamDraft] = useState(() => jamSourceFrom(settings, jamTargets[0] ? jamTargets[0].id : "default"));
+  useEffect(() => {
+    setJamDraft(jamSourceFrom(settings, jamAreaId));
+  }, [jamAreaId]);
+  const jamAreaObj = jamAreaId !== "default" ? getAreas().find(a => a.id === jamAreaId) : null;
   async function saveWorkHours(e) {
     e.preventDefault();
     setError("");
     try {
-      const next = await updateSettings({
-        checkInDeadline: settings.checkInDeadline,
-        shiftEndTime: settings.shiftEndTime,
-        nightShiftStart: settings.nightShiftStart,
-        nightShiftEnd: settings.nightShiftEnd
-      });
+      let next;
+      if (jamAreaId === "default") {
+        if (!canEdit) throw new Error("Hanya Super Admin yang bisa mengubah jam bawaan.");
+        next = await updateSettings({
+          checkInDeadline: jamDraft.checkInDeadline,
+          shiftEndTime: jamDraft.shiftEndTime,
+          nightShiftStart: jamDraft.nightShiftStart,
+          nightShiftEnd: jamDraft.nightShiftEnd
+        });
+      } else {
+        assertAreaOwned(jamAreaId);
+        const jam = {};
+        JAM_KEYS.forEach(k => { jam[k] = jamDraft[k]; });
+        next = await updateSettings({ areas: getAreas().map(a => a.id === jamAreaId ? { ...a, jam } : a) });
+      }
       setSettingsState(next);
-      showToast("Jam kerja berhasil disimpan.");
+      showToast("Jam kerja " + (jamAreaId === "default" ? "bawaan" : "area " + getAreaName(jamAreaId)) + " berhasil disimpan.");
     } catch (err) {
       setError(err.message || "Gagal menyimpan jam kerja ke server. Coba lagi.");
+    }
+  }
+  async function resetJamArea() {
+    setError("");
+    try {
+      assertAreaOwned(jamAreaId);
+      const next = await updateSettings({ areas: getAreas().map(a => {
+        if (a.id !== jamAreaId) return a;
+        const { jam, ...rest } = a;
+        return rest;
+      }) });
+      setSettingsState(next);
+      setJamDraft(jamSourceFrom(next, jamAreaId));
+      showToast("Jam area " + getAreaName(jamAreaId) + " dikembalikan ke jam bawaan.");
+    } catch (err) {
+      setError(err.message || "Gagal mengembalikan jam ke bawaan.");
     }
   }
   function getLocations() {
@@ -19296,14 +19390,14 @@ function SettingsPage({
       minWidth: 0,
       opacity: editable ? 1 : 0.55
     }
-  }, areaAdminNow && section === "checkpoint" && /*#__PURE__*/React.createElement("p", {
+  }, areaAdminNow && (section === "checkpoint" || section === "jam") && /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 12,
       color: "var(--navy-700)",
       marginBottom: 10,
       fontWeight: 600
     }
-  }, "Admin Area — kamu mengelola: " + (areaAdminNow.areaAccess.map(id => getAreaName(id)).join(", ") || "-") + ". Lokasi, checkpoint, anggota, dan rute tim hanya bisa diubah di area ini."), !editable && section !== "backup" && section !== "akses" && /*#__PURE__*/React.createElement("p", {
+  }, "Admin Area — kamu mengelola: " + (areaAdminNow.areaAccess.map(id => getAreaName(id)).join(", ") || "-") + (section === "jam" ? ". Jam presensi hanya bisa diubah untuk area ini." : ". Lokasi, checkpoint, anggota, dan rute tim hanya bisa diubah di area ini.")), !editable && section !== "backup" && section !== "akses" && /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 12,
       color: "var(--navy-700)",
@@ -19324,7 +19418,20 @@ function SettingsPage({
       color: "var(--navy-900)",
       marginBottom: 4
     }
-  }, "Ketentuan Jam Presensi"), /*#__PURE__*/React.createElement("p", {
+  }, "Ketentuan Jam Presensi"), /*#__PURE__*/React.createElement("div", {
+    style: { marginBottom: 14 }
+  }, /*#__PURE__*/React.createElement("label", { className: "label" }, "Pengaturan jam untuk"), /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    style: { maxWidth: 360 },
+    value: jamAreaId,
+    onChange: e => setJamAreaId(e.target.value)
+  }, jamTargets.map(t => /*#__PURE__*/React.createElement("option", { key: t.id, value: t.id }, t.label))), /*#__PURE__*/React.createElement("p", {
+    style: { fontSize: 12, color: "var(--t-muted)", marginTop: 4 }
+  }, jamAreaId === "default" ? "Jam bawaan dipakai oleh area yang belum punya pengaturan jam sendiri." : jamAreaObj && jamAreaObj.jam ? "Area ini memakai jam sendiri." : "Area ini belum punya jam sendiri, jadi memakai jam bawaan. Tekan Simpan untuk membuat jam khusus area ini."), jamAreaId !== "default" && jamAreaObj && jamAreaObj.jam && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: resetJamArea,
+    style: { fontSize: 12, fontWeight: 600, color: "var(--accent-700)", textDecoration: "underline", marginTop: 4 }
+  }, "Kembalikan ke jam bawaan")), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--navy-700)",
@@ -19354,11 +19461,8 @@ function SettingsPage({
   }, "Batas jam masuk"), /*#__PURE__*/React.createElement("input", {
     className: "input",
     type: "time",
-    value: settings.checkInDeadline,
-    onChange: e => setSettingsState(s => ({
-      ...s,
-      checkInDeadline: e.target.value
-    }))
+    value: jamDraft.checkInDeadline,
+    onChange: e => setJamDraft(d => ({ ...d, checkInDeadline: e.target.value }))
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       minWidth: 160
@@ -19368,11 +19472,8 @@ function SettingsPage({
   }, "Jam pulang normal"), /*#__PURE__*/React.createElement("input", {
     className: "input",
     type: "time",
-    value: settings.shiftEndTime,
-    onChange: e => setSettingsState(s => ({
-      ...s,
-      shiftEndTime: e.target.value
-    }))
+    value: jamDraft.shiftEndTime,
+    onChange: e => setJamDraft(d => ({ ...d, shiftEndTime: e.target.value }))
   }))), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 12,
@@ -19410,11 +19511,8 @@ function SettingsPage({
   }, "Mulai piket malam"), /*#__PURE__*/React.createElement("input", {
     className: "input",
     type: "time",
-    value: settings.nightShiftStart,
-    onChange: e => setSettingsState(s => ({
-      ...s,
-      nightShiftStart: e.target.value
-    }))
+    value: jamDraft.nightShiftStart,
+    onChange: e => setJamDraft(d => ({ ...d, nightShiftStart: e.target.value }))
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       minWidth: 160
@@ -19424,11 +19522,8 @@ function SettingsPage({
   }, "Selesai piket malam"), /*#__PURE__*/React.createElement("input", {
     className: "input",
     type: "time",
-    value: settings.nightShiftEnd,
-    onChange: e => setSettingsState(s => ({
-      ...s,
-      nightShiftEnd: e.target.value
-    }))
+    value: jamDraft.nightShiftEnd,
+    onChange: e => setJamDraft(d => ({ ...d, nightShiftEnd: e.target.value }))
   }))), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 12,
@@ -19439,7 +19534,19 @@ function SettingsPage({
     type: "submit",
     variant: "primary",
     size: "sm"
-  }, "Simpan")), section === "checkpoint" && /*#__PURE__*/React.createElement(CheckpointSettingsTabBar, { tab: cpTab, onChange: setCpTab, areaFilter: cpAreaFilter, onAreaFilter: setCpAreaFilter }), section === "checkpoint" && cpTab === "area" && /*#__PURE__*/React.createElement(AreaSettingsCard, null), section === "checkpoint" && cpTab === "rute" && /*#__PURE__*/React.createElement(RouteTeamsSettingsCard, null), section === "checkpoint" && (cpTab === "lokasi" || cpTab === "checkpoint") && /*#__PURE__*/React.createElement("div", {
+  }, "Simpan")), section === "jam" && /*#__PURE__*/React.createElement("div", {
+    className: "card",
+    style: { padding: 20, marginTop: 20 }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: { fontSize: 14, fontWeight: 700, color: "var(--navy-900)", marginBottom: 10 }
+  }, jamAreaAdmin ? "Ringkasan jam areamu" : "Ringkasan jam semua area"), /*#__PURE__*/React.createElement("div", { style: { overflowX: "auto" } }, /*#__PURE__*/React.createElement("table", {
+    style: { width: "100%", fontSize: 13, borderCollapse: "collapse" }
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", { style: { textAlign: "left", color: "var(--t-muted)" } }, ["Area", "Batas masuk", "Jam pulang", "Piket malam", "Sumber"].map(c => /*#__PURE__*/React.createElement("th", { key: c, style: { padding: "6px 10px 6px 0", fontWeight: 600 } }, c)))), /*#__PURE__*/React.createElement("tbody", null, jamTargets.map(t => {
+    const src = jamSourceFrom(getSettings(), t.id);
+    const a = t.id === "default" ? null : getAreas().find(x => x.id === t.id);
+    const own = t.id === "default" || !!(a && a.jam);
+    return /*#__PURE__*/React.createElement("tr", { key: t.id, style: { borderTop: "1px solid var(--line)" } }, /*#__PURE__*/React.createElement("td", { style: { padding: "8px 10px 8px 0", fontWeight: 600, color: "var(--navy-900)" } }, t.id === "default" ? "Bawaan" : t.label), /*#__PURE__*/React.createElement("td", { style: { padding: "8px 10px 8px 0" } }, src.checkInDeadline), /*#__PURE__*/React.createElement("td", { style: { padding: "8px 10px 8px 0" } }, src.shiftEndTime), /*#__PURE__*/React.createElement("td", { style: { padding: "8px 10px 8px 0" } }, src.nightShiftStart + " – " + src.nightShiftEnd), /*#__PURE__*/React.createElement("td", { style: { padding: "8px 0", color: "var(--t-muted)" } }, t.id === "default" ? "Jam bawaan" : own ? "Jam khusus area" : "Mengikuti bawaan"));
+  }))))), section === "checkpoint" && /*#__PURE__*/React.createElement(CheckpointSettingsTabBar, { tab: cpTab, onChange: setCpTab, areaFilter: cpAreaFilter, onAreaFilter: setCpAreaFilter }), section === "checkpoint" && cpTab === "area" && /*#__PURE__*/React.createElement(AreaSettingsCard, null), section === "checkpoint" && cpTab === "rute" && /*#__PURE__*/React.createElement(RouteTeamsSettingsCard, null), section === "checkpoint" && (cpTab === "lokasi" || cpTab === "checkpoint") && /*#__PURE__*/React.createElement("div", {
     className: "grid-2-responsive",
     style: {
       marginTop: 0,
@@ -21859,7 +21966,7 @@ function exportOvertimeToPDF(list, month, who) {
 }
 function OvertimeAdminPage() {
   const h = React.createElement;
-  const { user, canEdit, canDecide } = useAuth();
+  const { user, canManage: canEdit, canDecide } = useAuth();
   const [tab, setTab] = useState("pending");
   const [month, setMonth] = useState(todayDateStrWITA(getTrustedNow()).slice(0, 7));
   const [busyId, setBusyId] = useState(null);
@@ -21867,7 +21974,9 @@ function OvertimeAdminPage() {
   const [areaFilter, setAreaFilter] = useState("all");
   useStoreSync();
   const employees = getScopedEmployees().sort((a, b) => a.name.localeCompare(b.name));
-  const overtimesInArea = getOvertimes().filter(o => userInAreaData(o.userId, areaFilter));
+  // Hanya Super Admin yang melihat lembur semua area; Admin Area / View Only hanya area aksesnya.
+  const overtimesScoped = getOvertimes().filter(o => inNotifScope(o.userId, user));
+  const overtimesInArea = overtimesScoped.filter(o => userInAreaData(o.userId, areaFilter));
   const inMonth = overtimesInArea.filter(o => o.date.startsWith(month));
   // Angka tab "Menunggu" mengikuti bulan yang dipilih (sama dengan isi daftar di bawahnya).
   const pendingMonth = inMonth.filter(o => o.status === LEAVE_STATUS.PENDING).length;
@@ -21922,7 +22031,8 @@ function OvertimeAdminPage() {
         h(Button, { variant: "outline", onClick: exportExcel, disabled: inMonth.length === 0 }, h(Icon, { name: "download", size: 16 }), " Unduh Excel"),
         h(Button, { variant: "outline", onClick: exportPdf, disabled: inMonth.length === 0 }, h(Icon, { name: "download", size: 16 }), " Unduh PDF"))),
     error && h("div", { style: { marginBottom: 16, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, error),
-    h(AreaFilterChips, { value: areaFilter, onChange: setAreaFilter, forData: true, counts: countPendingByArea(getOvertimes()) }),
+    h(AreaFilterChips, { value: areaFilter, onChange: setAreaFilter, scopeIds: getDashboardAreaIds(user), counts: countPendingByArea(overtimesScoped) }),
+    getDashboardAreaIds(user) && getDashboardAreaIds(user).length === 0 && h("p", { style: { fontSize: 13, color: "var(--red)", background: "var(--red-soft)", padding: "10px 14px", borderRadius: 10, marginBottom: 14 } }, "Akunmu belum punya area akses, jadi data lembur belum tampil. Hubungi Super Admin untuk mengatur area aksesmu."),
     h("div", { style: { marginBottom: 14 } },
       h("label", { className: "label" }, "Bulan"),
       h("input", { className: "input", type: "month", value: month, onChange: e => e.target.value && setMonth(e.target.value), style: { maxWidth: 190 } })),
@@ -22066,7 +22176,7 @@ function stopEmergencyAlarm() {
   if (_alarmTitleTimer) { clearInterval(_alarmTitleTimer); _alarmTitleTimer = null; if (_alarmOrigTitle != null) document.title = _alarmOrigTitle; _alarmOrigTitle = null; }
 }
 const SEEN_DARURAT_KEY = "nit-seen-darurat-ids";
-function useEmergencyAlerts(enabled) {
+function useEmergencyAlerts(enabled, alertUser) {
   const [alerts, setAlerts] = useState([]);
   const seenRef = useRef(null);
   if (seenRef.current === null) {
@@ -22078,7 +22188,7 @@ function useEmergencyAlerts(enabled) {
   }
   useEffect(() => {
     if (!enabled) return;
-    const daruratAktif = getKejadianReports().filter(k => k.darurat && k.status !== KEJADIAN_STATUS.SELESAI);
+    const daruratAktif = getKejadianReports().filter(k => k.darurat && k.status !== KEJADIAN_STATUS.SELESAI && inNotifScope(k.userId, alertUser));
     const fresh = daruratAktif.filter(k => !seenRef.current.has(k.id));
     if (fresh.length > 0) {
       fresh.forEach(k => seenRef.current.add(k.id));
@@ -22089,7 +22199,7 @@ function useEmergencyAlerts(enabled) {
       });
       startEmergencyAlarm();
     }
-  }, [enabled, store.kejadian]);
+  }, [enabled, store.kejadian, store.settings, store.users, alertUser && alertUser.id]);
   useEffect(() => {
     if (alerts.length === 0) stopEmergencyAlarm();
   }, [alerts.length]);
@@ -22230,7 +22340,7 @@ function playNotifyBeep() {
   };
   if (ctx.state === "suspended") { try { ctx.resume().then(go).catch(() => {}); } catch (e) {} } else go();
 }
-function useOvertimeAlerts(enabled) {
+function useOvertimeAlerts(enabled, alertUser) {
   const [alerts, setAlerts] = useState([]);
   const seenRef = useRef(null);
   if (seenRef.current === null) {
@@ -22238,7 +22348,7 @@ function useOvertimeAlerts(enabled) {
   }
   useEffect(() => {
     if (!enabled) return;
-    const unseen = getOvertimes().filter(o => o.status === LEAVE_STATUS.PENDING && !seenRef.current.has(o.id));
+    const unseen = getOvertimes().filter(o => o.status === LEAVE_STATUS.PENDING && !seenRef.current.has(o.id) && inNotifScope(o.userId, alertUser));
     if (unseen.length === 0) return;
     unseen.forEach(o => seenRef.current.add(o.id));
     try { localStorage.setItem(SEEN_OVERTIME_KEY, JSON.stringify([...seenRef.current].slice(-300))); } catch (e) {}
@@ -22250,7 +22360,7 @@ function useOvertimeAlerts(enabled) {
       return [...prev, ...fresh.filter(f => !ids.has(f.id))].slice(-3);
     });
     playNotifyBeep();
-  }, [enabled, store.overtimes]);
+  }, [enabled, store.overtimes, store.settings, store.users, alertUser && alertUser.id]);
   useEffect(() => {
     if (alerts.length === 0) return;
     const t = setTimeout(() => setAlerts(prev => prev.slice(1)), OVERTIME_TOAST_AUTOHIDE_MS);
@@ -22412,28 +22522,28 @@ function App() {
   const [leaveTick, setLeaveTick] = useState(0);
   const pendingLeaveCount = useMemo(() => {
     if (!canAccessAdminPanel(user)) return 0;
-    return getLeaveRequests().filter(l => l.status === LEAVE_STATUS.PENDING).length;
+    return getLeaveRequests().filter(l => l.status === LEAVE_STATUS.PENDING && inNotifScope(l.userId, user)).length;
   }, [user, leaveTick, page, store.leaves, store.settings, store.users]);
   const pendingOvertimeCount = useMemo(() => {
     if (!canAccessAdminPanel(user)) return 0;
-    return getOvertimes().filter(o => o.status === LEAVE_STATUS.PENDING).length;
+    return getOvertimes().filter(o => o.status === LEAVE_STATUS.PENDING && inNotifScope(o.userId, user)).length;
   }, [user, page, store.overtimes, store.settings, store.users]);
   const baruKejadianCount = useMemo(() => {
     if (!canAccessAdminPanel(user)) return 0;
-    return getKejadianReports().filter(k => k.status === KEJADIAN_STATUS.BARU).length;
+    return getKejadianReports().filter(k => k.status === KEJADIAN_STATUS.BARU && inNotifScope(k.userId, user)).length;
   }, [user, page, store.kejadian, store.settings, store.users]);
   const emergencyActiveCount = useMemo(() => {
     if (!canAccessAdminPanel(user)) return 0;
-    return getKejadianReports().filter(k => k.darurat && k.status !== KEJADIAN_STATUS.SELESAI).length;
+    return getKejadianReports().filter(k => k.darurat && k.status !== KEJADIAN_STATUS.SELESAI && inNotifScope(k.userId, user)).length;
   }, [user, page, store.kejadian, store.settings, store.users]);
   // Daftar notifikasi lonceng (khusus admin): laporan darurat aktif + pengajuan lembur menunggu
   const notifItems = useMemo(() => {
     if (!canAccessAdminPanel(user)) return [];
-    const dar = getKejadianReports().filter(k => k.darurat && k.status !== KEJADIAN_STATUS.SELESAI).slice(0, 10).map(k => ({
+    const dar = getKejadianReports().filter(k => k.darurat && k.status !== KEJADIAN_STATUS.SELESAI && inNotifScope(k.userId, user)).slice(0, 10).map(k => ({
       key: "d-" + k.id, page: "kejadian", tone: "red", icon: "siren",
       title: "Laporan darurat · " + (k.userName || "-"), sub: k.note || "Laporan darurat aktif"
     }));
-    const lem = getOvertimes().filter(o => o.status === LEAVE_STATUS.PENDING).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 10).map(o => ({
+    const lem = getOvertimes().filter(o => o.status === LEAVE_STATUS.PENDING && inNotifScope(o.userId, user)).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 10).map(o => ({
       key: "o-" + o.id, page: "overtime", tone: "blue", icon: "timer",
       title: "Lembur menunggu · " + (o.userName || "-"),
       sub: formatDateShortID(o.date) + " · " + o.startTime + "–" + o.endTime + " · " + formatOvertimeDuration(o.minutes || 0)
@@ -22521,11 +22631,11 @@ function App() {
     alerts: emergencyAlerts,
     dismiss: dismissEmergencyAlert,
     dismissAll: dismissAllEmergencyAlerts
-  } = useEmergencyAlerts(isAdminUser);
+  } = useEmergencyAlerts(isAdminUser, user);
   const {
     alerts: overtimeAlerts,
     dismiss: dismissOvertimeAlert
-  } = useOvertimeAlerts(isAdminUser);
+  } = useOvertimeAlerts(isAdminUser, user);
   if (loading) {
     return /*#__PURE__*/React.createElement("div", {
       style: {
