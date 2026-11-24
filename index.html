@@ -3877,6 +3877,7 @@ function getAreaWeights(userId) {
 function getDashboardAreaIds(user) {
   const u = user || window.__activeUser;
   if (!u || u.role === ROLES.ADMIN || getAreas().length === 0) return null;
+  if (u.areaAll === true) return null; // dipilih eksplisit: "Semua area"
   return Array.isArray(u.areaAccess) ? u.areaAccess : [];
 }
 // Notifikasi (lonceng, lencana menu, banner & alarm darurat) mengikuti area akses akun:
@@ -13053,7 +13054,7 @@ function EmployeeFormModal({
     photo: employee?.photo || null,
     role: employee?.role || ROLES.EMPLOYEE,
     areaAccess: Array.isArray(employee?.areaAccess) ? employee.areaAccess : [],
-    areaMode: Array.isArray(employee?.areaAccess) && employee.areaAccess.length > 0 ? "some" : "all",
+    areaMode: employee?.areaAll === true ? "all" : Array.isArray(employee?.areaAccess) && employee.areaAccess.length > 0 ? "some" : "all",
     homeAreaId: employee ? getAreaIdOfUser(employee.id) || "" : (areaAdminAreaIds() ? areaAdminAreaIds()[0] : "")
   });
   const [error, setError] = useState("");
@@ -13090,6 +13091,7 @@ function EmployeeFormModal({
         if (form.password.trim()) payload.password = form.password;
         if (form.role !== ROLES.EMPLOYEE && form.role !== ROLES.ADMIN && form.areaMode === "some" && form.areaAccess.length === 0) { setSaving(false); return setError("Pilih minimal satu area, atau pilih \"Semua area\"."); }
         payload.areaAccess = form.role === ROLES.ADMIN ? [] : form.role === ROLES.EMPLOYEE ? form.areaAccess.filter(id => id !== form.homeAreaId) : form.areaMode === "all" ? [] : form.areaAccess;
+        payload.areaAll = form.role !== ROLES.EMPLOYEE && form.role !== ROLES.ADMIN && form.areaMode === "all";
         await updateUser(employee.id, payload);
         if (form.role === ROLES.EMPLOYEE && (form.homeAreaId || "") !== (getAreaIdOfUser(employee.id) || "")) await setUserHomeArea(employee.id, form.homeAreaId || null);
       } else {
@@ -13109,6 +13111,7 @@ function EmployeeFormModal({
         if (created && getAreas().length > 0) {
           const acc = newRole === ROLES.ADMIN ? [] : newRole === ROLES.EMPLOYEE ? form.areaAccess.filter(id => id !== form.homeAreaId) : form.areaMode === "all" ? [] : form.areaAccess;
           if (acc.length > 0) await updateUser(created.id, { areaAccess: acc });
+          else if (newRole !== ROLES.EMPLOYEE && newRole !== ROLES.ADMIN && form.areaMode === "all") await updateUser(created.id, { areaAll: true });
           if (newRole === ROLES.EMPLOYEE && form.homeAreaId) await setUserHomeArea(created.id, form.homeAreaId);
         }
       }
@@ -17074,7 +17077,7 @@ function PenilaianAdminPage() {
       fill: "var(--navy-900)",
       stroke: "none"
     }
-  })))), compareData.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }))))), compareData.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "card chart-card chart-compare",
     style: {
       padding: 20
@@ -17226,7 +17229,7 @@ function PenilaianAdminPage() {
       stroke: "none",
       strokeDasharray: "none"
     }
-  }))))))))), /*#__PURE__*/React.createElement(Leaderboard, {
+  })))))))), /*#__PURE__*/React.createElement(Leaderboard, {
     rows: rows,
     highlightUserId: null
   }));
