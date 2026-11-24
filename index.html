@@ -868,6 +868,33 @@ function assertUserAreaOwned(userId) {
   if (!isAreaAdmin(u)) return;
   if (!u.areaAccess.includes(getAreaIdOfUser(userId))) throw new Error("Kamu hanya bisa memproses data karyawan di area yang kamu kelola.");
 }
+// ---- Pembatasan tampilan Admin Area ----
+// Admin Area hanya boleh MELIHAT dan MENGATUR data area yang dikelolanya. Super Admin (dan Admin tanpa batasan area) tetap melihat semua.
+function areaAdminAreaIds() {
+  const u = window.__activeUser;
+  return isAreaAdmin(u) ? u.areaAccess : null;
+}
+// true = item (lokasi/checkpoint) boleh tampil di daftar pengaturan. Admin Area: hanya item milik areanya (item umum tanpa area disembunyikan).
+function areaVisibleToAdminArea(areaId) {
+  const ids = areaAdminAreaIds();
+  return !ids || (!!areaId && ids.includes(areaId));
+}
+// true = area ini milik area LAIN dan harus disembunyikan dari Admin Area (item umum tanpa area tidak dianggap area lain).
+function areaHiddenFromAdminArea(areaId) {
+  const ids = areaAdminAreaIds();
+  return !!ids && !!areaId && !ids.includes(areaId);
+}
+// Menu Hak Akses: Super Admin melihat semua pengguna. Admin Area hanya melihat dirinya sendiri, karyawan di areanya,
+// serta Admin / View Only lain yang area aksesnya beririsan dengan areanya. Super Admin dan area lain tidak tampil.
+function userVisibleToAreaAdmin(u) {
+  const ids = areaAdminAreaIds();
+  if (!ids) return true;
+  if (!u) return false;
+  if (u.id === window.__activeUser.id) return true;
+  if (u.role === ROLES.ADMIN) return false;
+  if (u.role === ROLES.EMPLOYEE) return ids.includes(getAreaIdOfUser(u.id));
+  return Array.isArray(u.areaAccess) && u.areaAccess.some(a => ids.includes(a));
+}
 function roleLabel(role) {
   if (role === ROLES.ADMIN) return "Super Admin";
   if (role === ROLES.STAFF_ADMIN) return "Admin";
@@ -3160,11 +3187,11 @@ function KejadianSortSelect({ value, onChange }) {
     React.createElement("select", { className: "input", value, onChange: e => onChange(e.target.value), style: { width: "auto", padding: "6px 10px", fontSize: 12 } },
       KEJADIAN_SORT_OPTIONS.map(([v, l]) => React.createElement("option", { key: v, value: v }, l))));
 }
-// Laporan kejadian/darurat: Super Admin & Admin melihat SEMUA area. View Only dengan area akses terisi
+// Laporan kejadian/darurat: hanya Super Admin yang melihat SEMUA area. Admin Area / View Only dengan area akses terisi
 // hanya melihat laporan dari petugas di area-nya (area akses kosong = semua area).
 function isKejadianVisibleToActiveUser(k) {
   const u = window.__activeUser;
-  if (!u || u.role !== ROLES.VIEWER) return true;
+  if (!u || u.role === ROLES.ADMIN) return true;
   const scope = getScopeAreaIds(u);
   return !scope || scope.includes(getAreaIdOfUser(k.userId));
 }
@@ -3706,11 +3733,11 @@ function getScopeAreaIds(user) {
   if (!u || u.role === ROLES.EMPLOYEE || u.role === ROLES.ADMIN) return null;
   return Array.isArray(u.areaAccess) && u.areaAccess.length > 0 ? u.areaAccess : null;
 }
-// Cakupan DATA notifikasi/pengajuan (izin, cuti, lembur, darurat): Super Admin & Admin melihat SEMUA area;
-// View Only dengan area akses terisi hanya melihat petugas di area-nya.
+// Cakupan DATA pengajuan (izin, cuti, lembur, darurat): HANYA Super Admin yang melihat SEMUA area.
+// Admin Area / View Only dengan area akses terisi hanya melihat petugas di area-nya.
 function userInDataScope(userId) {
   const u = window.__activeUser;
-  if (u && (u.role === ROLES.ADMIN || u.role === ROLES.STAFF_ADMIN)) return true;
+  if (u && u.role === ROLES.ADMIN) return true;
   return userInScope(userId);
 }
 function userInScope(userId) {
@@ -3775,10 +3802,10 @@ function inNotifScope(userId, user) {
   const sc = getDashboardAreaIds(user);
   return sc === null || sc.includes(getAreaIdOfUser(userId));
 }
-// Versi "data": Super Admin & Admin melihat SEMUA area; View Only mengikuti area aksesnya.
+// Versi "data": hanya Super Admin yang melihat SEMUA area; Admin Area / View Only mengikuti area aksesnya.
 function getScopeAreaIdsForData() {
   const u = window.__activeUser;
-  if (u && (u.role === ROLES.ADMIN || u.role === ROLES.STAFF_ADMIN)) return null;
+  if (u && u.role === ROLES.ADMIN) return null;
   return getScopeAreaIds();
 }
 function userInAreaData(userId, areaFilter) {
@@ -3827,9 +3854,9 @@ function getAreaColor(areaId) {
 function CheckpointSettingsTabBar({ tab, onChange, areaFilter, onAreaFilter }) {
   useStoreSync();
   const h = React.createElement;
-  const areas = getAreas();
-  const locs = getSettings().officeLocations || [];
-  const cps = getCheckpoints();
+  const areas = getAreas().filter(a => !areaHiddenFromAdminArea(a.id));
+  const locs = (getSettings().officeLocations || []).filter(l => areaVisibleToAdminArea(l.areaId));
+  const cps = getCheckpoints().filter(c => areaVisibleToAdminArea(c.areaId));
   const tabs = [
     { id: "lokasi", label: "Lokasi Kantor", icon: "building-2", count: locs.length, desc: "Titik presensi kantor per area. Karyawan hanya bisa presensi di lokasi areanya (ditambah lokasi umum)." },
     { id: "checkpoint", label: "Checkpoint Patroli", icon: "map-pin", count: cps.length, desc: "Titik checkpoint patroli per area. Petugas hanya patroli di checkpoint areanya (ditambah checkpoint umum)." },
@@ -3840,7 +3867,7 @@ function CheckpointSettingsTabBar({ tab, onChange, areaFilter, onAreaFilter }) {
   const items = tab === "checkpoint" ? cps : tab === "lokasi" ? locs : null;
   const summary = items && areas.length > 0 ? [
     ...areas.map(a => ({ key: a.id, name: a.name, color: getAreaColor(a.id), n: items.filter(x => x.areaId === a.id).length })),
-    { key: "umum", name: "Umum", color: "#94a3b8", n: items.filter(x => !x.areaId || !areas.some(a => a.id === x.areaId)).length }
+    ...(isAreaAdmin(window.__activeUser) ? [] : [{ key: "umum", name: "Umum", color: "#94a3b8", n: items.filter(x => !x.areaId || !areas.some(a => a.id === x.areaId)).length }])
   ] : null;
   return h("div", { className: "card", style: { padding: 16, marginBottom: 16 } },
     h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, tabs.map(t => h("button", {
@@ -18099,7 +18126,7 @@ function PanduanPage() {
     React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Admin Area (mengatur area kerja dan rute)"),
     React.createElement(GuideList, {
       items: [
-        "Admin Area boleh mengatur lokasi presensi, checkpoint, anggota, dan tim & rute di areanya sendiri lewat Pengaturan \u2192 Checkpoint & Lokasi. Admin Area juga boleh mengatur Jadwal Kerja (import Excel), menyetujui/menolak serta menghapus data Izin, Lembur, dan Laporan Kejadian, khusus karyawan di areanya.",
+        "Admin Area boleh mengatur lokasi presensi, checkpoint, anggota, dan tim & rute di areanya sendiri lewat Pengaturan \u2192 Checkpoint & Lokasi. Admin Area juga boleh mengatur Jadwal Kerja (import Excel), menyetujui/menolak serta menghapus data Izin, Lembur, dan Laporan Kejadian, khusus karyawan di areanya. Admin Area TIDAK bisa melihat area lain: lokasi, checkpoint, anggota, tim rute, izin, lembur, dan laporan kejadian dari area yang tidak dikelolanya tidak tampil. Hanya Super Admin yang melihat semua area.",
         "Yang tetap hanya Super Admin: menambah/menghapus area, jam bawaan, data karyawan (tambah, ubah, hapus), Hak Akses, dan Backup. Super Admin juga bisa melihat jam presensi semua area.",
         "Lokasi, checkpoint, atau tim yang belum punya area (termasuk Tim Manado dan Tim Minut bawaan) hanya bisa diubah Super Admin sampai dimasukkan ke sebuah area."
       ]
@@ -19006,7 +19033,11 @@ function LoginHistoryCard() {
   const [dateFilter, setDateFilter] = useState("");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
-  const logs = useMemo(() => getLoginLogs(), [store.loginLogs]);
+  const logs = useMemo(() => {
+    if (!areaAdminAreaIds()) return getLoginLogs();
+    const okIds = new Set(getUsers().filter(userVisibleToAreaAdmin).map(u => u.id));
+    return getLoginLogs().filter(l => l.userId && okIds.has(l.userId));
+  }, [store.loginLogs, store.users, store.settings]);
   const filtered = useMemo(() => logs.filter(l => {
     if (nameFilter && !`${l.userName || ""} ${l.username || ""}`.toLowerCase().includes(nameFilter.toLowerCase())) return false;
     if (dateFilter && (l.at || "").slice(0, 10) !== dateFilter) return false;
@@ -19610,7 +19641,7 @@ function SettingsPage({
       gap: 16,
       marginTop: locs.length ? 16 : 0
     }
-  }, locs.map((loc, idx) => cpAreaFilter !== "all" && loc.areaId && loc.areaId !== cpAreaFilter ? null : /*#__PURE__*/React.createElement("div", {
+  }, locs.map((loc, idx) => !areaVisibleToAdminArea(loc.areaId) || (cpAreaFilter !== "all" && loc.areaId && loc.areaId !== cpAreaFilter) ? null : /*#__PURE__*/React.createElement("div", {
     key: idx,
     style: {
       border: "1px solid var(--line)",
@@ -20148,7 +20179,7 @@ function AreaSettingsCard() {
   const areaMap = getUserAreaMap();
   const settings = getSettings();
   const locations = settings.officeLocations || [];
-  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE).sort((a, b) => a.name.localeCompare(b.name));
+  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE && !areaHiddenFromAdminArea(areaMap[u.id])).sort((a, b) => a.name.localeCompare(b.name));
   const unassigned = employees.filter(u => !areaMap[u.id]);
   const me = window.__activeUser;
   const restricted = isAreaAdmin(me);
@@ -20243,7 +20274,7 @@ function AreaSettingsCard() {
         h("h2", { style: { fontSize: 14, fontWeight: 700, color: "var(--navy-900)" } }, "Area"),
         h("p", { style: { fontSize: 13, color: "var(--navy-700)", marginTop: 2 } }, "Kelompokkan karyawan per area (mis. Manado, Minut). Tiap area punya lokasi presensi, jadwal, papan skor, patroli, dan laporan sendiri.")),
       !restricted && h(Button, { variant: "outline", size: "sm", onClick: addArea }, h(Icon, { name: "plus", size: 15 }), " Tambah Area")),
-    areas.length > 0 && h("p", { style: { fontSize: 12, color: "var(--t-muted)", margin: "6px 0 10px" } }, `${areas.length} area · ${employees.length - unassigned.length} karyawan sudah punya area${unassigned.length ? ` · ${unassigned.length} belum` : ""}`),
+    areas.length > 0 && h("p", { style: { fontSize: 12, color: "var(--t-muted)", margin: "6px 0 10px" } }, `${areas.filter(a => !areaHiddenFromAdminArea(a.id)).length} area · ${employees.length - unassigned.length} karyawan sudah punya area${unassigned.length ? ` · ${unassigned.length} belum` : ""}`),
     toast && h("div", { style: { marginBottom: 12, background: "var(--green-soft)", color: "var(--green)", fontSize: 13, fontWeight: 600, padding: "10px 14px", borderRadius: 10 } }, toast),
     error && h("div", { style: { marginBottom: 12, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, error),
     areas.length === 0 && h("p", { style: { fontSize: 13, color: "var(--t-muted)", marginTop: 10 } }, "Belum ada area. Klik Tambah Area."),
@@ -20276,6 +20307,7 @@ function AreaSettingsCard() {
             sectionTitle("Lokasi presensi area ini"),
             locations.length === 0 ? h("p", { style: { fontSize: 12, color: "var(--t-muted)" } }, "Belum ada lokasi presensi. Tambahkan dulu di Pengaturan → Jam & Presensi, lalu pilih di sini.") :
             h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, locations.map((l, idx) => {
+              if (areaHiddenFromAdminArea(l.areaId)) return null;
               const other = l.areaId && l.areaId !== a.id ? getAreaName(l.areaId) : "";
               return h("label", { key: idx, style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13 } },
                 h("input", { type: "checkbox", checked: l.areaId === a.id, onChange: () => toggleLocation(a, idx) }),
@@ -20288,6 +20320,7 @@ function AreaSettingsCard() {
             sectionTitle("Checkpoint patroli area ini"),
             checkpointsAll.length === 0 ? h("p", { style: { fontSize: 12, color: "var(--t-muted)" } }, "Belum ada checkpoint patroli. Tambahkan dulu di Checkpoint Patroli, lalu pilih di sini.") :
             h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, checkpointsAll.map(cp => {
+              if (areaHiddenFromAdminArea(cp.areaId)) return null;
               const other = cp.areaId && cp.areaId !== a.id ? getAreaName(cp.areaId) : "";
               return h("label", { key: cp.id, style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13 } },
                 h("input", { type: "checkbox", checked: cp.areaId === a.id, onChange: () => toggleCheckpoint(a, cp) }),
@@ -20487,8 +20520,8 @@ function RoleAccessCard() {
   const [editTarget, setEditTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
-  const allUsers = useMemo(() => [...getUsers()].sort((a, b) => a.name.localeCompare(b.name)), [store.users]);
-  const adminCount = allUsers.filter(u => u.role === ROLES.ADMIN).length;
+  const allUsers = useMemo(() => [...getUsers()].filter(userVisibleToAreaAdmin).sort((a, b) => a.name.localeCompare(b.name)), [store.users, store.settings]);
+  const adminCount = getUsers().filter(u => u.role === ROLES.ADMIN).length;
   function handleAddSaved() {
     setShowAddModal(false);
     showToast("Pengguna baru berhasil ditambahkan.");
@@ -20733,7 +20766,7 @@ function RouteTeamsSettingsCard() {
     setToast(msg);
     setTimeout(() => setToast(""), 2500);
   }
-  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE);
+  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE && !areaHiddenFromAdminArea(getAreaIdOfUser(u.id)));
   const checkpoints = getCheckpoints();
   async function saveTeam(teamId, patch) {
     const current = getEditableRouteTeamState(teamId);
@@ -21083,7 +21116,7 @@ function PatrolCheckpointSettings({ areaFilter = "all" } = {}) {
       lat: null,
       lng: null,
       radius: DEFAULT_CHECKPOINT_RADIUS,
-      areaId: areaFilter !== "all" ? areaFilter : null
+      areaId: areaFilter !== "all" ? areaFilter : (isAreaAdmin(window.__activeUser) ? window.__activeUser.areaAccess[0] : null)
     }).catch(err => showToast(err.message || "Gagal menambah checkpoint ke server."));
   }
   async function saveCheckpoint(cp) {
@@ -21186,7 +21219,7 @@ function PatrolCheckpointSettings({ areaFilter = "all" } = {}) {
       gap: 16,
       marginTop: checkpoints.length ? 16 : 0
     }
-  }, checkpoints.map((cp, idx) => areaFilter !== "all" && cp.areaId && cp.areaId !== areaFilter ? null : /*#__PURE__*/React.createElement("div", {
+  }, checkpoints.map((cp, idx) => !areaVisibleToAdminArea(cp.areaId) || (areaFilter !== "all" && cp.areaId && cp.areaId !== areaFilter) ? null : /*#__PURE__*/React.createElement("div", {
     key: cp.id,
     style: {
       border: "1px solid var(--line)",
