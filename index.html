@@ -7,7 +7,7 @@
 <script>window.Capacitor||document.write('<script src="https://unpkg.com/@capacitor/core@6.1.2/dist/capacitor.js"><\/script>')</script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#e8003d" />
+<meta name="theme-color" content="#2f78ee" />
 <script>(function(){try{var t=localStorage.getItem("app_theme");if(!t)t=(window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light";document.documentElement.setAttribute("data-theme",t);if(t==="dark"){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content","#0e1116")}}catch(e){document.documentElement.setAttribute("data-theme","light")}})();</script>
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="mobile-web-app-capable" content="yes" />
@@ -438,8 +438,8 @@ main{min-width:0; max-width:100%;}
    --accent-* pada blok :root di bawah ini menjadi: 900:#7a0d17 700:#e4142b 600:#ef2338 500:#f5495c.
    ===================================================================== */
 :root{
-  --accent-900:#a8002b; --accent-700:#e8003d; --accent-600:#e8003d; --accent-500:#f2406a;
-  --accent-100:#e8003d26; --accent-50:#e8003d12;
+  --accent-900:#1c4fb8; --accent-700:#2f78ee; --accent-600:#2f78ee; --accent-500:#5b9af5;
+  --accent-100:#2f78ee26; --accent-50:#2f78ee12;
   --page-bg:#f3f4f7; --card-line:#eceef3;
   --navy-950:#f3f4f7; --navy-900:#141a26; --navy-800:#3a4457; --navy-700:#5b667a; --navy-600:#8a94a6;
   --navy-100:#ffffff; --navy-50:#f5f7fa; --slate-mist:#f1f3f7; --line:#e8ebf1;
@@ -447,7 +447,7 @@ main{min-width:0; max-width:100%;}
   --shadow-card:0 1px 2px rgba(16,24,40,.04), 0 8px 24px rgba(16,24,40,.05);
 }
 html[data-theme="dark"]{
-  --accent-100:#e8003d33; --accent-50:#e8003d1f;
+  --accent-100:#2f78ee33; --accent-50:#2f78ee1f;
   --page-bg:#0e1116; --card-line:#ffffff14; --glass-bg:#171b23;
   --navy-950:#0e1116; --navy-900:#eef1f6; --navy-800:#d5dbe6; --navy-700:#aab3c2; --navy-600:#7f8a9c;
   --navy-100:#171b23; --navy-50:#ffffff0d; --slate-mist:#ffffff0f; --line:#ffffff1a;
@@ -491,7 +491,7 @@ html[data-theme="dark"] .topbar-mobile, html[data-theme="dark"] .bottomnav-mobil
 /* Tombol */
 .btn{border-radius:12px; letter-spacing:0;}
 .btn-sm{border-radius:10px;}
-.btn-primary{background:var(--accent-600); box-shadow:0 6px 16px rgba(232,0,61,.28);}
+.btn-primary{background:var(--accent-600); box-shadow:0 6px 16px rgba(47,120,238,.28);}
 .btn-primary:hover:not(:disabled){background:var(--accent-700);}
 .btn-outline{background:#ffffff; border:1px solid var(--line); color:var(--navy-900);}
 .btn-outline:hover:not(:disabled){background:var(--navy-50); border-color:#d5dae3;}
@@ -500,12 +500,12 @@ html[data-theme="dark"] .btn-outline{background:#1c212b;}
 /* Input & label */
 .input{background:#ffffff; border:1px solid #e3e7ee; border-radius:12px;}
 html[data-theme="dark"] .input{background:#1c212b; border-color:#ffffff1f;}
-.input:focus{border-color:var(--accent-600); box-shadow:0 0 0 4px rgba(232,0,61,.14);}
+.input:focus{border-color:var(--accent-600); box-shadow:0 0 0 4px rgba(47,120,238,.14);}
 .label{font-size:12.5px; font-weight:600; text-transform:none; letter-spacing:0; color:var(--navy-700);}
 
 /* Badge & chip */
 .badge{border-radius:999px; padding:4px 10px;}
-.chip-active{background:var(--accent-600); box-shadow:0 4px 12px rgba(232,0,61,.25);}
+.chip-active{background:var(--accent-600); box-shadow:0 4px 12px rgba(47,120,238,.25);}
 .chip-inactive{background:#ffffff; border:1px solid var(--line); color:var(--navy-700);}
 html[data-theme="dark"] .chip-inactive{background:#1c212b;}
 
@@ -522,19 +522,19 @@ html[data-theme="dark"] tbody tr:hover{background:#ffffff08;}
 .modal-backdrop, .modal-overlay{background:rgba(16,24,40,.5);}
 
 /* Kartu presensi utama & ikon statistik */
-.att-card{border-radius:24px; background:linear-gradient(135deg,#a8002b 0%,#e8003d 62%,#ff5c7f 100%); box-shadow:0 16px 36px rgba(232,0,61,.28);}
+.att-card{border-radius:24px; background:linear-gradient(135deg,#1c4fb8 0%,#2f78ee 62%,#35bde0 100%); box-shadow:0 16px 36px rgba(47,120,238,.28);}
 .stat-icon{border-radius:12px;}
 .spinner{border-color:var(--accent-100); border-top-color:var(--accent-600);}
 
 /* Halaman login: gradasi biru + kaca (teks putih tetap terbaca) */
-.login-glass-wrap{background-color:#e8003d !important; background-image:linear-gradient(135deg,#a8002b 0%,#e8003d 55%,#ff5c7f 100%) !important;}
+.login-glass-wrap{background-color:#2f78ee !important; background-image:linear-gradient(135deg,#1c4fb8 0%,#2f78ee 55%,#35bde0 100%) !important;}
 .login-glass-wrap::before{background:radial-gradient(ellipse 60% 40% at 20% 8%, rgba(255,255,255,.22), transparent 60%), radial-gradient(ellipse 50% 40% at 92% 100%, rgba(255,255,255,.14), transparent 60%);}
 .login-glass-card{background:rgba(255,255,255,.14); border-color:rgba(255,255,255,.35); box-shadow:0 24px 60px rgba(10,30,90,.35), inset 0 1px 0 rgba(255,255,255,.3);}
-.login-glass-btn{background:#ffffff; color:#a8002b; border:none; box-shadow:0 10px 24px rgba(10,30,90,.28);}
+.login-glass-btn{background:#ffffff; color:#1c4fb8; border:none; box-shadow:0 10px 24px rgba(10,30,90,.28);}
 .login-glass-btn:hover:not(:disabled){filter:none; background:#f3f7ff;}
 html[data-theme="dark"] .login-glass-wrap{background-color:#0e1116 !important; background-image:linear-gradient(135deg,#0f1b3a 0%,#16346f 60%,#0e1116 100%) !important;}
 html[data-theme="dark"] .login-glass-card{background:rgba(255,255,255,.07) !important;}
-html[data-theme="dark"] .login-glass-btn{background:#e8003d; color:#fff;}
+html[data-theme="dark"] .login-glass-btn{background:#2f78ee; color:#fff;}
 
 /* Ruang napas halaman */
 .container-app, .container-md, .container-lg{padding-top:26px;}
@@ -548,8 +548,8 @@ html[data-theme="dark"] .login-glass-btn{background:#e8003d; color:#fff;}
   --page-bg:#f4f5f7; --card-line:#eceef2; --line:#e9ecf1;
   --navy-900:#111827; --navy-800:#374151; --navy-700:#4b5563; --navy-600:#9ca3af;
   --navy-50:#f6f7f9; --slate-mist:#f3f4f6;
-  --accent-900:#a8002b; --accent-700:#e8003d; --accent-600:#e8003d; --accent-500:#f2406a;
-  --cyan:#ff5c7f;
+  --accent-900:#1c4fb8; --accent-700:#2f78ee; --accent-600:#2f78ee; --accent-500:#5b9af5;
+  --cyan:#35bde0;
   --shadow-card:0 1px 2px rgba(17,24,39,.04), 0 6px 20px rgba(17,24,39,.04);
   --font-display:"Poppins",sans-serif;
 }
@@ -589,7 +589,7 @@ html[data-theme="dark"] .nav-item.active{background:#202633; border-color:#fffff
 .tb-search-ic{position:absolute; left:14px; top:50%; transform:translateY(-50%); color:var(--navy-600); pointer-events:none;}
 .tb-search-input{width:100%; height:42px; border:1px solid transparent; background:var(--navy-50); border-radius:12px; padding:0 74px 0 40px; font-size:14px; color:var(--navy-900); transition:background-color .18s ease, border-color .18s ease, box-shadow .18s ease;}
 .tb-search-input::placeholder{color:var(--navy-600);}
-.tb-search-input:focus{outline:none; background:#fff; border-color:var(--accent-600); box-shadow:0 0 0 4px rgba(232,0,61,.12);}
+.tb-search-input:focus{outline:none; background:#fff; border-color:var(--accent-600); box-shadow:0 0 0 4px rgba(47,120,238,.12);}
 .tb-kbd{position:absolute; right:10px; top:50%; transform:translateY(-50%); font-size:11px; font-weight:600; color:var(--navy-700); background:#fff; border:1px solid var(--line); border-radius:7px; padding:3px 7px; pointer-events:none;}
 .tb-actions{margin-left:auto; display:flex; align-items:center; gap:10px;}
 .tb-icon-btn{position:relative; width:42px; height:42px; border-radius:12px; border:1px solid var(--line); background:#fff; color:var(--navy-800); display:inline-flex; align-items:center; justify-content:center;}
@@ -638,12 +638,12 @@ thead tr{background:#f7f8fa; color:var(--t-muted); font-size:12px; text-transfor
 th{font-weight:600;}
 tbody tr:hover{background:#fafbfc;}
 .btn{border-radius:12px; font-weight:600;}
-.btn-primary{background:var(--accent-600); box-shadow:0 6px 16px rgba(232,0,61,.26);}
-.btn-primary:hover:not(:disabled){background:var(--accent-700); box-shadow:0 8px 20px rgba(232,0,61,.32);}
+.btn-primary{background:var(--accent-600); box-shadow:0 6px 16px rgba(47,120,238,.26);}
+.btn-primary:hover:not(:disabled){background:var(--accent-700); box-shadow:0 8px 20px rgba(47,120,238,.32);}
 .btn-outline{background:#fff; border:1px solid var(--line);}
 .chip{font-weight:600;}
 .badge{font-weight:600;}
-.att-card{background:linear-gradient(135deg,#a8002b 0%,#e8003d 60%,#ff5c7f 100%);}
+.att-card{background:linear-gradient(135deg,#1c4fb8 0%,#2f78ee 60%,#35bde0 100%);}
 
 
 /* ===== Latar halaman login: ilustrasi matahari & pohon ===== */
@@ -752,8 +752,8 @@ html[data-theme="dark"] body{background-color:#0e1116 !important; background-ima
 </style>
 <style id="tema-merah-nit">
 /* Tema merah mengikuti contoh: sidebar abu muda, menu aktif pil merah, form abu lembut. Blok ini sengaja paling akhir supaya menimpa aksen biru. */
-:root{--accent-900:#a8002b; --accent-700:#e8003d; --accent-600:#e8003d; --accent-500:#f2406a; --accent-100:#e8003d26; --accent-50:#e8003d12; --accent-ink:#ffffff; --cyan:#e8003d; --page-bg:#eceff1; --card-line:#e4e7ea; --line:#e3e5e8;}
-html[data-theme="dark"]{--accent-700:#f2406a; --accent-600:#f2406a; --accent-500:#ff6b8a; --accent-100:#f2406a38; --accent-50:#f2406a1f;}
+:root{--accent-900:#1c4fb8; --accent-700:#2f78ee; --accent-600:#2f78ee; --accent-500:#5b9af5; --accent-100:#2f78ee26; --accent-50:#2f78ee12; --accent-ink:#ffffff; --cyan:#2f78ee; --page-bg:#eceff1; --card-line:#e4e7ea; --line:#e3e5e8;}
+html[data-theme="dark"]{--accent-700:#5b9af5; --accent-600:#5b9af5; --accent-500:#7db0f8; --accent-100:#5b9af538; --accent-50:#5b9af51f;}
 html:not([data-theme="dark"]) body{background:#eceff1 !important;}
 @media (min-width:1024px){ html:not([data-theme="dark"]) .sidebar{padding:0 !important;} }
 html:not([data-theme="dark"]) .sidebar-panel{background:#fafafa !important; border:none !important; border-radius:0 !important; box-shadow:none !important; backdrop-filter:none; -webkit-backdrop-filter:none;}
@@ -761,12 +761,12 @@ html:not([data-theme="dark"]) .sidebar-panel{background:#fafafa !important; bord
 .nav-item:hover{background:#0000000a; color:var(--accent-600);}
 .nav-item.active, html[data-theme="dark"] .nav-item.active{background:var(--accent-600) !important; color:#ffffff !important; border-color:transparent !important; box-shadow:none !important; font-weight:600;}
 html[data-theme="dark"] .nav-item{color:var(--navy-800);}
-.btn-primary{background:var(--accent-600); box-shadow:0 6px 16px rgba(232,0,61,.25);}
+.btn-primary{background:var(--accent-600); box-shadow:0 6px 16px rgba(47,120,238,.25);}
 .btn-primary:hover:not(:disabled){background:var(--accent-900);}
 html:not([data-theme="dark"]) .input{background:#f5f5f5; border:1px solid #d9d9d9; border-radius:8px;}
-html:not([data-theme="dark"]) .input:focus{background:#ffffff; border-color:var(--accent-600); box-shadow:0 0 0 3px rgba(232,0,61,.12);}
-.input:focus{border-color:var(--accent-600); box-shadow:0 0 0 3px rgba(232,0,61,.14);}
-.att-card{background:linear-gradient(135deg,#a8002b 0%,#e8003d 62%,#ff5c7f 100%); box-shadow:0 16px 36px rgba(232,0,61,.28);}
+html:not([data-theme="dark"]) .input:focus{background:#ffffff; border-color:var(--accent-600); box-shadow:0 0 0 3px rgba(47,120,238,.12);}
+.input:focus{border-color:var(--accent-600); box-shadow:0 0 0 3px rgba(47,120,238,.14);}
+.att-card{background:linear-gradient(135deg,#1c4fb8 0%,#2f78ee 62%,#35bde0 100%); box-shadow:0 16px 36px rgba(47,120,238,.28);}
 html:not([data-theme="dark"]) .table-wrap tbody tr:nth-child(odd){background:#f2f2f2;}
 html:not([data-theme="dark"]) thead tr{background:#fafafa; color:#111111; font-weight:600;}
 </style>
@@ -811,38 +811,38 @@ html:not([data-theme="dark"]) .input:focus{border-color:var(--accent-600) !impor
 .ot-bar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#6366f1,#8b5cf6);transition:width .5s ease;}
 </style>
 <style id="tema-merah-final">
-/* Menu & form mengikuti gambar contoh: sidebar abu muda, menu aktif pil merah #e8003d, form abu lembut. */
-:root{--accent-900:#a8002b;--accent-700:#e8003d;--accent-600:#e8003d;--accent-500:#f2406a;--accent-100:#e8003d26;--accent-50:#e8003d12;--accent-ink:#fff;--cyan:#e8003d;accent-color:#e8003d;}
-html[data-theme="dark"]{--accent-700:#f2406a;--accent-600:#f2406a;--accent-500:#ff6b8a;accent-color:#f2406a;}
+/* Menu & form: sidebar abu muda, menu aktif pil biru #2f78ee, form abu lembut. */
+:root{--accent-900:#1c4fb8;--accent-700:#2f78ee;--accent-600:#2f78ee;--accent-500:#5b9af5;--accent-100:#2f78ee26;--accent-50:#2f78ee12;--accent-ink:#fff;--cyan:#2f78ee;accent-color:#2f78ee;}
+html[data-theme="dark"]{--accent-700:#5b9af5;--accent-600:#5b9af5;--accent-500:#7db0f8;accent-color:#5b9af5;}
 html:not([data-theme="dark"]){color-scheme:light;}
-*{-webkit-tap-highlight-color:rgba(232,0,61,.12);}
-::selection{background:#e8003d;color:#fff;}
+*{-webkit-tap-highlight-color:rgba(47,120,238,.12);}
+::selection{background:#2f78ee;color:#fff;}
 /* ---- Menu (desktop): grup induk merah saat anak aktif, anak aktif = pil merah penuh ---- */
 .nav-item{color:#111;font-weight:500;border-radius:10px;border:1px solid transparent;}
-.nav-item:hover{background:#0000000a;color:#e8003d;}
-.nav-item.active,html[data-theme="dark"] .nav-item.active{background:#e8003d !important;color:#fff !important;font-weight:600;border-color:transparent !important;box-shadow:none !important;}
+.nav-item:hover{background:#0000000a;color:#2f78ee;}
+.nav-item.active,html[data-theme="dark"] .nav-item.active{background:#2f78ee !important;color:#fff !important;font-weight:600;border-color:transparent !important;box-shadow:none !important;}
 html[data-theme="dark"] .nav-item{color:var(--navy-800);}
 /* ---- Menu bawah (HP/APK): item aktif = pil merah, teks putih ---- */
 .bottomnav-item{color:#6b7280;border-radius:12px;margin:6px 3px;padding-top:7px;padding-bottom:7px;transition:background-color .15s,color .15s;}
-.bottomnav-item.active{background:#e8003d !important;color:#fff !important;font-weight:600;}
-html[data-theme="dark"] .bottomnav-item.active{background:#f2406a !important;color:#fff !important;}
+.bottomnav-item.active{background:#2f78ee !important;color:#fff !important;font-weight:600;}
+html[data-theme="dark"] .bottomnav-item.active{background:#5b9af5 !important;color:#fff !important;}
 .bottomnav-item.active svg{stroke:#fff;}
 /* ---- Form: latar #fafafa, border abu #c2c2c2, sudut 6px; fokus merah ---- */
 html:not([data-theme="dark"]) .input,html:not([data-theme="dark"]) select.input,html:not([data-theme="dark"]) textarea.input,
 html:not([data-theme="dark"]) input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=button]):not([type=submit]),
 html:not([data-theme="dark"]) select,html:not([data-theme="dark"]) textarea{background-color:#fafafa !important;border:1px solid #c2c2c2 !important;border-radius:6px !important;color:#111;box-shadow:none;}
 html:not([data-theme="dark"]) .input:focus,html:not([data-theme="dark"]) select:focus,html:not([data-theme="dark"]) textarea:focus,
-html:not([data-theme="dark"]) input:focus{background-color:#fff !important;border-color:#e8003d !important;box-shadow:0 0 0 3px rgba(232,0,61,.14) !important;outline:none;}
-html[data-theme="dark"] .input:focus,html[data-theme="dark"] select:focus,html[data-theme="dark"] textarea:focus{border-color:#f2406a !important;box-shadow:0 0 0 3px rgba(242,64,106,.2) !important;}
+html:not([data-theme="dark"]) input:focus{background-color:#fff !important;border-color:#2f78ee !important;box-shadow:0 0 0 3px rgba(47,120,238,.14) !important;outline:none;}
+html[data-theme="dark"] .input:focus,html[data-theme="dark"] select:focus,html[data-theme="dark"] textarea:focus{border-color:#5b9af5 !important;box-shadow:0 0 0 3px rgba(91,154,245,.2) !important;}
 /* Autofill Chrome/Android biasanya biru muda -> netralkan */
-html:not([data-theme="dark"]) input:-webkit-autofill,html:not([data-theme="dark"]) select:-webkit-autofill,html:not([data-theme="dark"]) textarea:-webkit-autofill{-webkit-box-shadow:0 0 0 1000px #fafafa inset !important;box-shadow:0 0 0 1000px #fafafa inset !important;-webkit-text-fill-color:#111 !important;caret-color:#e8003d;}
-input,textarea,select{caret-color:#e8003d;}
-button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline-color:#e8003d;}
+html:not([data-theme="dark"]) input:-webkit-autofill,html:not([data-theme="dark"]) select:-webkit-autofill,html:not([data-theme="dark"]) textarea:-webkit-autofill{-webkit-box-shadow:0 0 0 1000px #fafafa inset !important;box-shadow:0 0 0 1000px #fafafa inset !important;-webkit-text-fill-color:#111 !important;caret-color:#2f78ee;}
+input,textarea,select{caret-color:#2f78ee;}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline-color:#2f78ee;}
 /* Tombol, chip, kartu presensi */
-.btn-primary{background:#e8003d !important;box-shadow:0 6px 16px rgba(232,0,61,.25) !important;}
-.btn-primary:hover:not(:disabled){background:#a8002b !important;}
-.chip-active{background:#e8003d !important;box-shadow:0 4px 12px rgba(232,0,61,.25) !important;}
-.att-card{background:linear-gradient(135deg,#a8002b 0%,#e8003d 62%,#ff5c7f 100%) !important;box-shadow:0 16px 36px rgba(232,0,61,.28) !important;}
+.btn-primary{background:#2f78ee !important;box-shadow:0 6px 16px rgba(47,120,238,.25) !important;}
+.btn-primary:hover:not(:disabled){background:#1c4fb8 !important;}
+.chip-active{background:#2f78ee !important;box-shadow:0 4px 12px rgba(47,120,238,.25) !important;}
+.att-card{background:linear-gradient(135deg,#1c4fb8 0%,#2f78ee 62%,#35bde0 100%) !important;box-shadow:0 16px 36px rgba(47,120,238,.28) !important;}
 </style>
 </head>
 <body>
@@ -5626,18 +5626,20 @@ function exportPenilaianToPDF(rows, monthKey) {
       bot
     } = chartFrame(x, cy, w, compareH, rotateLabels ? 17 : 11, "Skor Kehadiran vs Patroli per Karyawan", [0, 25, 50, 75, 100], t => String(t));
     // Legenda (kanan atas)
-    font(7.5, false);
     let lx = x + 5;
     [
-      ["Kehadiran", [100, 116, 139]],
-      ["Patroli", [182, 191, 204]]
+      ["Kehadiran (warna penuh)", [14, 169, 104]],
+      ["Patroli (warna pucat)", [14, 169, 104].map(v => Math.round(v * 0.5 + 127.5))]
     ].forEach(([lbl, c]) => {
-      fill(c);
-      doc.circle(lx + 1, cy + 12.2, 1, "F");
-      color(C.navy700);
-      doc.text(lbl, lx + 3.2, cy + 13);
-      lx += doc.getTextWidth(lbl) + 9;
+      bar(lx, cy + 10.4, 5, 3.2, c);
+      font(8, true);
+      color(C.navy);
+      doc.text(lbl, lx + 6.5, cy + 13);
+      lx += doc.getTextWidth(lbl) + 14;
     });
+    font(7, false);
+    color(C.navy700);
+    doc.text("Warna batang: merah (50 ke bawah), oranye, hijau (100)", lx, cy + 13);
     const n = compareData.length;
     const slot = pw / Math.max(n, 1),
       bw = Math.min(slot * 0.34, 7);
@@ -6280,7 +6282,7 @@ function applyTheme(t) {
   document.documentElement.setAttribute("data-theme", t);
   try { localStorage.setItem("app_theme", t); } catch (e) {}
   const m = document.querySelector('meta[name="theme-color"]');
-  if (m) m.setAttribute("content", t === "dark" ? "#0e1116" : "#e8003d");
+  if (m) m.setAttribute("content", t === "dark" ? "#0e1116" : "#2f78ee");
 }
 function ThemeToggle({ className = "sidebar-rail-item", style, size = 18 }) {
   const [theme, setTheme] = useState(() => document.documentElement.getAttribute("data-theme") || "light");
@@ -11931,9 +11933,9 @@ function buildAttendanceHeatmap(monthKey, allRecords, totalUsers) {
 function heatCellColor(pct) {
   if (pct == null) return "transparent";
   if (pct === 0) return "var(--navy-50)";
-  if (pct <= 0.25) return "rgba(232,0,61,.16)";
-  if (pct <= 0.5) return "rgba(232,0,61,.36)";
-  if (pct <= 0.75) return "rgba(232,0,61,.62)";
+  if (pct <= 0.25) return "rgba(47,120,238,.16)";
+  if (pct <= 0.5) return "rgba(47,120,238,.36)";
+  if (pct <= 0.75) return "rgba(47,120,238,.62)";
   return "var(--accent-700)";
 }
 // Data harian untuk grafik garis "Analitik Kehadiran": khusus bulan berjalan (monthKey),
@@ -12405,11 +12407,11 @@ function AdminDashboard({
     y2: "1"
   }, /*#__PURE__*/React.createElement("stop", {
     offset: "5%",
-    stopColor: "#E8003D",
+    stopColor: "#2F78EE",
     stopOpacity: 0.45
   }), /*#__PURE__*/React.createElement("stop", {
     offset: "95%",
-    stopColor: "#E8003D",
+    stopColor: "#2F78EE",
     stopOpacity: 0.03
   })), /*#__PURE__*/React.createElement("linearGradient", {
     id: "gradTerlambat",
@@ -12419,11 +12421,11 @@ function AdminDashboard({
     y2: "1"
   }, /*#__PURE__*/React.createElement("stop", {
     offset: "5%",
-    stopColor: "#FF5C7F",
+    stopColor: "#35BDE0",
     stopOpacity: 0.45
   }), /*#__PURE__*/React.createElement("stop", {
     offset: "95%",
-    stopColor: "#FF5C7F",
+    stopColor: "#35BDE0",
     stopOpacity: 0.03
   }))), /*#__PURE__*/React.createElement(Recharts.CartesianGrid, {
     vertical: false,
@@ -12466,31 +12468,41 @@ function AdminDashboard({
   }), /*#__PURE__*/React.createElement(Recharts.Legend, {
     verticalAlign: "top",
     height: 20,
-    iconSize: 8,
+    iconSize: 12,
+    iconType: "plainline",
     wrapperStyle: {
       fontSize: 11
     }
   }), /*#__PURE__*/React.createElement(Recharts.Area, {
     type: "monotone",
     dataKey: "Masuk",
-    stroke: "#E8003D",
-    strokeWidth: 2.5,
+    stroke: "#1c4fb8",
+    strokeWidth: 3,
     fill: "url(#gradMasuk)",
+    dot: false,
     activeDot: {
-      r: 4
+      r: 5,
+      fill: "#1c4fb8",
+      stroke: "#fff",
+      strokeWidth: 2
     }
   }), /*#__PURE__*/React.createElement(Recharts.Line, {
     type: "monotone",
     dataKey: "Terlambat",
-    stroke: "#FF5C7F",
-    strokeWidth: 2.75,
+    stroke: "#00b4d8",
+    strokeWidth: 2.5,
+    strokeDasharray: "7 5",
     dot: {
-      r: 3.5,
-      fill: "#FF5C7F",
-      strokeWidth: 0
+      r: 4,
+      fill: "#ffffff",
+      stroke: "#00b4d8",
+      strokeWidth: 2
     },
     activeDot: {
-      r: 5.5
+      r: 6,
+      fill: "#00b4d8",
+      stroke: "#fff",
+      strokeWidth: 2
     }
   }))))), /*#__PURE__*/React.createElement("div", {
     className: "card",
@@ -16892,6 +16904,7 @@ function PenilaianAdminPage() {
     YAxis,
     Tooltip,
     Legend,
+    LabelList,
     ResponsiveContainer,
     CartesianGrid
   } = Recharts;
@@ -17000,12 +17013,12 @@ function PenilaianAdminPage() {
     }
   }, "Distribusi Kehadiran Tim Bulan Ini"), /*#__PURE__*/React.createElement(ResponsiveContainer, {
     width: "100%",
-    height: 230
+    height: 270
   }, /*#__PURE__*/React.createElement(BarChart, {
     data: teamChartData,
     margin: {
-      top: 4,
-      right: 4,
+      top: 22,
+      right: 8,
       left: 0,
       bottom: 0
     }
@@ -17049,7 +17062,15 @@ function PenilaianAdminPage() {
   }, teamChartData.map((entry, index) => /*#__PURE__*/React.createElement(Cell, {
     key: `cell-${index}`,
     fill: entry.fill
-  })))))), compareData.length > 0 && /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement(LabelList, {
+    dataKey: "value",
+    position: "top",
+    style: {
+      fontSize: 12,
+      fontWeight: 700,
+      fill: "var(--navy-900)"
+    }
+  })))), compareData.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: 20
@@ -17063,20 +17084,80 @@ function PenilaianAdminPage() {
     }
   }, "Skor Kehadiran vs Patroli per Karyawan"), /*#__PURE__*/React.createElement("div", {
     style: {
+      display: "flex",
+      flexWrap: "wrap",
+      alignItems: "center",
+      gap: "8px 18px",
+      marginBottom: 12,
+      padding: "8px 12px",
+      background: "var(--slate-mist)",
+      borderRadius: 10,
+      fontSize: 13,
+      fontWeight: 600,
+      color: "var(--navy-900)"
+    }
+  }, [
+    ["Kehadiran", "Warna penuh", 1, "solid"],
+    ["Patroli", "Warna pucat", 0.45, "dashed"]
+  ].map(([name, hint, op, bs]) => /*#__PURE__*/React.createElement("div", {
+    key: name,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 26,
+      height: 14,
+      borderRadius: 4,
+      background: "linear-gradient(90deg, rgb(228,20,43), rgb(217,119,6), rgb(14,169,104))",
+      opacity: op,
+      border: op < 1 ? "1.5px dashed rgb(14,169,104)" : "none",
+      flexShrink: 0
+    }
+  }), /*#__PURE__*/React.createElement("span", null, name, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontWeight: 400,
+      color: "var(--navy-700)",
+      marginLeft: 5,
+      fontSize: 12
+    }
+  }, "(", hint, ")")))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: 12,
+      fontWeight: 400,
+      color: "var(--navy-700)",
+      marginLeft: "auto"
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "50 ke bawah"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 60,
+      height: 8,
+      borderRadius: 4,
+      background: "linear-gradient(90deg, rgb(228,20,43), rgb(217,119,6), rgb(14,169,104))"
+    }
+  }), /*#__PURE__*/React.createElement("span", null, "100"))), /*#__PURE__*/React.createElement("div", {
+    style: {
       overflowX: "auto"
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      minWidth: Math.max(320, compareData.length * 56)
+      minWidth: Math.max(320, compareData.length * 64)
     }
   }, /*#__PURE__*/React.createElement(ResponsiveContainer, {
     width: "100%",
-    height: 230
+    height: 270
   }, /*#__PURE__*/React.createElement(BarChart, {
     data: compareData,
+    barGap: 3,
+    barCategoryGap: "20%",
     margin: {
-      top: 4,
-      right: 4,
+      top: 22,
+      right: 8,
       left: 0,
       bottom: 0
     }
@@ -17113,29 +17194,42 @@ function PenilaianAdminPage() {
       fontSize: 12,
       boxShadow: "0 8px 24px rgba(28,20,24,.1)"
     }
-  }), /*#__PURE__*/React.createElement(Legend, {
-    wrapperStyle: {
-      fontSize: 12
-    },
-    iconType: "circle",
-    iconSize: 8
   }), /*#__PURE__*/React.createElement(Bar, {
     dataKey: "Kehadiran",
     fill: "#64748b",
     radius: [4, 4, 0, 0],
-    maxBarSize: 18
+    maxBarSize: 24
   }, compareData.map((d, i) => /*#__PURE__*/React.createElement(Cell, {
     key: `k-${i}`,
     fill: `rgb(${scoreBarRGB(d.Kehadiran).join(",")})`
-  }))), /*#__PURE__*/React.createElement(Bar, {
+  })), /*#__PURE__*/React.createElement(LabelList, {
+    dataKey: "Kehadiran",
+    position: "top",
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      fill: "var(--navy-900)"
+    }
+  })), /*#__PURE__*/React.createElement(Bar, {
     dataKey: "Patroli",
     fill: "#b6bfcc",
     radius: [4, 4, 0, 0],
-    maxBarSize: 18
+    maxBarSize: 24
   }, compareData.map((d, i) => /*#__PURE__*/React.createElement(Cell, {
     key: `p-${i}`,
     fill: `rgb(${scoreBarRGB(d.Patroli).join(",")})`,
-    fillOpacity: 0.5
+    fillOpacity: 0.45,
+    stroke: `rgb(${scoreBarRGB(d.Patroli).join(",")})`,
+    strokeWidth: 1.2,
+    strokeDasharray: "3 2"
+  })), /*#__PURE__*/React.createElement(LabelList, {
+    dataKey: "Patroli",
+    position: "top",
+    style: {
+      fontSize: 10,
+      fontWeight: 600,
+      fill: "var(--navy-700)"
+    }
   }))))))))), /*#__PURE__*/React.createElement(Leaderboard, {
     rows: rows,
     highlightUserId: null
