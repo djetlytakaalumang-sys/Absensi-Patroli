@@ -1861,10 +1861,15 @@ function findUserByCredentials(username, password) {
 // dibuat/diubah/dihapus padahal tidak, membingungkan saat karyawan itu coba login.
 function assertNoAreaAdminUserMgmt(targetId) {
   const u = window.__activeUser;
-  if (isAreaAdmin(u) && targetId !== u.id) throw new Error("Admin Area tidak bisa menambah, mengubah, atau menghapus karyawan. Hubungi Super Admin.");
+  if (isAreaAdmin(u) && targetId !== u.id) throw new Error("Admin Area hanya bisa menambah karyawan baru di areanya, tidak bisa mengubah atau menghapus data pengguna. Hubungi Super Admin.");
 }
 async function addUser(data) {
-  assertNoAreaAdminUserMgmt(null);
+  // Admin Area boleh menambah anggota (karyawan) baru, tetapi hanya role Karyawan dan hanya untuk areanya (area dicek di form + setUserHomeArea).
+  if (isAreaAdmin(window.__activeUser)) {
+    if (data.role && data.role !== ROLES.EMPLOYEE) throw new Error("Admin Area hanya bisa menambah karyawan di areanya.");
+  } else {
+    assertNoAreaAdminUserMgmt(null);
+  }
   const newUser = {
     id: generateUserId(),
     username: data.username.trim(),
@@ -3486,7 +3491,8 @@ function getRemovedRouteTeamMarkers() {
 }
 // Tim yang dibandingkan di Rekap CP: tim pada area terpilih (+ tim yang belum diberi area).
 function getRouteCompareTeams(areaFilter) {
-  const teams = getRouteTeamsConfig();
+  // Admin Area hanya melihat tim di areanya (tim umum tanpa area & tim area lain disembunyikan). Super Admin melihat semua.
+  const teams = getRouteTeamsConfig().filter(t => areaVisibleToAdminArea(t.areaId));
   const scope = getScopeAreaIds();
   if (!areaFilter || areaFilter === "all") return scope ? teams.filter(t => !t.areaId || scope.includes(t.areaId)) : teams;
   if (scope && !scope.includes(areaFilter)) return [];
@@ -3766,6 +3772,7 @@ function getOfficeLocationsForUser(user) {
   return locs.filter(l => !l.areaId || allowed.includes(l.areaId));
 }
 async function setUserHomeArea(userId, areaId) {
+  if (areaId) assertAreaOwned(areaId);
   const cleaned = getAreas().map(a => ({ ...a, memberIds: (a.memberIds || []).filter(i => i !== userId) }));
   const next = areaId ? cleaned.map(a => a.id === areaId ? { ...a, memberIds: [...a.memberIds, userId] } : a) : cleaned;
   await updateSettings({ areas: next });
@@ -4956,7 +4963,7 @@ function buildRitRecapExport({ mode, dateStr, monthStr, checkpointId, nameQuery,
           extra: [...map.entries()].filter(([lower]) => !routeLower.has(lower)).map(([, orig]) => orig)
         };
       };
-      teamCompare = cmpTeams.length >= 2 ? {
+      teamCompare = cmpTeams.length >= (isAreaAdmin(window.__activeUser) ? 1 : 2) ? {
         teams: cmpTeams.map((t, i) => col(t, cmpMaps[i])),
         bothPatrolled: cmpMaps.filter(m => m.size > 0).length >= 2,
         bonus: cmpTeams.some(t => bonusIds.has(t.id))
@@ -12952,7 +12959,7 @@ function EmployeeFormModal({
     role: employee?.role || ROLES.EMPLOYEE,
     areaAccess: Array.isArray(employee?.areaAccess) ? employee.areaAccess : [],
     areaMode: Array.isArray(employee?.areaAccess) && employee.areaAccess.length > 0 ? "some" : "all",
-    homeAreaId: employee ? getAreaIdOfUser(employee.id) || "" : ""
+    homeAreaId: employee ? getAreaIdOfUser(employee.id) || "" : (areaAdminAreaIds() ? areaAdminAreaIds()[0] : "")
   });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -12972,6 +12979,7 @@ function EmployeeFormModal({
     if (!form.position.trim()) return setError("Jabatan wajib diisi.");
     if (!form.department.trim()) return setError("Departemen wajib diisi.");
     if (isUsernameTaken(form.username, isEdit ? employee.id : null)) return setError("Username sudah digunakan, pilih username lain.");
+    if (areaAdminAreaIds() && (!form.homeAreaId || !areaAdminAreaIds().includes(form.homeAreaId))) return setError("Pilih area utama dari area yang kamu kelola.");
     setSaving(true);
     try {
       if (isEdit) {
@@ -13017,19 +13025,20 @@ function EmployeeFormModal({
     }
   }
   const _areas = getAreas();
+  const _aaIds = areaAdminAreaIds();
   const _hh = React.createElement;
   const _toggleAcc = id => update("areaAccess", form.areaAccess.includes(id) ? form.areaAccess.filter(x => x !== id) : [...form.areaAccess, id]);
   const areaBlock = _areas.length === 0 || form.role === ROLES.ADMIN ? null : _hh("div", { className: "fg-full", style: { borderTop: "1px solid var(--line)", paddingTop: 12, marginTop: 4 } },
     form.role === ROLES.EMPLOYEE && _hh("div", { style: { marginBottom: 10 } },
       _hh("label", { className: "label" }, "Area utama"),
       _hh("select", { className: "input", value: form.homeAreaId, onChange: e => update("homeAreaId", e.target.value) },
-        _hh("option", { value: "" }, "— Belum dipilih —"), _areas.map(a => _hh("option", { key: a.id, value: a.id }, a.name)))),
-    form.role === ROLES.EMPLOYEE ? _hh("label", { className: "label" }, "Boleh presensi juga di area") : _hh("label", { className: "label" }, "Area yang boleh dilihat"),
+        _hh("option", { value: "" }, "— Belum dipilih —"), _areas.filter(a => !areaHiddenFromAdminArea(a.id)).map(a => _hh("option", { key: a.id, value: a.id }, a.name)))),
+    _aaIds ? null : form.role === ROLES.EMPLOYEE ? _hh("label", { className: "label" }, "Boleh presensi juga di area") : _hh("label", { className: "label" }, "Area yang boleh dilihat"),
     form.role !== ROLES.EMPLOYEE && _hh("div", { style: { display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 } },
       _hh("label", { style: { display: "flex", alignItems: "center", gap: 6, fontSize: 13 } }, _hh("input", { type: "radio", name: "areaMode", checked: form.areaMode === "all", onChange: () => update("areaMode", "all") }), "Semua area"),
       _hh("label", { style: { display: "flex", alignItems: "center", gap: 6, fontSize: 13 } }, _hh("input", { type: "radio", name: "areaMode", checked: form.areaMode === "some", onChange: () => update("areaMode", "some") }), "Pilih area tertentu")),
-    _hh("p", { style: { fontSize: 12, color: "var(--t-muted)", marginBottom: 6 } }, form.role === ROLES.EMPLOYEE ? "Presensi hanya diterima di lokasi milik area utama dan area yang dicentang." : form.areaMode === "all" ? "Bisa melihat data semua area." : "Hanya data karyawan di area yang dicentang yang tampil."),
-    (form.role === ROLES.EMPLOYEE || form.areaMode === "some") && _hh("div", { style: { display: "flex", flexWrap: "wrap", gap: "6px 16px" } }, _areas.filter(a => form.role !== ROLES.EMPLOYEE || a.id !== form.homeAreaId).map(a => _hh("label", { key: a.id, style: { display: "flex", alignItems: "center", gap: 6, fontSize: 13 } },
+    !_aaIds && _hh("p", { style: { fontSize: 12, color: "var(--t-muted)", marginBottom: 6 } }, form.role === ROLES.EMPLOYEE ? "Presensi hanya diterima di lokasi milik area utama dan area yang dicentang." : form.areaMode === "all" ? "Bisa melihat data semua area." : "Hanya data karyawan di area yang dicentang yang tampil."),
+    !_aaIds && (form.role === ROLES.EMPLOYEE || form.areaMode === "some") && _hh("div", { style: { display: "flex", flexWrap: "wrap", gap: "6px 16px" } }, _areas.filter(a => form.role !== ROLES.EMPLOYEE || a.id !== form.homeAreaId).map(a => _hh("label", { key: a.id, style: { display: "flex", alignItems: "center", gap: 6, fontSize: 13 } },
       _hh("input", { type: "checkbox", checked: form.areaAccess.includes(a.id), onChange: () => _toggleAcc(a.id) }), a.name))));
   return /*#__PURE__*/React.createElement("div", {
     className: "modal-backdrop",
@@ -18127,7 +18136,7 @@ function PanduanPage() {
     React.createElement(GuideList, {
       items: [
         "Admin Area boleh mengatur lokasi presensi, checkpoint, anggota, dan tim & rute di areanya sendiri lewat Pengaturan \u2192 Checkpoint & Lokasi. Admin Area juga boleh mengatur Jadwal Kerja (import Excel), menyetujui/menolak serta menghapus data Izin, Lembur, dan Laporan Kejadian, khusus karyawan di areanya. Admin Area TIDAK bisa melihat area lain: lokasi, checkpoint, anggota, tim rute, izin, lembur, dan laporan kejadian dari area yang tidak dikelolanya tidak tampil. Hanya Super Admin yang melihat semua area.",
-        "Yang tetap hanya Super Admin: menambah/menghapus area, jam bawaan, data karyawan (tambah, ubah, hapus), Hak Akses, dan Backup. Super Admin juga bisa melihat jam presensi semua area.",
+        "Yang tetap hanya Super Admin: menambah/menghapus area, jam bawaan, data karyawan (ubah, hapus; menambah karyawan baru di areanya boleh dilakukan Admin Area), Hak Akses, dan Backup. Super Admin juga bisa melihat jam presensi semua area.",
         "Lokasi, checkpoint, atau tim yang belum punya area (termasuk Tim Manado dan Tim Minut bawaan) hanya bisa diubah Super Admin sampai dimasukkan ke sebuah area."
       ]
     })
@@ -18314,7 +18323,7 @@ function PanduanPage() {
   const aksesSection = React.createElement(GuideSection, { icon: "shield", title: "Hak Akses: Super Admin, Admin, View Only & Karyawan" },
     React.createElement(GuideBadgeRow, { label: "Super Admin", color: "var(--navy-900)", bg: "var(--slate-mist)", desc: "Bisa melihat dan mengubah semua data: menyetujui izin dan lembur, mengubah pengaturan, mengelola pengguna, backup, dan lainnya." }),
     React.createElement(GuideBadgeRow, { label: "Admin", color: "var(--accent-700)", bg: "var(--slate-mist)", desc: "Bisa membuka dan mengunduh (Excel/PDF) data seperti Super Admin (di Dashboard hanya area yang diberikan ke akunnya), serta menyetujui, menolak, atau mengembalikan keputusan Izin dan Lembur. Tidak bisa mengubah pengaturan (jam, checkpoint, hak akses, backup), data karyawan, jadwal, atau menghapus data." }),
-    React.createElement(GuideBadgeRow, { label: "Admin Area", color: "var(--accent-700)", bg: "var(--slate-mist)", desc: "Pengguna berperan Admin yang dibatasi ke satu atau beberapa area (Pengaturan \u2192 Hak Akses \u2192 Edit pengguna \u2192 Batasi akses ke area). Selain hak Admin biasa, Admin Area boleh mengatur Jadwal Kerja (import Excel), menyetujui/menolak, dan menghapus data Izin, Lembur, serta Laporan Kejadian, juga mengatur jam presensi, lokasi presensi, checkpoint patroli, anggota, dan tim & rute HANYA untuk area yang dikelolanya. Admin Area TIDAK bisa menambah, mengubah, atau menghapus karyawan. Super Admin tetap satu-satunya yang mengelola semua area dan semua pengaturan (jam kerja, Hak Akses, Backup, tambah/hapus area, data karyawan). Lokasi, checkpoint, dan tim yang belum punya area hanya bisa diubah Super Admin." }),
+    React.createElement(GuideBadgeRow, { label: "Admin Area", color: "var(--accent-700)", bg: "var(--slate-mist)", desc: "Pengguna berperan Admin yang dibatasi ke satu atau beberapa area (Pengaturan \u2192 Hak Akses \u2192 Edit pengguna \u2192 Batasi akses ke area). Selain hak Admin biasa, Admin Area boleh mengatur Jadwal Kerja (import Excel), menyetujui/menolak, dan menghapus data Izin, Lembur, serta Laporan Kejadian, juga mengatur jam presensi, lokasi presensi, checkpoint patroli, anggota, dan tim & rute HANYA untuk area yang dikelolanya. Admin Area boleh menambah anggota (karyawan) baru di areanya lewat Hak Akses → Tambah Anggota, tetapi TIDAK bisa mengubah atau menghapus karyawan. Super Admin tetap satu-satunya yang mengelola semua area dan semua pengaturan (jam kerja, Hak Akses, Backup, tambah/hapus area, data karyawan). Lokasi, checkpoint, dan tim yang belum punya area hanya bisa diubah Super Admin." }),
     React.createElement(GuideBadgeRow, { label: "View Only", color: "var(--accent-700)", bg: "var(--slate-mist)", desc: "Bisa membuka semua menu admin untuk MELIHAT saja: Dashboard, Presensi Karyawan (jam masuk), Jadwal Kerja, Lembur, Patroli, Laporan Kejadian, Izin, Pengaturan, Hak Akses, dan Backup. Di Dashboard hanya melihat area yang diberikan ke akunnya." }),
     React.createElement(GuideBadgeRow, { label: "Karyawan", color: "var(--green)", bg: "var(--green-soft)", desc: "Hanya mengakses presensi, patroli, jadwal, penilaian, riwayat, izin, dan lembur milik sendiri." }),
     React.createElement("p", { style: { fontWeight: 700, color: "var(--navy-900)", marginBottom: 2 } }, "Aturan akun View Only:"),
@@ -18727,7 +18736,7 @@ function RekapRitPage() {
   // admin bisa langsung lihat kenapa bonus rute didapat/tidak.
   const teamRouteCompareEl = mode === "harian" ? (() => {
     const cmpTeams = getRouteCompareTeams(areaFilter);
-    if (cmpTeams.length < 2) return null;
+    if (cmpTeams.length < (isAreaAdmin(window.__activeUser) ? 1 : 2)) return null;
     const cmpMaps = cmpTeams.map(t => getTeamCheckpointOriginalNamesForDate(t, dateFilter));
     const bonusIds = getRouteBonusTeamIdsOnDate(dateFilter);
     const bonus = cmpTeams.some(t => bonusIds.has(t.id));
@@ -20615,13 +20624,13 @@ function RoleAccessCard() {
       fontSize: 13,
       color: "var(--navy-700)"
     }
-  }, "Atur siapa saja yang punya akses Super Admin (bisa lihat & ubah semua data), Admin (bisa lihat & unduh semua data serta menyetujui/menolak izin dan lembur, tanpa bisa mengubah pengaturan atau data lain), View Only (bisa lihat semua halaman admin tapi tidak bisa tambah/edit/hapus), dan Karyawan (hanya akses presensi & data sendiri).")), canEdit && /*#__PURE__*/React.createElement(Button, {
+  }, "Atur siapa saja yang punya akses Super Admin (bisa lihat & ubah semua data), Admin (bisa lihat & unduh semua data serta menyetujui/menolak izin dan lembur, tanpa bisa mengubah pengaturan atau data lain), View Only (bisa lihat semua halaman admin tapi tidak bisa tambah/edit/hapus), dan Karyawan (hanya akses presensi & data sendiri).")), (canEdit || isAreaAdmin(currentUser)) && /*#__PURE__*/React.createElement(Button, {
     variant: "primary",
     onClick: () => setShowAddModal(true)
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "user-plus",
     size: 16
-  }), " Tambah Pengguna")), /*#__PURE__*/React.createElement("div", {
+  }), canEdit ? " Tambah Pengguna" : " Tambah Anggota")), /*#__PURE__*/React.createElement("div", {
     style: { marginTop: 16 }
   }, toast && /*#__PURE__*/React.createElement("div", {
     style: {
@@ -20750,7 +20759,7 @@ function RoleAccessCard() {
     onConfirmed: handleDeleted
   }), showAddModal && /*#__PURE__*/React.createElement(EmployeeFormModal, {
     employee: null,
-    allowRoleSelect: true,
+    allowRoleSelect: !!canEdit,
     onClose: () => setShowAddModal(false),
     onSaved: handleAddSaved
   }));
