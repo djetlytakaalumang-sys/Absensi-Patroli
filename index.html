@@ -3188,6 +3188,27 @@ const KEJADIAN_STATUS_CLASS = {
 function generateKejadianId() {
   return "kej-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
+// ===== Penanda "sudah dilihat" laporan kejadian (untuk lencana menu & dashboard) =====
+// Status laporan tetap "Baru" (admin hanya memantau), tapi lencana angka hilang setelah detailnya dibuka.
+function _kjSeenKey() { const u = window.__activeUser; return "kejadianSeen:" + ((u && u.id) || "anon"); }
+function getKejadianSeen() { try { return JSON.parse(localStorage.getItem(_kjSeenKey()) || "[]"); } catch (e) { return []; } }
+function markKejadianSeen(id) {
+  if (!id) return;
+  try {
+    const seen = getKejadianSeen();
+    if (!seen.includes(id)) { seen.push(id); localStorage.setItem(_kjSeenKey(), JSON.stringify(seen.slice(-500))); }
+  } catch (e) {}
+  try { window.dispatchEvent(new Event("kejadian-seen")); } catch (e) {}
+}
+function useKejadianSeenTick() {
+  const [t, setT] = useState(0);
+  useEffect(() => {
+    const f = () => setT(x => x + 1);
+    window.addEventListener("kejadian-seen", f);
+    return () => window.removeEventListener("kejadian-seen", f);
+  }, []);
+  return t;
+}
 // ===== Format tiket Laporan Kejadian =====
 const KEJADIAN_CATEGORIES = ["Gangguan OSP", "Gangguan Perangkat", "Kabel Laut", "Pekerjaan Pihak Ketiga", "Lainnya"];
 const KEJADIAN_PRIORITY_LABEL = { rendah: "Rendah", sedang: "Sedang", tinggi: "Tinggi" };
@@ -12026,7 +12047,8 @@ function AdminDashboard({
     });
     return aktif.slice(0, 4);
   }, [store.kejadian, store.settings, areaFilter]);
-  const kejadianBaruCount = useMemo(() => getKejadianReports().filter(k => k.status === KEJADIAN_STATUS.BARU && inDashArea(k.userId)).length, [store.kejadian, store.settings, areaFilter]);
+  const kjSeenTickDash = useKejadianSeenTick();
+  const kejadianBaruCount = useMemo(() => { const seen = getKejadianSeen(); return getKejadianReports().filter(k => k.status === KEJADIAN_STATUS.BARU && !seen.includes(k.id) && inDashArea(k.userId)).length; }, [store.kejadian, store.settings, areaFilter, kjSeenTickDash]);
   const [feedDetailId, setFeedDetailId] = useState(null);
   const feedDetailK = feedDetailId ? getKejadianReports().find(x => x.id === feedDetailId) || null : null;
   const teamLeaderboard = useMemo(() => getLeaderboard(mk, areaFilter).filter(r => inDashArea(r.userId)), [mk, areaFilter, store.records, store.leaves, store.patrols, store.users, store.checkpoints, store.settings]);
@@ -21672,6 +21694,7 @@ function KejadianDetailModal({
 }) {
   const h = React.createElement;
   const [zoom, setZoom] = useState(false);
+  useEffect(() => { if (k && k.id) markKejadianSeen(k.id); }, [k && k.id]);
   const rows = kejadianTimeline(k).filter(r => r.time);
   const handledAt = k.handledAt || (rows.find(r => r.type === "proses") || {}).time;
   const handledBy = k.handledBy || (rows.find(r => r.type === "proses") || {}).by;
@@ -22408,6 +22431,9 @@ function useEmergencyAlerts(enabled, alertUser) {
   useEffect(() => {
     if (!enabled) return;
     const daruratAktif = getKejadianReports().filter(k => k.darurat && k.status !== KEJADIAN_STATUS.SELESAI && inNotifScope(k.userId, alertUser));
+    // Laporan yang sudah SELESAI (atau di luar cakupan) otomatis hilang dari banner/alarm notifikasi
+    const activeIds = new Set(daruratAktif.map(k => k.id));
+    setAlerts(prev => { const kept = prev.filter(a => activeIds.has(a.id)); return kept.length === prev.length ? prev : kept; });
     const fresh = daruratAktif.filter(k => !seenRef.current.has(k.id));
     if (fresh.length > 0) {
       fresh.forEach(k => seenRef.current.add(k.id));
@@ -22747,10 +22773,12 @@ function App() {
     if (!canAccessAdminPanel(user)) return 0;
     return getOvertimes().filter(o => o.status === LEAVE_STATUS.PENDING && inNotifScope(o.userId, user)).length;
   }, [user, page, store.overtimes, store.settings, store.users]);
+  const kjSeenTick = useKejadianSeenTick();
   const baruKejadianCount = useMemo(() => {
     if (!canAccessAdminPanel(user)) return 0;
-    return getKejadianReports().filter(k => k.status === KEJADIAN_STATUS.BARU && inNotifScope(k.userId, user)).length;
-  }, [user, page, store.kejadian, store.settings, store.users]);
+    const seen = getKejadianSeen();
+    return getKejadianReports().filter(k => k.status === KEJADIAN_STATUS.BARU && !seen.includes(k.id) && inNotifScope(k.userId, user)).length;
+  }, [user, page, store.kejadian, store.settings, store.users, kjSeenTick]);
   const emergencyActiveCount = useMemo(() => {
     if (!canAccessAdminPanel(user)) return 0;
     return getKejadianReports().filter(k => k.darurat && k.status !== KEJADIAN_STATUS.SELESAI && inNotifScope(k.userId, user)).length;
