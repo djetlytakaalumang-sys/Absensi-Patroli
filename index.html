@@ -19429,7 +19429,7 @@ function SettingsPage({
       padding: "10px 14px",
       borderRadius: 10
     }
-  }, error), section === "akses" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(RoleAccessCard, null), /*#__PURE__*/React.createElement(LoginHistoryCard, null)), section === "backup" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(BackupArchiveCard, null), /*#__PURE__*/React.createElement(ImportArchiveCard, null)), /*#__PURE__*/React.createElement("fieldset", {
+  }, error), section === "akses" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(RoleAccessCard, null), /*#__PURE__*/React.createElement(LoginHistoryCard, null)), section === "backup" && canEdit && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(BackupArchiveCard, null), /*#__PURE__*/React.createElement(ImportArchiveCard, null)), /*#__PURE__*/React.createElement("fieldset", {
     disabled: !editable,
     style: {
       border: 0,
@@ -22666,16 +22666,16 @@ function App() {
       key: "settings-akses",
       label: "Hak Akses",
       icon: "shield"
-    }, {
+    }, ...(user && user.role === ROLES.ADMIN ? [{
       key: "settings-backup",
       label: "Backup & Arsip",
       icon: "database"
-    }]
+    }] : [])]
   }, {
     key: "panduan",
     label: "Panduan",
     icon: "help-circle"
-  }], [pendingLeaveCount, baruKejadianCount, pendingOvertimeCount]);
+  }], [pendingLeaveCount, baruKejadianCount, pendingOvertimeCount, user && user.role]);
   const isAdminUser = canAccessAdminPanel(user);
   const {
     alerts: emergencyAlerts,
@@ -22732,7 +22732,8 @@ function App() {
       if (page === "settings-akses") return /*#__PURE__*/React.createElement(SettingsPage, {
         section: "akses"
       });
-      if (page === "settings-backup") return /*#__PURE__*/React.createElement(SettingsPage, {
+      // Backup & Arsip khusus Super Admin; akun lain dialihkan ke Dashboard.
+      if (page === "settings-backup" && isAdmin) return /*#__PURE__*/React.createElement(SettingsPage, {
         section: "backup"
       });
       if (page === "settings") return /*#__PURE__*/React.createElement(SettingsPage, {
