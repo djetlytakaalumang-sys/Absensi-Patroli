@@ -870,6 +870,13 @@ function assertUserAreaOwned(userId) {
 }
 // ---- Pembatasan tampilan Admin Area ----
 // Admin Area hanya boleh MELIHAT dan MENGATUR data area yang dikelolanya. Super Admin (dan Admin tanpa batasan area) tetap melihat semua.
+// Zona waktu ditentukan per area dari namanya: Timur = WITA; Tengah & Barat = WIB.
+function areaTzLabel(area) {
+  const n = String((area && area.name) || "").toLowerCase();
+  if (n.includes("timur")) return "WITA";
+  if (n.includes("tengah") || n.includes("barat")) return "WIB";
+  return "";
+}
 function areaAdminAreaIds() {
   const u = window.__activeUser;
   return isAreaAdmin(u) ? u.areaAccess : null;
@@ -19232,6 +19239,7 @@ function SettingsPage({
     setJamDraft(jamSourceFrom(settings, jamAreaId));
   }, [jamAreaId]);
   const jamAreaObj = jamAreaId !== "default" ? getAreas().find(a => a.id === jamAreaId) : null;
+  const jamTzLabel = jamAreaObj ? areaTzLabel(jamAreaObj) : "";
   async function saveWorkHours(e) {
     e.preventDefault();
     setError("");
@@ -19498,7 +19506,7 @@ function SettingsPage({
     }
   }, /*#__PURE__*/React.createElement("label", {
     className: "label"
-  }, "Batas jam masuk"), /*#__PURE__*/React.createElement("input", {
+  }, "Batas jam masuk" + (jamTzLabel ? " (" + jamTzLabel + ")" : "")), /*#__PURE__*/React.createElement("input", {
     className: "input",
     type: "time",
     value: jamDraft.checkInDeadline,
@@ -19509,7 +19517,7 @@ function SettingsPage({
     }
   }, /*#__PURE__*/React.createElement("label", {
     className: "label"
-  }, "Jam pulang normal"), /*#__PURE__*/React.createElement("input", {
+  }, "Jam pulang normal" + (jamTzLabel ? " (" + jamTzLabel + ")" : "")), /*#__PURE__*/React.createElement("input", {
     className: "input",
     type: "time",
     value: jamDraft.shiftEndTime,
@@ -19548,7 +19556,7 @@ function SettingsPage({
     }
   }, /*#__PURE__*/React.createElement("label", {
     className: "label"
-  }, "Mulai piket malam"), /*#__PURE__*/React.createElement("input", {
+  }, "Mulai piket malam" + (jamTzLabel ? " (" + jamTzLabel + ")" : "")), /*#__PURE__*/React.createElement("input", {
     className: "input",
     type: "time",
     value: jamDraft.nightShiftStart,
@@ -19559,7 +19567,7 @@ function SettingsPage({
     }
   }, /*#__PURE__*/React.createElement("label", {
     className: "label"
-  }, "Selesai piket malam"), /*#__PURE__*/React.createElement("input", {
+  }, "Selesai piket malam" + (jamTzLabel ? " (" + jamTzLabel + ")" : "")), /*#__PURE__*/React.createElement("input", {
     className: "input",
     type: "time",
     value: jamDraft.nightShiftEnd,
@@ -19585,7 +19593,7 @@ function SettingsPage({
     const src = jamSourceFrom(getSettings(), t.id);
     const a = t.id === "default" ? null : getAreas().find(x => x.id === t.id);
     const own = t.id === "default" || !!(a && a.jam);
-    return /*#__PURE__*/React.createElement("tr", { key: t.id, style: { borderTop: "1px solid var(--line)" } }, /*#__PURE__*/React.createElement("td", { style: { padding: "8px 10px 8px 0", fontWeight: 600, color: "var(--navy-900)" } }, t.id === "default" ? "Bawaan" : t.label), /*#__PURE__*/React.createElement("td", { style: { padding: "8px 10px 8px 0" } }, src.checkInDeadline), /*#__PURE__*/React.createElement("td", { style: { padding: "8px 10px 8px 0" } }, src.shiftEndTime), /*#__PURE__*/React.createElement("td", { style: { padding: "8px 10px 8px 0" } }, src.nightShiftStart + " – " + src.nightShiftEnd), /*#__PURE__*/React.createElement("td", { style: { padding: "8px 0", color: "var(--t-muted)" } }, t.id === "default" ? "Jam bawaan" : own ? "Jam khusus area" : "Mengikuti bawaan"));
+    return /*#__PURE__*/React.createElement("tr", { key: t.id, style: { borderTop: "1px solid var(--line)" } }, /*#__PURE__*/React.createElement("td", { style: { padding: "8px 10px 8px 0", fontWeight: 600, color: "var(--navy-900)" } }, t.id === "default" ? "Bawaan" : t.label + (a && areaTzLabel(a) ? " (" + areaTzLabel(a) + ")" : "")), /*#__PURE__*/React.createElement("td", { style: { padding: "8px 10px 8px 0" } }, src.checkInDeadline), /*#__PURE__*/React.createElement("td", { style: { padding: "8px 10px 8px 0" } }, src.shiftEndTime), /*#__PURE__*/React.createElement("td", { style: { padding: "8px 10px 8px 0" } }, src.nightShiftStart + " – " + src.nightShiftEnd), /*#__PURE__*/React.createElement("td", { style: { padding: "8px 0", color: "var(--t-muted)" } }, t.id === "default" ? "Jam bawaan" : own ? "Jam khusus area" : "Mengikuti bawaan"));
   }))))), section === "checkpoint" && /*#__PURE__*/React.createElement(CheckpointSettingsTabBar, { tab: cpTab, onChange: setCpTab, areaFilter: cpAreaFilter, onAreaFilter: setCpAreaFilter }), section === "checkpoint" && cpTab === "area" && /*#__PURE__*/React.createElement(AreaSettingsCard, null), section === "checkpoint" && cpTab === "rute" && /*#__PURE__*/React.createElement(RouteTeamsSettingsCard, null), section === "checkpoint" && (cpTab === "lokasi" || cpTab === "checkpoint") && /*#__PURE__*/React.createElement("div", {
     className: "grid-2-responsive",
     style: {
