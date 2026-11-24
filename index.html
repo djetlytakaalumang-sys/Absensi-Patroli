@@ -4970,7 +4970,7 @@ function buildRitRecapExport({ mode, dateStr, monthStr, checkpointId, nameQuery,
           extra: [...map.entries()].filter(([lower]) => !routeLower.has(lower)).map(([, orig]) => orig)
         };
       };
-      teamCompare = cmpTeams.length >= (isAreaAdmin(window.__activeUser) ? 1 : 2) ? {
+      teamCompare = cmpTeams.length >= 1 ? {
         teams: cmpTeams.map((t, i) => col(t, cmpMaps[i])),
         bothPatrolled: cmpMaps.filter(m => m.size > 0).length >= 2,
         bonus: cmpTeams.some(t => bonusIds.has(t.id))
@@ -18743,7 +18743,7 @@ function RekapRitPage() {
   // admin bisa langsung lihat kenapa bonus rute didapat/tidak.
   const teamRouteCompareEl = mode === "harian" ? (() => {
     const cmpTeams = getRouteCompareTeams(areaFilter);
-    if (cmpTeams.length < (isAreaAdmin(window.__activeUser) ? 1 : 2)) return null;
+    if (cmpTeams.length < 1) return null;
     const cmpMaps = cmpTeams.map(t => getTeamCheckpointOriginalNamesForDate(t, dateFilter));
     const bonusIds = getRouteBonusTeamIdsOnDate(dateFilter);
     const bonus = cmpTeams.some(t => bonusIds.has(t.id));
