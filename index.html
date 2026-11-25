@@ -213,6 +213,7 @@ img{max-width:100%; display:block;}
 .badge::before{content:""; width:6px; height:6px; border-radius:999px; background:currentColor;}
 .badge-hadir{background:var(--green-soft); color:var(--green);}
 .badge-terlambat{background:var(--amber-soft); color:var(--amber);}
+.badge-proses{background:#ecfccb; color:#4d7c0f;}
 .badge-alpha{background:var(--red-soft); color:var(--red);}
 .badge-izin{background:var(--violet-soft); color:var(--violet);}
 .badge-piket-malam{background:var(--indigo-soft); color:var(--indigo);}
@@ -371,6 +372,7 @@ html,body{overflow-x:hidden; width:100%;}
 }
 :root{--glass-bg:rgba(255,255,255,.92); --t-muted:#64748b; --t-faint:#94a3b8;}
 /* ===== TEMA GELAP (html[data-theme="dark"]) ===== */
+html[data-theme="dark"] .badge-proses,html[data-theme="dark"] .kj-tag.kj-st-ditangani{background:rgba(163,230,53,.16);color:#bef264}
 html[data-theme="dark"]{color-scheme:dark;
   --navy-950:#14101a; --navy-900:#f3eef1; --navy-800:#d9d0d5; --navy-700:#b8adb3; --navy-600:#8f848b;
   --navy-100:rgba(38,32,44,.9); --navy-50:#ffffff0d; --slate-mist:#ffffff0f; --line:#ffffff1f;
@@ -797,7 +799,7 @@ html[data-theme="dark"] body{background-color:#0e1116 !important; background-ima
 .kj-tag{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;background:#e6ff3d;color:#222;margin-top:6px;margin-right:6px}
 .kj-tag.r{background:#fde4e1;color:#b42318}.kj-tag.n{background:#e4e6de;color:#333}
 /* Warna status laporan kejadian disamakan dengan badge status di halaman lain */
-.kj-tag.kj-st-baru{background:var(--red-soft);color:var(--red)}.kj-tag.kj-st-ditangani{background:var(--amber-soft);color:var(--amber)}.kj-tag.kj-st-selesai{background:rgba(0,0,0,.05);color:var(--navy-700)}
+.kj-tag.kj-st-baru{background:var(--red-soft);color:var(--red)}.kj-tag.kj-st-ditangani{background:#ecfccb;color:#4d7c0f}.kj-tag.kj-st-selesai{background:rgba(0,0,0,.05);color:var(--navy-700)}
 .kj-btn{border:1px solid var(--card-line);background:#fff;border-radius:999px;padding:7px 16px;font-size:12.5px;font-weight:600;color:var(--navy-900);cursor:pointer;flex-shrink:0}
 .kj-cat{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 0;font-size:13px;color:var(--navy-900)}
 .kj-cat+.kj-cat{border-top:1px solid var(--card-line)}.kj-cat b{font-weight:600}
@@ -3236,7 +3238,7 @@ const KEJADIAN_STATUS_LABEL = {
 };
 const KEJADIAN_STATUS_CLASS = {
   baru: "badge-alpha",
-  ditangani: "badge-terlambat",
+  ditangani: "badge-proses",
   selesai: "badge-neutral"
 };
 function generateKejadianId() {
@@ -12975,6 +12977,9 @@ function AdminDashboard({
       setShowExcel(false);
       exportToExcel(filtered);
     }
+  }), feedDetailK && /*#__PURE__*/React.createElement(KejadianDetailModal, {
+    k: feedDetailK,
+    onClose: () => setFeedDetailId(null)
   }));
 }
 
