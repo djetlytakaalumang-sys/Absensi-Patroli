@@ -755,6 +755,54 @@ html[data-theme="dark"] body{background-color:#0e1116 !important; background-ima
     -webkit-mask-image:linear-gradient(to right,#000 80%,transparent); mask-image:linear-gradient(to right,#000 80%,transparent);}
   html[data-theme="dark"] .login-side-art{background-color:#fff; filter:invert(1) hue-rotate(180deg) brightness(.85); opacity:.9;}
 }
+
+/* ===== Ringkasan Laporan Kejadian (dashboard admin) ===== */
+.kj-wrap{margin-bottom:20px;display:flex;flex-direction:column;gap:14px}
+.kj-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media(min-width:640px){.kj-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(min-width:1100px){.kj-kpis{grid-template-columns:repeat(6,minmax(0,1fr))}}
+.kj-kpi{background:#fff;border:1px solid var(--card-line);border-radius:22px;padding:16px 18px;box-shadow:var(--shadow-card);min-width:0}
+.kj-kpi .l{font-size:12.5px;color:var(--t-muted)}
+.kj-kpi .v{display:flex;align-items:baseline;justify-content:space-between;gap:6px;margin-top:14px}
+.kj-kpi .n{font-size:clamp(26px,2.4vw,34px);font-weight:600;letter-spacing:-.03em;color:var(--navy-900);line-height:1}
+.kj-kpi .d{font-size:11.5px;color:var(--t-muted);white-space:nowrap}
+.kj-kpi.hl{background:#e6ff3d;border-color:#d4ee2a}.kj-kpi.hl .l,.kj-kpi.hl .d{color:#3a4200}.kj-kpi.hl .n{color:#111}
+.kj-card{background:#fff;border:1px solid var(--card-line);border-radius:26px;padding:20px;box-shadow:var(--shadow-card)}
+.kj-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.kj-head h2{font-size:18px;font-weight:600;color:var(--navy-900);letter-spacing:-.01em}.kj-head p{font-size:12.5px;color:var(--t-muted);margin-top:2px}
+.kj-seg{display:inline-flex;background:#eef0ea;border-radius:999px;padding:4px;gap:2px}
+.kj-seg button{border:0;background:transparent;padding:6px 14px;border-radius:999px;font-size:12.5px;font-weight:500;color:var(--navy-900);cursor:pointer}
+.kj-seg button.on{background:#111;color:#fff}
+.kj-pipe{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media(min-width:900px){.kj-pipe{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.kj-stage{background:#f1f2ec;border-radius:22px;padding:14px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.kj-pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;background:#e4e6de;color:#222;align-self:flex-start}
+.kj-pill.dk{background:#111;color:#fff}.kj-pill.lm{background:#e6ff3d;color:#111}
+.kj-stage .pc{font-size:12px;color:var(--t-muted);float:right}
+.kj-bar{height:84px;border-radius:14px;display:flex;align-items:flex-end;padding:0}
+.kj-bar i{display:block;width:100%;border-radius:12px;border:1.5px solid #9aa092;background:repeating-linear-gradient(135deg,transparent 0 5px,#9aa092 5px 6px);transition:height .4s}
+.kj-bar.lm i{background:#e6ff3d;border-color:#e6ff3d}
+.kj-stage .big{font-size:34px;font-weight:600;letter-spacing:-.03em;color:var(--navy-900);line-height:1}.kj-stage .big small{font-size:12px;font-weight:400;color:var(--t-muted);margin-left:6px;letter-spacing:0}
+.kj-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+@media(min-width:900px){.kj-grid{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr)}}
+.kj-row{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--card-line);border-radius:18px;background:#fafaf7}
+.kj-row+.kj-row{margin-top:10px}
+.kj-av{width:38px;height:38px;border-radius:50%;background:#e4e6de;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;color:#333;flex-shrink:0}
+.kj-row .t{font-size:13.5px;font-weight:600;color:var(--navy-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kj-row .s{font-size:12px;color:var(--t-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kj-tag{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;background:#e6ff3d;color:#222;margin-top:6px;margin-right:6px}
+.kj-tag.r{background:#fde4e1;color:#b42318}.kj-tag.n{background:#e4e6de;color:#333}
+.kj-btn{border:1px solid var(--card-line);background:#fff;border-radius:999px;padding:7px 16px;font-size:12.5px;font-weight:600;color:var(--navy-900);cursor:pointer;flex-shrink:0}
+.kj-cat{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 0;font-size:13px;color:var(--navy-900)}
+.kj-cat+.kj-cat{border-top:1px solid var(--card-line)}.kj-cat b{font-weight:600}
+.kj-go{cursor:pointer}.kj-kpi.kj-go:hover,.kj-stage.kj-go:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(16,24,40,.10)}.kj-kpi,.kj-stage{transition:transform .15s,box-shadow .15s}
+.kj-empty{font-size:13px;color:var(--t-muted);padding:8px 0}
+html[data-theme="dark"] .kj-kpi,html[data-theme="dark"] .kj-card{background:#171b23;border-color:#ffffff14;box-shadow:none}
+html[data-theme="dark"] .kj-kpi.hl{background:#d9f24a;border-color:#d9f24a}
+html[data-theme="dark"] .kj-stage,html[data-theme="dark"] .kj-row{background:#1f242e;border-color:#ffffff12}
+html[data-theme="dark"] .kj-seg{background:#232833}html[data-theme="dark"] .kj-seg button{color:#e6e9ef}html[data-theme="dark"] .kj-seg button.on{background:#e6ff3d;color:#111}
+html[data-theme="dark"] .kj-pill,html[data-theme="dark"] .kj-av,html[data-theme="dark"] .kj-tag.n{background:#2b313d;color:#e6e9ef}
+html[data-theme="dark"] .kj-btn{background:#232833;color:#e6e9ef;border-color:#ffffff1a}
 </style>
 <style id="tema-merah-nit">
 /* Tema merah mengikuti contoh: sidebar abu muda, menu aktif pil merah, form abu lembut. Blok ini sengaja paling akhir supaya menimpa aksen biru. */
@@ -12045,6 +12093,76 @@ function buildDailyAttendanceTrend(allRecords, monthKey) {
   }
   return days;
 }
+
+/* ======================= RINGKASAN LAPORAN KEJADIAN (DASHBOARD) ======================= */
+class KejadianOverviewGuard extends React.Component {
+  constructor(p) { super(p); this.state = { err: false }; }
+  static getDerivedStateFromError() { return { err: true }; }
+  componentDidCatch(e) { try { console.error("KejadianOverview:", e); } catch (x) {} }
+  render() { return this.state.err ? null : this.props.children; }
+}
+function KejadianOverview({ reports, onNavigate, onOpen }) {
+  const h = React.createElement;
+  const go = () => onNavigate && onNavigate("kejadian");
+  const goProps = { role: "button", tabIndex: 0, title: "Buka menu Laporan Kejadian", onClick: go, onKeyDown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } } };
+  const [range, setRange] = useState("30");
+  const now = Date.now();
+  const cut = range === "all" ? 0 : now - Number(range) * 86400000;
+  const inRange = reports.filter(k => { const t = new Date(k.createdAt).getTime(); return isNaN(t) || t >= cut; });
+  const cnt = s => inRange.filter(k => k.status === s).length;
+  const total = inRange.length;
+  const baru = cnt(KEJADIAN_STATUS.BARU), proses = cnt(KEJADIAN_STATUS.DITANGANI), selesai = cnt(KEJADIAN_STATUS.SELESAI);
+  const daruratAktif = inRange.filter(k => k.darurat && k.status !== KEJADIAN_STATUS.SELESAI).length;
+  const bulanIni = reports.filter(k => String(k.createdAt || "").slice(0, 7) === todayDateStrWITA(getTrustedNow()).slice(0, 7)).length;
+  const pct = n => total ? Math.round(n / total * 100) : 0;
+  const review = inRange.filter(k => k.status !== KEJADIAN_STATUS.SELESAI).sort((a, b) => (b.darurat ? 1 : 0) - (a.darurat ? 1 : 0) || (a.createdAt < b.createdAt ? 1 : -1)).slice(0, 4);
+  const cats = KEJADIAN_CATEGORIES.map(c => [c, inRange.filter(k => k.category === c).length]).filter(x => x[1] > 0);
+  const initials = n => String(n || "?").split(/\s+/).slice(0, 2).map(w => w[0]).join("").toUpperCase();
+  const Kpi = (label, n, d, hl) => h("div", { className: "kj-kpi kj-go" + (hl ? " hl" : ""), ...goProps }, h("div", { className: "l" }, label), h("div", { className: "v" }, h("span", { className: "n" }, n), d ? h("span", { className: "d" }, d) : null));
+  const Stage = (pill, cls, n, bar, hl) => h("div", { className: "kj-stage kj-go", ...goProps }, h("div", null, h("span", { className: "kj-pill " + cls }, pill), h("span", { className: "pc" }, pct(n) + "%")), h("div", { className: "kj-bar" + (hl ? " lm" : "") }, h("i", { style: { height: Math.max(total ? pct(n) : 0, n ? 12 : 4) + "%" } })), h("div", { className: "big" }, n, h("small", null, "laporan")));
+  if (total === 0) {
+    return h("div", { className: "kj-wrap" },
+      h("div", { className: "kj-kpis" },
+        Kpi("Total laporan kejadian", 0, "+0 bln ini"), Kpi("Laporan baru", 0, ""), Kpi("Sedang diproses", 0, ""), Kpi("Selesai", 0, ""), Kpi("Darurat aktif", 0, ""), Kpi("Tingkat selesai", "0%", "", true)),
+      h("div", { className: "kj-card", style: { textAlign: "center", padding: "28px 20px" } },
+        h("div", { className: "kj-head", style: { justifyContent: "center", marginBottom: 10 } },
+          h("div", null, h("h2", { className: "kj-go", ...goProps }, "Laporan Kejadian", " →"), h("p", null, range === "all" ? "Belum ada laporan kejadian yang masuk." : "Tidak ada laporan kejadian pada periode ini."))),
+        h("div", { className: "kj-seg", style: { marginBottom: 14 } }, [["30", "30 hari"], ["90", "Kuartal"], ["all", "Semua"]].map(([v, t]) => h("button", { key: v, className: range === v ? "on" : "", onClick: () => setRange(v) }, t))),
+        h("div", null, h("button", { className: "kj-btn", onClick: () => onNavigate && onNavigate("kejadian") }, "Buka halaman Laporan Kejadian"))));
+  }
+  return h("div", { className: "kj-wrap" },
+    h("div", { className: "kj-kpis" },
+      Kpi("Total laporan kejadian", total, "+" + bulanIni + " bln ini"),
+      Kpi("Laporan baru", baru, "belum ditangani"),
+      Kpi("Sedang diproses", proses, ""),
+      Kpi("Selesai", selesai, ""),
+      Kpi("Darurat aktif", daruratAktif, ""),
+      Kpi("Tingkat selesai", pct(selesai) + "%", "", true)),
+    h("div", { className: "kj-card" },
+      h("div", { className: "kj-head" },
+        h("div", null, h("h2", { className: "kj-go", ...goProps }, "Laporan Kejadian", " →"), h("p", null, "Dari laporan masuk sampai selesai · sesuai area dashboard")),
+        h("div", { className: "kj-seg" }, [["30", "30 hari"], ["90", "Kuartal"], ["all", "Semua"]].map(([v, t]) => h("button", { key: v, className: range === v ? "on" : "", onClick: () => setRange(v) }, t)))),
+      h("div", { className: "kj-pipe" },
+        Stage("Semua", "", total, null),
+        Stage("Baru", "", baru),
+        Stage("Diproses", "", proses),
+        Stage("Selesai", "dk", selesai, null, true))),
+    h("div", { className: "kj-grid" },
+      h("div", { className: "kj-card" },
+        h("div", { className: "kj-head", style: { marginBottom: 12 } }, h("div", null, h("h2", { style: { fontSize: 16 } }, "Laporan untuk ditinjau"), h("p", null, "Darurat & belum selesai")), h("button", { className: "kj-btn", onClick: () => onNavigate && onNavigate("kejadian") }, "Semua laporan")),
+        review.length === 0 ? h("p", { className: "kj-empty" }, "Tidak ada laporan kejadian yang perlu ditinjau.") :
+          review.map(k => h("div", { key: k.id, className: "kj-row" },
+            h("div", { className: "kj-av" }, initials(k.userName)),
+            h("div", { style: { flex: 1, minWidth: 0 } },
+              h("div", { className: "t" }, k.userName, k.ticketId ? " · " + k.ticketId : ""),
+              h("div", { className: "s" }, k.title || k.note),
+              h("div", null, k.darurat ? h("span", { className: "kj-tag r" }, "Darurat") : null, h("span", { className: "kj-tag" }, KEJADIAN_STATUS_LABEL[k.status]), k.category ? h("span", { className: "kj-tag n" }, k.category) : null)),
+            h("button", { className: "kj-btn", onClick: () => onOpen && onOpen(k.id) }, "Tinjau")))),
+      h("div", { className: "kj-card" },
+        h("div", { className: "kj-head", style: { marginBottom: 6 } }, h("div", null, h("h2", { className: "kj-go", style: { fontSize: 16 }, ...goProps }, "Per kategori", " →"), h("p", null, total + " laporan"))),
+        cats.length === 0 ? h("p", { className: "kj-empty" }, "Belum ada laporan pada periode ini.") :
+          cats.map(([c, n]) => h("div", { key: c, className: "kj-cat" }, h("span", null, c), h("b", null, n))))));
+}
 function AdminDashboard({
   onNavigate
 }) {
@@ -12207,7 +12325,7 @@ function AdminDashboard({
     delta: null,
     colorVar: "var(--red)",
     softVar: "var(--red-soft)"
-  })), /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement(KejadianOverviewGuard, null, React.createElement(KejadianOverview, { reports: getKejadianReports().filter(k => inDashArea(k.userId)), onNavigate: onNavigate, onOpen: setFeedDetailId })), /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: 14,
