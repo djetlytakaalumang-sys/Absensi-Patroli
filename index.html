@@ -2002,6 +2002,9 @@ async function addUser(data) {
     if (data.role && data.role !== ROLES.EMPLOYEE) throw new Error("Admin Area hanya bisa menambah karyawan di areanya.");
   } else {
     assertNoAreaAdminUserMgmt(null);
+    // Admin (akses Semua area) boleh menambah karyawan baru, tetapi tidak boleh membuat akun dengan role lain.
+    const _au = window.__activeUser;
+    if (_au && _au.role === ROLES.STAFF_ADMIN && data.role && data.role !== ROLES.EMPLOYEE) throw new Error("Admin hanya bisa menambah karyawan baru.");
   }
   const newUser = {
     id: generateUserId(),
@@ -20797,7 +20800,7 @@ function RoleAccessCard() {
       fontSize: 13,
       color: "var(--navy-700)"
     }
-  }, "Atur siapa saja yang punya akses Super Admin (bisa lihat & ubah semua data), Admin (bisa lihat & unduh semua data serta menyetujui/menolak izin dan lembur, tanpa bisa mengubah pengaturan atau data lain), View Only (bisa lihat semua halaman admin tapi tidak bisa tambah/edit/hapus), dan Karyawan (hanya akses presensi & data sendiri).")), (canEdit || isAreaAdmin(currentUser)) && /*#__PURE__*/React.createElement(Button, {
+  }, "Atur siapa saja yang punya akses Super Admin (bisa lihat & ubah semua data), Admin (bisa lihat & unduh semua data serta menyetujui/menolak izin dan lembur, tanpa bisa mengubah pengaturan atau data lain), View Only (bisa lihat semua halaman admin tapi tidak bisa tambah/edit/hapus), dan Karyawan (hanya akses presensi & data sendiri).")), (canEdit || isAreaAdmin(currentUser) || currentUser.role === ROLES.STAFF_ADMIN) && /*#__PURE__*/React.createElement(Button, {
     variant: "primary",
     onClick: () => setShowAddModal(true)
   }, /*#__PURE__*/React.createElement(Icon, {
