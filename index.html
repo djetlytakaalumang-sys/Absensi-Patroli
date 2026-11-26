@@ -4161,17 +4161,18 @@ function CheckpointSettingsTabBar({ tab, onChange, areaFilter, onAreaFilter }) {
     ...(isAreaAdmin(window.__activeUser) ? [] : [{ key: "umum", name: "Umum", color: "#94a3b8", n: items.filter(x => !x.areaId || !areas.some(a => a.id === x.areaId)).length }])
   ] : null;
   return h("div", { className: "card", style: { padding: 16, marginBottom: 16 } },
+    (tab === "lokasi" || tab === "checkpoint") && areas.length > 0 && h("div", { style: { paddingBottom: 14, marginBottom: 14, borderBottom: "1px solid var(--line)" } },
+      h("p", { style: { fontSize: 12, fontWeight: 700, color: "var(--navy-700)", marginBottom: 8 } }, "Tampilkan area"),
+      h(AreaFilterChips, { value: areaFilter, onChange: onAreaFilter }),
+      false && summary && h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, summary.map(x => h("span", { key: x.key, style: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: "var(--slate-mist, #eef2f7)", color: "var(--navy-700)" } },
+        h("span", { style: { width: 8, height: 8, borderRadius: 999, background: x.color } }), `${x.name}: ${x.n}`)))),
     h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, tabs.map(t => h("button", {
       key: t.id, type: "button", onClick: () => onChange(t.id),
       className: `chip ${tab === t.id ? "chip-active" : "chip-inactive"}`,
       style: { display: "inline-flex", alignItems: "center", gap: 6 }
     }, h(Icon, { name: t.icon, size: 14 }), t.label, t.count != null ? h("span", { style: { fontSize: 11, opacity: 0.75 } }, `(${t.count})`) : null))),
-    h("p", { style: { fontSize: 12.5, color: "var(--navy-700)", margin: "10px 2px 0" } }, cur.desc),
-    (tab === "lokasi" || tab === "checkpoint") && areas.length > 0 && h("div", { style: { marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--line)" } },
-      h("p", { style: { fontSize: 12, fontWeight: 700, color: "var(--navy-700)", marginBottom: 8 } }, "Tampilkan area"),
-      h(AreaFilterChips, { value: areaFilter, onChange: onAreaFilter }),
-      summary && h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, summary.map(x => h("span", { key: x.key, style: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: "var(--slate-mist, #eef2f7)", color: "var(--navy-700)" } },
-        h("span", { style: { width: 8, height: 8, borderRadius: 999, background: x.color } }), `${x.name}: ${x.n}`)))));
+    h("p", { style: { fontSize: 12.5, color: "var(--navy-700)", margin: "10px 2px 0" } }, cur.desc)
+  );
 }
 // Skor tim gabungan: kehadiran + patroli (bobot default 60/40, bisa beda per area). Jika belum ada data patroli, skor 100% dari kehadiran.
 function computeTeamScore(userId, monthKey) {
