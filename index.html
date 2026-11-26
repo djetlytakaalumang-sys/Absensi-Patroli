@@ -918,11 +918,82 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .area-chip:hover{transform:translateY(-2px);border-color:var(--ac);
   box-shadow:0 8px 22px color-mix(in srgb,var(--ac) 28%,transparent);}
 .area-chip.chip-active{color:#fff !important;border-color:transparent;font-weight:700;
-  background:linear-gradient(135deg,var(--ac),color-mix(in srgb,var(--ac) 62%,#000)) !important;
-  box-shadow:0 10px 26px color-mix(in srgb,var(--ac) 45%,transparent),inset 0 1px 0 rgba(255,255,255,.28) !important;}
+  background:linear-gradient(180deg,#3a3a38,#1c1c1b) !important;
+  box-shadow:0 6px 16px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.14) !important;}
 .area-dot{width:10px;height:10px;}
 html[data-theme="dark"] .area-chip:not(.chip-active){background:#1c212b;color:#e5e7eb;}
 @media (max-width:640px){.area-chip{padding:9px 16px;font-size:12px;}}
+</style>
+<style id="tema-netral-hitam">
+/* ===== Tema netral hangat + hitam (mengikuti contoh referensi) — tema terang =====
+   Blok ini paling akhir supaya menimpa aksen biru/merah di semua menu & sub menu. */
+html:not([data-theme="dark"]){
+  --accent-900:#000000; --accent-700:#1c1c1b; --accent-600:#262625; --accent-500:#5a5955;
+  --accent-100:#0000001a; --accent-50:#0000000a; --accent-ink:#ffffff; --cyan:#1c1c1b;
+  --navy-950:#f4f3f0; --navy-900:#111111; --navy-800:#3b3a37; --navy-700:#6b6a66; --navy-600:#9a9892;
+  --navy-50:#0000000a; --slate-mist:#0000000a; --line:#e7e5e0; --card-line:#e7e5e0;
+  --page-bg:#faf9f7; --t-muted:#6b6a66; --t-faint:#9a9892;
+  --green:#0a8f5b; --green-soft:#e4f5ec; --amber:#d58a0b; --amber-soft:#fcf1dc;
+  --red:#d92d20; --red-soft:#fdeceb; --violet:#4b4a46; --violet-soft:#efeeeb; --indigo:#3b3a37; --indigo-soft:#efeeeb;
+  --shadow-card:0 1px 2px rgba(17,17,17,.04);
+  accent-color:#1c1c1b; color-scheme:light;
+}
+html:not([data-theme="dark"]) body,html:not([data-theme="dark"]) #root{background:#faf9f7 !important;}
+html:not([data-theme="dark"]) *{-webkit-tap-highlight-color:rgba(0,0,0,.08);}
+html:not([data-theme="dark"]) ::selection{background:#1c1c1b;color:#fff;}
+html:not([data-theme="dark"]) input,html:not([data-theme="dark"]) textarea,html:not([data-theme="dark"]) select{caret-color:#111;}
+html:not([data-theme="dark"]) button:focus-visible,html:not([data-theme="dark"]) a:focus-visible,html:not([data-theme="dark"]) input:focus-visible,html:not([data-theme="dark"]) select:focus-visible{outline-color:#111;}
+
+/* Sidebar & topbar: abu hangat, menu aktif = pil putih berbingkai (teks hitam) */
+html:not([data-theme="dark"]) .sidebar-panel,html:not([data-theme="dark"]) .sidebar-rail{background:#f4f3f0 !important;border-color:#e7e5e0 !important;}
+html:not([data-theme="dark"]) .topbar-mobile{background:#ffffff !important;border-bottom:1px solid #e7e5e0 !important;}
+html:not([data-theme="dark"]) .nav-item{color:#4a4945 !important;font-weight:500;border:1px solid transparent !important;border-radius:10px;}
+html:not([data-theme="dark"]) .nav-item:hover{background:#0000000a !important;color:#111 !important;}
+html:not([data-theme="dark"]) .nav-item.active{background:#ffffff !important;color:#111111 !important;font-weight:600 !important;border:1px solid #e7e5e0 !important;box-shadow:0 1px 3px rgba(17,17,17,.08) !important;}
+html:not([data-theme="dark"]) .nav-item.active svg,html:not([data-theme="dark"]) .nav-item.active i{color:#111 !important;stroke:#111 !important;}
+html:not([data-theme="dark"]) .sidebar-rail-item.active{background:#ffffff !important;color:#111 !important;box-shadow:0 1px 3px rgba(17,17,17,.08);}
+html:not([data-theme="dark"]) .sidebar-rail-item:hover{background:#0000000a;}
+html:not([data-theme="dark"]) .bottomnav-item{color:#6b6a66;}
+html:not([data-theme="dark"]) .bottomnav-item.active{background:#1c1c1b !important;color:#fff !important;}
+html:not([data-theme="dark"]) .bottomnav-item.active svg{stroke:#fff;}
+
+/* Kartu */
+html:not([data-theme="dark"]) .card{background:#ffffff;border:1px solid #e7e5e0;box-shadow:0 1px 2px rgba(17,17,17,.04);}
+
+/* Tombol utama: hitam gradasi lembut */
+html:not([data-theme="dark"]) .btn-primary{background:linear-gradient(180deg,#3a3a38,#1c1c1b) !important;color:#fff !important;box-shadow:0 4px 12px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.14) !important;}
+html:not([data-theme="dark"]) .btn-primary:hover:not(:disabled){background:linear-gradient(180deg,#2c2c2a,#000) !important;}
+
+/* Chip, tab, filter */
+html:not([data-theme="dark"]) .chip-active{background:#1c1c1b !important;color:#fff !important;box-shadow:0 4px 12px rgba(0,0,0,.18) !important;}
+html:not([data-theme="dark"]) .chip-inactive{background:#fff;border:1px solid #e7e5e0;color:#3b3a37;}
+
+/* Form */
+html:not([data-theme="dark"]) .input,html:not([data-theme="dark"]) select.input,html:not([data-theme="dark"]) textarea.input,
+html:not([data-theme="dark"]) input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=button]):not([type=submit]),
+html:not([data-theme="dark"]) select,html:not([data-theme="dark"]) textarea{background-color:#faf9f7 !important;border:1px solid #dcdad4 !important;}
+html:not([data-theme="dark"]) .input:focus,html:not([data-theme="dark"]) select:focus,html:not([data-theme="dark"]) textarea:focus,html:not([data-theme="dark"]) input:focus{background-color:#fff !important;border-color:#111 !important;box-shadow:0 0 0 3px rgba(0,0,0,.08) !important;}
+
+/* Tabel */
+html:not([data-theme="dark"]) thead tr{background:#f4f3f0 !important;color:#111 !important;}
+html:not([data-theme="dark"]) .table-wrap tbody tr:nth-child(odd){background:#faf9f7 !important;}
+
+/* Kartu presensi & elemen gradasi biru/ungu -> hitam netral */
+html:not([data-theme="dark"]) .att-card{background:linear-gradient(135deg,#3a3a38 0%,#1c1c1b 70%,#000 100%) !important;box-shadow:0 14px 30px rgba(0,0,0,.2) !important;}
+html:not([data-theme="dark"]) .ot-bar i{background:linear-gradient(90deg,#3a3a38,#111) !important;}
+html:not([data-theme="dark"]) .area-count{background:#d92d20;}
+html:not([data-theme="dark"]) .area-chip.chip-active .area-count{background:#fff;color:#111;}
+</style>
+<style id="chip-area-flat">
+/* Chip area & judul: polos, tanpa gradasi, bayangan, glow, atau efek hover (mengikuti contoh referensi) */
+html .area-chip,html:not([data-theme="dark"]) .area-chip{background:#ffffff !important;background-image:none !important;border:1px solid #e7e5e0 !important;box-shadow:none !important;transform:none !important;color:#3b3a37 !important;border-radius:6px !important;font-weight:600;letter-spacing:0;transition:background-color .15s,border-color .15s,color .15s !important;}
+html .area-chip:hover,html:not([data-theme="dark"]) .area-chip:hover{background:#f4f3f0 !important;border-color:#cfccc5 !important;box-shadow:none !important;transform:none !important;}
+html .area-chip.chip-active,html:not([data-theme="dark"]) .area-chip.chip-active{background:#1c1c1b !important;background-image:none !important;border:1px solid #1c1c1b !important;color:#ffffff !important;box-shadow:none !important;transform:none !important;}
+html .area-chip.chip-active:hover{background:#1c1c1b !important;}
+html .area-dot,html .area-chip.chip-active .area-dot{box-shadow:none !important;}
+html[data-theme="dark"] .area-chip:not(.chip-active){background:#1c212b !important;border-color:#ffffff1a !important;color:#e5e7eb !important;}
+.dash-hero-title,.container-app h1{background:none !important;text-shadow:none !important;-webkit-text-fill-color:currentColor !important;}
+.dash-hero-title::before,.dash-hero-title::after,.dash-hero::before,.dash-hero::after{content:none !important;display:none !important;}
 </style>
 </head>
 <body>
@@ -4052,7 +4123,7 @@ function AreaFilterChips({ value, onChange, noAll, forData, counts, scopeIds }) 
   const h = React.createElement;
   const chip = (key, label) => {
     const n = counts ? (counts[key] || 0) : 0;
-    return h("button", { key, onClick: () => onChange(key), className: `chip area-chip ${value === key ? "chip-active" : "chip-inactive"}`, style: { "--ac": key === "all" ? "#6366f1" : getAreaColor(key) } },
+    return h("button", { key, onClick: () => onChange(key), className: `chip area-chip ${value === key ? "chip-active" : "chip-inactive"}`, style: { "--ac": key === "all" ? "#6b6a66" : getAreaColor(key) } },
       h("i", { className: "area-dot" }), label,
       counts && n > 0 ? h("b", { className: "area-count" }, n) : null);
   };
