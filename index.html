@@ -680,7 +680,7 @@ html:not([data-theme="dark"]) .login-top-tools button{color:#1e293b !important; 
 
 /* ===== Peta Live Patroli (tampilan baru) ===== */
 .lpm{position:relative;border-radius:16px;overflow:hidden;border:1px solid var(--line);isolation:isolate;background:var(--card-bg,#fff);box-shadow:0 6px 22px rgba(30,27,110,.12);}
-.lpm-head{display:flex;align-items:center;gap:10px;padding:11px 16px;background:linear-gradient(90deg,#1b1a63 0%,#3a22a8 100%);color:#fff;}
+.lpm-head{display:flex;align-items:center;gap:10px;padding:11px 16px;background:#1c1c1b;color:#fff;}
 .lpm-title{font-weight:700;font-size:15px;}
 .lpm-live{display:inline-flex;align-items:center;gap:6px;background:#16A34A;color:#fff;font-size:11.5px;font-weight:700;padding:3px 11px 3px 9px;border-radius:999px;}
 .lpm-live i{width:7px;height:7px;border-radius:50%;background:#fff;animation:nit-live-blink 1.4s ease-in-out infinite;}
@@ -992,6 +992,11 @@ html .area-chip.chip-active,html:not([data-theme="dark"]) .area-chip.chip-active
 html .area-chip.chip-active:hover{background:#1c1c1b !important;}
 html .area-dot,html .area-chip.chip-active .area-dot{box-shadow:none !important;}
 html[data-theme="dark"] .area-chip:not(.chip-active){background:#1c212b !important;border-color:#ffffff1a !important;color:#e5e7eb !important;}
+html .chip,html .chip.chip-active,html .chip.chip-inactive{border-radius:6px !important;background-image:none !important;box-shadow:none !important;transform:none !important;}
+html:not([data-theme="dark"]) .chip.chip-active{background:#1c1c1b !important;border:1px solid #1c1c1b !important;color:#fff !important;}
+html:not([data-theme="dark"]) .chip.chip-inactive{background:#fff !important;border:1px solid #e7e5e0 !important;color:#3b3a37 !important;}
+.area-chip .area-dot{display:none !important;}
+.area-chip{gap:0 !important;}
 .dash-hero-title,.container-app h1{background:none !important;text-shadow:none !important;-webkit-text-fill-color:currentColor !important;}
 .dash-hero-title::before,.dash-hero-title::after,.dash-hero::before,.dash-hero::after{content:none !important;display:none !important;}
 </style>
@@ -6517,11 +6522,11 @@ function LangToggle({ className = "sidebar-rail-item", style }) {
       onClick: () => { if (!on) setLang(code); },
       style: {
         display: "inline-flex", alignItems: "center", justifyContent: "center", gap: compact ? 0 : 6,
-        padding: compact ? "5px 6px" : "5px 11px 5px 8px", borderRadius: 999, border: "none", cursor: "pointer",
+        padding: compact ? "5px 6px" : "5px 11px 5px 8px", borderRadius: 6, border: "none", cursor: "pointer",
         fontSize: 12, fontWeight: 800, letterSpacing: ".04em", lineHeight: 1, fontFamily: "inherit",
-        background: on ? "linear-gradient(135deg,#3b82f6,#1d4ed8)" : "transparent",
+        background: on ? "#1c1c1b" : "transparent",
         color: on ? "#fff" : textColor,
-        boxShadow: on ? "0 1px 4px rgba(29,78,216,.4)" : "none",
+        boxShadow: on ? "none" : "none",
         opacity: on ? 1 : .75, transition: "background .18s ease, opacity .18s ease"
       }
     }, React.createElement(LangFlag, { code, w: compact ? 18 : 22 }), !compact && React.createElement("span", null, code.toUpperCase()));
@@ -6529,9 +6534,9 @@ function LangToggle({ className = "sidebar-rail-item", style }) {
   return React.createElement("span", {
     role: "radiogroup", "aria-label": "Bahasa / Language",
     style: {
-      display: "inline-flex", alignItems: "center", gap: 2, padding: 3, borderRadius: 999, flexShrink: 0,
-      background: (style && style.background) || "rgba(59,130,246,.12)",
-      border: (style && style.border) || "1px solid rgba(59,130,246,.45)"
+      display: "inline-flex", alignItems: "center", gap: 2, padding: 3, borderRadius: 8, flexShrink: 0,
+      background: (style && style.background) || "rgba(0,0,0,.05)",
+      border: (style && style.border) || "1px solid #e7e5e0"
     }
   }, I18N_LANGS.map(seg));
 }
@@ -19001,24 +19006,24 @@ function RekapRitPage() {
     React.createElement("button", {
       onClick: () => setMode("harian"),
       style: {
-        fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 999,
-        background: mode === "harian" ? "var(--red)" : "var(--navy-50)",
+        fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 6, border: "1px solid " + "#e7e5e0", boxShadow: "none",
+        background: mode === "harian" ? "#1c1c1b" : "var(--navy-50)",
         color: mode === "harian" ? "#fff" : "var(--navy-700)"
       }
     }, "Per Tanggal"),
     React.createElement("button", {
       onClick: () => setMode("bulanan"),
       style: {
-        fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 999,
-        background: mode === "bulanan" ? "var(--red)" : "var(--navy-50)",
+        fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 6, border: "1px solid " + "#e7e5e0", boxShadow: "none",
+        background: mode === "bulanan" ? "#1c1c1b" : "var(--navy-50)",
         color: mode === "bulanan" ? "#fff" : "var(--navy-700)"
       }
     }, "Per Bulan"),
     React.createElement("button", {
       onClick: () => setMode("matriks"),
       style: {
-        fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 999,
-        background: mode === "matriks" ? "var(--red)" : "var(--navy-50)",
+        fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 6, border: "1px solid " + "#e7e5e0", boxShadow: "none",
+        background: mode === "matriks" ? "#1c1c1b" : "var(--navy-50)",
         color: mode === "matriks" ? "#fff" : "var(--navy-700)"
       }
     }, "Per Hari (1 Bulan)")
