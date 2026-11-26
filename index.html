@@ -866,7 +866,7 @@ html:not([data-theme="dark"]) .input:focus{border-color:var(--accent-600) !impor
 .area-tag{display:inline-flex;align-items:center;gap:6px;margin-top:5px;padding:2px 10px 2px 8px;border-radius:999px;font-size:11px;font-weight:700;color:var(--ac);background:color-mix(in srgb,var(--ac) 12%,transparent);}
 .area-tag i{width:7px;height:7px;border-radius:50%;background:var(--ac);display:block;}
 .leave-grid .card{transition:transform .15s ease,box-shadow .15s ease;}
-.leave-grid .card:hover{transform:translateY(-2px);box-shadow:0 10px 26px rgba(17,24,39,.10) !important;}
+.leave-grid .card:hover:not(:has(.modal-backdrop)){transform:translateY(-2px);box-shadow:0 10px 26px rgba(17,24,39,.10) !important;}
 .ot-recap-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line);}
 .ot-recap-row:first-child{border-top:none;}
 .ot-bar{height:6px;border-radius:999px;background:rgba(99,102,241,.12);margin-top:7px;overflow:hidden;}
@@ -2362,15 +2362,44 @@ async function addOvertime(data) {
   }
 }
 // decision: "approved" | "rejected" | "pending" (mengembalikan ke Menunggu)
-async function decideOvertime(id, decision, byName) {
+// ===== Peninjauan lembur (gaya Laporan Kejadian): nomor referensi, penanda tinjauan & riwayat keputusan =====
+// Nomor referensi tampilan (tidak disimpan): <AWALAN AREA>-LMB-<YYYYMMDD>-<4 karakter id>, mis. NIT-LMB-20261126-K3F9.
+function overtimeRefNo(ot) {
+  const u = getUsers().find(x => x.id === ot.userId);
+  const d = String(ot.date || "").replace(/-/g, "");
+  const tail = String(ot.id || "").replace(/[^a-z0-9]/gi, "").slice(-4).toUpperCase();
+  return kejadianTicketPrefix(u) + "-LMB-" + d + "-" + tail;
+}
+// Riwayat keputusan; lembur lama (sebelum ada riwayat) disusun dari decidedAt/decidedBy.
+function overtimeReviewLog(ot) {
+  if (Array.isArray(ot.reviewLog) && ot.reviewLog.length) return ot.reviewLog;
+  if (ot.status !== LEAVE_STATUS.PENDING && ot.decidedAt) return [{ type: ot.status, by: ot.decidedBy || null, time: ot.decidedAt, note: ot.reviewNote || null }];
+  return [];
+}
+// Penanda otomatis untuk membantu peninjau (seperti chip kategori/prioritas pada tiket kejadian)
+function overtimeReviewFlags(ot) {
+  const f = [];
+  if (!ot.photoCount) f.push({ label: "Tanpa foto bukti", tone: "red" });
+  if ((ot.minutes || 0) > 8 * 60) f.push({ label: "Durasi > 8 jam", tone: "amber" });
+  if (timeToMinutes(ot.endTime) <= timeToMinutes(ot.startTime)) f.push({ label: "Lewat tengah malam", tone: "amber" });
+  if (ot.createdBy === "admin") f.push({ label: "Diinput admin", tone: "neutral" });
+  return f;
+}
+async function decideOvertime(id, decision, byName, note) {
   const previous = store.overtimes.find(o => o.id === id);
   if (!previous) throw new Error("Data lembur tidak ditemukan.");
   if (!userInDataScope(previous.userId)) throw new Error("Anda hanya bisa memproses lembur karyawan di area Anda.");
   assertUserAreaOwned(previous.userId);
+  const nowIso = new Date().toISOString();
+  const cleanNote = String(note || "").trim().slice(0, 500) || null;
+  // Tiap keputusan DITAMBAHKAN ke riwayat (tidak menimpa), termasuk saat dikembalikan ke Menunggu.
+  const reviewLog = [...overtimeReviewLog(previous), { type: decision, by: byName || null, time: nowIso, note: decision === LEAVE_STATUS.PENDING ? null : cleanNote }];
   const patch = {
     status: decision,
-    decidedAt: decision === LEAVE_STATUS.PENDING ? null : new Date().toISOString(),
-    decidedBy: decision === LEAVE_STATUS.PENDING ? null : byName || null
+    decidedAt: decision === LEAVE_STATUS.PENDING ? null : nowIso,
+    decidedBy: decision === LEAVE_STATUS.PENDING ? null : byName || null,
+    reviewNote: decision === LEAVE_STATUS.PENDING ? null : cleanNote,
+    reviewLog
   };
   store.overtimes = store.overtimes.map(o => o.id === id ? { ...o, ...patch } : o);
   _notifyStore();
@@ -6272,7 +6301,7 @@ const I18N_DICTS = { en: {
 "Mulai Patroli":"Start Patrol","Selesai Patroli":"End Patrol","Patroli Aktif":"Active Patrol","Belum Ada Patroli Aktif":"No Active Patrol","Sedang patroli":"On patrol","Sedang Patroli":"On Patrol","Patroli selesai":"Patrol finished","Patroli sedang berjalan":"Patrol in progress","Belum ada patroli berjalan":"No patrol in progress","Peta Live Patroli":"Live Patrol Map","Petugas Sedang Patroli":"Officers on Patrol","Daftar Checkpoint":"Checkpoint List","Checklist Checkpoint":"Checkpoint Checklist","Dikunjungi":"Visited","Mode Piket Malam":"Night Duty Mode","Mengambil lokasi…":"Getting location…","Satelit":"Satellite","Peta":"Map","Perbesar":"Zoom in","Perkecil":"Zoom out","Live":"Live","Update real-time":"Real-time update","Akhiri Paksa":"Force End","Checkpoint":"Checkpoint","Rekap Checkpoint (CP)":"Checkpoint (CP) Recap",
 "Lapor Kejadian":"Report Incident","Laporan Kejadian":"Incident Reports","Laporan Kejadian Saya":"My Incident Reports","Laporan Kejadian Tim":"Team Incident Reports","Kirim Laporan":"Submit Report","Judul":"Title","Kategori":"Category","Prioritas":"Priority","Rendah":"Low","Sedang":"Medium","Tinggi":"High","Darurat":"Emergency","Lainnya":"Other","Kronologi":"Chronology","Pelapor":"Reporter","Foto Kejadian":"Incident Photo","Tandai sebagai Darurat":"Mark as Emergency","Admin akan mendapat notifikasi prioritas.":"Admins will receive a priority notification.","Tandai Diproses":"Mark In Progress","Update Progres":"Update Progress","Selesaikan":"Complete","Simpan Update":"Save Update","Riwayat Penanganan":"Handling History","Detail Laporan Kejadian":"Incident Report Details","Laporan kejadian berhasil dikirim ke admin.":"Incident report sent to admin.","Hapus Laporan":"Delete Report","Lihat Detail":"View Details","Tanggal terbaru":"Newest date","Tanggal terlama":"Oldest date","Urutkan":"Sort",
 "Ajukan Izin/Cuti":"Request Leave","Dari tanggal":"From date","Sampai tanggal":"To date","Alasan":"Reason","Kirim Pengajuan":"Submit Request","Anda belum pernah mengajukan izin/cuti.":"You have not requested any leave yet.","Alasan izin/cuti wajib diisi.":"Leave reason is required.","Pengajuan Izin/Cuti":"Leave Requests","Setujui":"Approve","Tolak":"Reject","Batalkan Persetujuan":"Cancel Approval","Hapus pengajuan":"Delete request","Lampiran":"Attachment","Lampiran (opsional)":"Attachment (optional)","Tidak ada pengajuan pada kategori ini.":"No requests in this category.",
-"Input Lembur":"Add Overtime","Input Lembur Karyawan":"Add Employee Overtime","Kirim Lembur":"Submit Overtime","Simpan Lembur":"Save Overtime","Tanggal lembur":"Overtime date","Jam mulai":"Start time","Jam selesai":"End time","Keterangan pekerjaan":"Work description","Foto Pekerjaan":"Work Photo","Detail Lembur":"Overtime Details","Catat jam lembur kamu dan pantau persetujuannya.":"Log your overtime hours and track their approval.","Total lembur disetujui":"Total approved overtime","Menunggu persetujuan":"Awaiting approval","Belum ada data lembur di bulan ini.":"No overtime data this month.","Lembur Karyawan":"Employee Overtime","Rekap per Karyawan":"Summary per Employee","Batalkan pengajuan":"Cancel request","Batalkan pengajuan lembur ini?":"Cancel this overtime request?","Pengajuan lembur ditolak: Anda memiliki jadwal Piket Malam pada tanggal tersebut. Karyawan dengan jadwal Piket Malam tidak dapat mengajukan lembur di tanggal yang sama.":"Overtime request rejected: you are scheduled for Night Duty on that date. Employees with a Night Duty schedule cannot request overtime on the same date.","Ada jadwal Piket Malam pada tanggal ini. Lembur tidak dapat diajukan di tanggal yang sama.":"There is a Night Duty schedule on this date. Overtime cannot be requested on the same date.","Tanggal lembur hanya boleh dari 31 hari lalu sampai hari ini.":"Overtime date must be within the last 31 days up to today.","Durasi lembur minimal 15 menit.":"Minimum overtime duration is 15 minutes.","Durasi lembur maksimal 16 jam per input.":"Maximum overtime duration is 16 hours per entry.","Keterangan pekerjaan wajib diisi.":"Work description is required.","Foto pekerjaan wajib dilampirkan (minimal 1).":"A work photo is required (at least 1).","Tanggal lembur wajib diisi.":"Overtime date is required.","Jam mulai dan jam selesai wajib diisi.":"Start and end times are required.",
+"Input Lembur":"Add Overtime","Input Lembur Karyawan":"Add Employee Overtime","Kirim Lembur":"Submit Overtime","Simpan Lembur":"Save Overtime","Tanggal lembur":"Overtime date","Jam mulai":"Start time","Jam selesai":"End time","Keterangan pekerjaan":"Work description","Foto Pekerjaan":"Work Photo","Detail Lembur":"Overtime Details","Catat jam lembur kamu dan pantau persetujuannya.":"Log your overtime hours and track their approval.","Total lembur disetujui":"Total approved overtime","Menunggu persetujuan":"Awaiting approval","Belum ada data lembur di bulan ini.":"No overtime data this month.","Lembur Karyawan":"Employee Overtime","Rekap per Karyawan":"Summary per Employee","Batalkan pengajuan":"Cancel request","Batalkan pengajuan lembur ini?":"Cancel this overtime request?","Pengajuan lembur ditolak: Anda memiliki jadwal Piket Malam pada tanggal tersebut. Karyawan dengan jadwal Piket Malam tidak dapat mengajukan lembur di tanggal yang sama.":"Overtime request rejected: you are scheduled for Night Duty on that date. Employees with a Night Duty schedule cannot request overtime on the same date.","Ada jadwal Piket Malam pada tanggal ini. Lembur tidak dapat diajukan di tanggal yang sama.":"There is a Night Duty schedule on this date. Overtime cannot be requested on the same date.","Tanggal lembur hanya boleh dari 31 hari lalu sampai hari ini.":"Overtime date must be within the last 31 days up to today.","Durasi lembur minimal 15 menit.":"Minimum overtime duration is 15 minutes.","Durasi lembur maksimal 16 jam per input.":"Maximum overtime duration is 16 hours per entry.","Keterangan pekerjaan wajib diisi.":"Work description is required.","Foto pekerjaan wajib dilampirkan (minimal 1).":"A work photo is required (at least 1).","Tanggal lembur wajib diisi.":"Overtime date is required.","Jam mulai dan jam selesai wajib diisi.":"Start and end times are required.","Tinjau Lembur":"Review Overtime","Tinjau & Putuskan":"Review & Decide","Riwayat peninjauan":"Review history","Catatan peninjauan (wajib jika ditolak)":"Review note (required if rejected)","Alasan penolakan wajib diisi.":"A rejection reason is required.","Tanpa foto bukti":"No photo evidence","Durasi > 8 jam":"Duration > 8 hours","Lewat tengah malam":"Past midnight","Diinput admin":"Entered by admin",
 "Jadwal Saya":"My Schedule","Jadwal Bulan Ini":"This Month's Schedule","Jadwal hari ini":"Today's schedule","Jadwal Masuk":"In Schedule","Jadwal Piket Malam":"Night Duty Schedule","Jadwal Standby / Libur":"Standby / Off Schedule","Grid Jadwal Bulanan":"Monthly Schedule Grid","Jadwal & Presensi Hari Ini":"Today's Schedule & Attendance","Import Jadwal dari Excel":"Import Schedule from Excel","Unduh Template":"Download Template","Belum ada jadwal untuk hari ini.":"No schedule for today.","Jadwal belum diinput admin untuk bulan ini.":"Admin has not entered the schedule for this month.",
 "Edit Profil":"Edit Profile","Nama lengkap":"Full name","Nomor HP":"Phone number","Alamat":"Address","Simpan Perubahan":"Save Changes","Simpan":"Save","Menyimpan…":"Saving…","Ubah Kata Sandi":"Change Password","Kata sandi saat ini":"Current password","Kata sandi baru":"New password","Konfirmasi kata sandi baru":"Confirm new password","Kata sandi":"Password","Profil berhasil diperbarui.":"Profile updated successfully.","Kata sandi berhasil diubah.":"Password changed successfully.","Informasi akun dan kepegawaian Anda.":"Your account and employment information.",
 "Edit Pengguna":"Edit User","Tambah Karyawan":"Add Employee","Hapus karyawan?":"Delete employee?","Ya, Hapus":"Yes, Delete","Hak Akses Pengguna":"User Access Rights","Pengguna":"User","Ganti Foto":"Change Photo","Pilih Foto":"Choose Photo","Hapus":"Delete","Edit":"Edit","Batal":"Cancel","Tutup":"Close","Kembali":"Back","Coba lagi":"Try again","Coba Lagi":"Try Again","Ya":"Yes","Tidak":"No","Lihat":"View","Cari":"Search","Mengirim…":"Sending…","Memproses…":"Processing…","Menghapus…":"Deleting…","Membuat PDF…":"Generating PDF…",
@@ -18500,7 +18529,7 @@ function PanduanPage() {
       items: [
         "Menu Pengajuan \u2192 Lembur menampilkan semua lembur dalam kartu ringkas dua kolom (ikon, nama, tanggal, jam, durasi, status, dan keterangan 2 baris). Pilih bulan di bagian atas, lalu saring dengan tab Menunggu, Disetujui, Ditolak, atau Semua. Angka pada menu menunjukkan jumlah pengajuan yang menunggu.",
         "Ketuk bagian atas kartu untuk membuka Detail Lembur: durasi dan jam, hari & tanggal, nama dan jabatan karyawan, waktu diajukan, keputusan (siapa, kapan, dan lama proses), keterangan pekerjaan, foto yang bisa diperbesar, serta rekap lembur karyawan itu pada bulan yang sama.",
-        "Pengajuan Menunggu punya tombol Setujui dan Tolak (di kartu maupun di detail). Setelah diputuskan, keputusan bisa dikembalikan lewat \"Kembalikan ke Menunggu\", dan data bisa dihapus lewat \"Hapus\" (hanya Admin).",
+        "Pengajuan Menunggu punya tombol \"Tinjau & Putuskan\" yang membuka layar Tinjau Lembur (seperti Laporan Kejadian): nomor referensi, penanda otomatis (tanpa foto, durasi lebih dari 8 jam, lewat tengah malam), foto, rekap bulan karyawan, dan riwayat peninjauan. Isi catatan peninjauan lalu tekan Setujui atau Tolak; catatan wajib diisi bila ditolak dan terlihat oleh karyawan. Setelah diputuskan, keputusan bisa dikembalikan lewat \"Kembalikan ke Menunggu\", dan data bisa dihapus lewat \"Hapus\" (hanya Admin).",
         "Kartu \"Rekap lembur disetujui bulan ini\" menampilkan total jam seluruh karyawan dan rincian per karyawan (total jam dan berapa kali lembur). Hanya lembur berstatus Disetujui yang dihitung.",
         "Tombol \"Unduh Excel\" dan \"Unduh PDF\" membuat laporan SEMUA lembur (semua status) pada bulan yang dipilih, tidak terpengaruh tab yang sedang aktif. Excel berisi dua sheet: \"Rekap per Karyawan\" (jumlah dan total jam disetujui, jumlah menunggu dan ditolak, serta baris TOTAL) dan \"Rincian Lembur\" (satu baris per lembur). PDF berisi tabel rekap lalu tabel rincian.",
         "Karyawan juga punya tombol Excel dan PDF di halaman Lembur untuk mengunduh data lemburnya sendiri pada bulan yang dipilih.",
@@ -21656,7 +21685,7 @@ function DetailShell({
   children
 }) {
   const h = React.createElement;
-  return h("div", { className: "modal-backdrop", onClick: onClose },
+  const _shell = h("div", { className: "modal-backdrop", onClick: onClose },
     h("div", { className: "modal-box fade-up", style: { maxWidth: 520 }, onClick: e => e.stopPropagation() },
       h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", gap: 10, padding: "16px 20px", borderBottom: "1px solid var(--line)", position: "sticky", top: 0, background: "inherit", zIndex: 2 } },
         h("div", { style: { minWidth: 0 } },
@@ -21664,6 +21693,8 @@ function DetailShell({
           subtitle ? h("p", { style: { fontSize: 12, color: "var(--t-faint)", marginTop: 2 } }, subtitle) : null),
         h("button", { type: "button", onClick: onClose, "aria-label": "Tutup", style: { color: "var(--t-faint)", padding: 4, flexShrink: 0 } }, h(Icon, { name: "x", size: 20 }))),
       h("div", { style: { padding: "6px 20px 20px" } }, children)));
+  // Render di <body>: kartu induk (.leave-grid .card:hover) memakai transform, yang membuat modal "fixed" ikut bergeser lalu berkedip.
+  return ReactDOM.createPortal(_shell, document.body);
 }
 function detailDurationText(ms) {
   const mins = Math.max(0, Math.round(ms / 60000));
@@ -21728,6 +21759,18 @@ function KejadianDetailModal({
         kejadianTimeline(k).length ? kejadianUpdateBox(k) : h("p", { style: { fontSize: 13, color: "var(--t-faint)", marginTop: 4 } }, "Belum ada update."))),
     zoom && k.photo && h(LeaveAttachmentViewer, { data: k.photo, name: "Foto kejadian", type: "image/jpeg", onClose: () => setZoom(false) }));
 }
+// Riwayat peninjauan lembur, tampilan sama dengan "Riwayat penanganan" Laporan Kejadian
+function OvertimeReviewTimeline({ ot }) {
+  const h = React.createElement;
+  const first = ot.createdBy === "admin" ? { type: "diinput", by: null, time: ot.createdAt } : { type: "diajukan", by: ot.userName, time: ot.createdAt };
+  const rows = [first, ...overtimeReviewLog(ot)].filter(r => r.time);
+  const TITLE = { diajukan: "Diajukan oleh ", diinput: "Diinput oleh admin", approved: "Disetujui oleh ", rejected: "Ditolak oleh ", pending: "Dikembalikan ke Menunggu oleh " };
+  const DOT = { approved: "var(--green)", rejected: "var(--red)", pending: "var(--amber)" };
+  return h("div", { style: { marginTop: 10, background: "var(--slate-mist)", borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 10 } },
+    rows.map((r, i) => h("div", { key: i, style: { paddingLeft: 10, borderLeft: "2px solid " + (DOT[r.type] || "rgba(0,0,0,.12)") } },
+      h("p", { style: { fontSize: 12, fontWeight: 600, color: "var(--navy-900)" } }, (TITLE[r.type] || "Update oleh ") + (r.type === "diinput" ? "" : (r.by || "admin")) + " \u00b7 " + detailDateTime(r.time)),
+      r.note ? h("p", { style: { fontSize: 13, color: "var(--t-muted)", marginTop: 2, whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, r.note) : null)));
+}
 function OvertimeDetailModal({
   ot,
   canDecide,
@@ -21736,6 +21779,8 @@ function OvertimeDetailModal({
   onClose
 }) {
   const h = React.createElement;
+  const [note, setNote] = useState("");
+  const [noteErr, setNoteErr] = useState("");
   const [photos, setPhotos] = useState(_otPhotoCache[ot.id] || null);
   const [photoError, setPhotoError] = useState("");
   const [zoomIdx, setZoomIdx] = useState(null);
@@ -21748,6 +21793,12 @@ function OvertimeDetailModal({
   const cross = timeToMinutes(ot.endTime) <= timeToMinutes(ot.startTime);
   const decisionLabel = ot.status === LEAVE_STATUS.REJECTED ? "Ditolak" : "Disetujui";
   const empUser = getUsers().find(u => u.id === ot.userId) || null;
+  const reviewing = !!canDecide && ot.status === LEAVE_STATUS.PENDING;
+  function submitReview(decision) {
+    if (decision === LEAVE_STATUS.REJECTED && !note.trim()) { setNoteErr("Alasan penolakan wajib diisi."); return; }
+    onDecide(decision, note.trim());
+    onClose();
+  }
   const weekday = new Date(ot.date + "T00:00:00").toLocaleDateString("id-ID", { weekday: "long" });
   // Rekap lembur karyawan ini pada bulan yang sama (hanya yang disetujui dihitung ke total jam)
   const monthKey = String(ot.date).slice(0, 7);
@@ -21756,10 +21807,14 @@ function OvertimeDetailModal({
   const apprMin = apprList.reduce((a, o) => a + (o.minutes || 0), 0);
   const pendCount = sameMonth.filter(o => o.status === LEAVE_STATUS.PENDING).length;
   return h(React.Fragment, null,
-    h(DetailShell, { title: "Detail Lembur", subtitle: ot.userName, onClose },
-      h("div", { className: "flex", style: { alignItems: "center", gap: 8, marginTop: 14, flexWrap: "wrap" } },
-        h(LeaveStatusBadge, { status: ot.status }),
-        ot.createdBy === "admin" && h("span", { style: { fontSize: 12, color: "var(--t-faint)" } }, "Diinput oleh admin")),
+    h(DetailShell, { title: reviewing ? "Tinjau Lembur" : "Detail Lembur", subtitle: overtimeRefNo(ot), onClose },
+      h("div", { style: { marginTop: 14 } },
+        h("p", { style: { fontSize: 16, fontWeight: 700, color: "var(--navy-900)", overflowWrap: "anywhere" } }, String(ot.task || "").split("\n")[0].slice(0, 90) || "Lembur " + (ot.userName || "")),
+        h("div", { className: "flex", style: { gap: 6, flexWrap: "wrap", marginTop: 6 } },
+          h("span", { style: { fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: "var(--slate-mist)", color: "var(--navy-700)" } }, "Lembur"),
+          overtimeReviewFlags(ot).map(f => h("span", { key: f.label, style: { fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 999, ...(f.tone === "red" ? { background: "var(--red-soft)", color: "var(--red)" } : f.tone === "amber" ? { background: "var(--amber-soft)", color: "var(--amber)" } : { background: "var(--slate-mist)", color: "var(--navy-700)" }) } }, f.label))),
+        h("div", { className: "flex", style: { alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" } },
+          h(LeaveStatusBadge, { status: ot.status }))),
       h("div", { className: "flex", style: { alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginTop: 12, padding: "12px 14px", borderRadius: 12, background: "var(--slate-mist)" } },
         h("div", null,
           h("p", { style: { fontSize: 11, color: "var(--t-faint)" } }, "Durasi lembur"),
@@ -21784,9 +21839,16 @@ function OvertimeDetailModal({
       h("div", { style: { marginTop: 16, padding: "12px 14px", borderRadius: 12, border: "1px solid var(--line)" } },
         h("p", { style: { fontSize: 12, fontWeight: 700, color: "var(--navy-700)" } }, "Rekap " + (ot.userName || "karyawan") + " · " + overtimeMonthLabel(monthKey)),
         h("p", { style: { fontSize: 13, color: "var(--navy-900)", marginTop: 4 } }, "Disetujui: " + (apprMin ? formatOvertimeDuration(apprMin) : "0 jam") + " (" + apprList.length + "x)" + (pendCount ? " · Menunggu: " + pendCount + "x" : ""))),
-      canDecide && ot.status === LEAVE_STATUS.PENDING && h("div", { className: "flex", style: { gap: 8, marginTop: 18 } },
-        h(Button, { variant: "success", size: "sm", disabled: busy, onClick: () => { onDecide(LEAVE_STATUS.APPROVED); onClose(); } }, h(Icon, { name: "check", size: 14 }), " Setujui"),
-        h(Button, { variant: "outline", size: "sm", disabled: busy, onClick: () => { onDecide(LEAVE_STATUS.REJECTED); onClose(); } }, h(Icon, { name: "x", size: 14 }), " Tolak"))),
+      h("div", { style: { marginTop: 16 } },
+        h("p", { style: { fontSize: 12, fontWeight: 700, color: "var(--navy-700)" } }, "Riwayat peninjauan"),
+        h(OvertimeReviewTimeline, { ot })),
+      reviewing && h("div", { style: { marginTop: 16, display: "flex", flexDirection: "column", gap: 8 } },
+        h("label", { className: "label" }, "Catatan peninjauan (wajib jika ditolak)"),
+        h("textarea", { className: "input", rows: 2, placeholder: "mis. foto dan jam kerja sudah sesuai dengan jadwal pekerjaan", value: note, disabled: busy, onChange: e => { setNote(e.target.value); setNoteErr(""); }, style: { resize: "vertical", fontFamily: "inherit" } }),
+        noteErr && h("p", { role: "alert", style: { fontSize: 12, color: "var(--red)" } }, noteErr),
+        h("div", { className: "flex", style: { gap: 8, marginTop: 4 } },
+          h(Button, { variant: "success", size: "sm", disabled: busy, onClick: () => submitReview(LEAVE_STATUS.APPROVED) }, h(Icon, { name: "check", size: 14 }), " Setujui"),
+          h(Button, { variant: "outline", size: "sm", disabled: busy, onClick: () => submitReview(LEAVE_STATUS.REJECTED) }, h(Icon, { name: "x", size: 14 }), " Tolak")))),
     zoomIdx !== null && photos && photos[zoomIdx] && h(LeaveAttachmentViewer, { data: photos[zoomIdx], name: "Foto lembur", type: "image/jpeg", onClose: () => setZoomIdx(null) }));
 }
 /* ======================= LEMBUR (KARYAWAN & ADMIN) ======================= */
@@ -22020,10 +22082,10 @@ function OvertimeCard({
           h("p", { style: { fontSize: 12, color: "var(--t-faint)" } }, subText), showName && h(AreaTag, { userId: ot.userId }))),
       h(LeaveStatusBadge, { status: ot.status })),
     h("p", { style: { fontSize: 13, color: "var(--t-muted)", marginTop: 10, whiteSpace: "normal", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflowWrap: "anywhere" } }, ot.task),
+    ot.reviewNote && ot.status !== LEAVE_STATUS.PENDING && h("p", { style: { fontSize: 12, color: "var(--t-faint)", marginTop: 6, overflowWrap: "anywhere" } }, "Catatan peninjau: " + ot.reviewNote),
     showDetail && h(ModalGuard, { onClose: () => setShowDetail(false) }, h(OvertimeDetailModal, { ot, canDecide, busy, onDecide, onClose: () => setShowDetail(false) })),
     canDecide && ot.status === LEAVE_STATUS.PENDING && h("div", { className: "flex", style: { gap: 8, marginTop: 12 } },
-      h(Button, { variant: "success", size: "sm", disabled: busy, onClick: () => onDecide(LEAVE_STATUS.APPROVED) }, h(Icon, { name: "check", size: 14 }), " Setujui"),
-      h(Button, { variant: "outline", size: "sm", disabled: busy, onClick: () => onDecide(LEAVE_STATUS.REJECTED) }, h(Icon, { name: "x", size: 14 }), " Tolak")),
+      h(Button, { variant: "primary", size: "sm", disabled: busy, onClick: () => setShowDetail(true) }, h(Icon, { name: "eye", size: 14 }), " Tinjau & Putuskan")),
     (canRemove || (canDecide && ot.status !== LEAVE_STATUS.PENDING)) && h("div", { className: "flex", style: { gap: 14, marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--line)", alignItems: "center", flexWrap: "wrap" } },
       canDecide && ot.status !== LEAVE_STATUS.PENDING && linkBtn("Kembalikan ke Menunggu", () => onDecide(LEAVE_STATUS.PENDING), "var(--accent-700)"),
       canRemove && linkBtn(canDecide ? "Hapus" : "Batalkan pengajuan", onRemove)));
@@ -22291,7 +22353,7 @@ function OvertimeAdminPage() {
       h("p", { style: { color: "var(--t-faint)", fontSize: 14 } }, "Tidak ada data lembur pada kategori dan bulan ini.")) : h("div", { className: "leave-grid", style: { display: "flex", flexDirection: "column", gap: 12 } },
       filtered.map(ot => h(OvertimeCard, {
         key: ot.id, ot, showName: true, canDecide: canDecide, canRemove: canEdit, busy: busyId === ot.id,
-        onDecide: d => run(ot.id, () => decideOvertime(ot.id, d, user && user.name), "Gagal menyimpan keputusan lembur. Coba lagi."),
+        onDecide: (d, note) => run(ot.id, () => decideOvertime(ot.id, d, user && user.name, note), "Gagal menyimpan keputusan lembur. Coba lagi."),
         onRemove: () => remove(ot)
       }))),
     null);
