@@ -906,6 +906,31 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .chip-active{background:#2f78ee !important;box-shadow:0 4px 12px rgba(47,120,238,.25) !important;}
 .att-card{background:linear-gradient(135deg,#1c4fb8 0%,#2f78ee 62%,#35bde0 100%) !important;box-shadow:0 16px 36px rgba(47,120,238,.28) !important;}
 </style>
+<style id="dash-hero-style">
+/* ===== Judul & filter area dashboard — tampilan megah ===== */
+.dash-hero{position:relative;padding-left:18px;margin-bottom:18px !important;}
+.dash-hero::before{content:"";position:absolute;left:0;top:6px;bottom:6px;width:5px;border-radius:999px;
+  background:linear-gradient(180deg,var(--accent-500),var(--accent-900));box-shadow:0 4px 14px color-mix(in srgb,var(--accent-700) 40%,transparent);}
+.dash-hero-title{font-size:clamp(26px,4.2vw,40px) !important;font-weight:800 !important;line-height:1.08 !important;letter-spacing:-.035em !important;
+  background:linear-gradient(100deg,var(--navy-900) 0%,var(--navy-900) 55%,var(--accent-700) 100%);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;}
+.dash-hero-title::after{content:"";display:block;width:84px;height:4px;margin-top:10px;border-radius:999px;
+  background:linear-gradient(90deg,var(--accent-700),transparent);}
+html[data-theme="dark"] .dash-hero-title{background:linear-gradient(100deg,#fff 0%,#fff 55%,var(--accent-500) 100%);-webkit-background-clip:text;background-clip:text;}
+
+.dash-hero ~ .scrollbar-none{gap:10px !important;padding:6px 4px 14px !important;margin-bottom:8px !important;}
+.dash-hero ~ .scrollbar-none .area-chip{padding:10px 20px;font-size:13px;font-weight:600;letter-spacing:.01em;
+  border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--navy-800);
+  box-shadow:0 1px 2px rgba(17,24,39,.05),0 4px 14px rgba(17,24,39,.04);transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease;}
+.dash-hero ~ .scrollbar-none .area-chip:hover{transform:translateY(-2px);border-color:var(--ac);
+  box-shadow:0 8px 22px color-mix(in srgb,var(--ac) 28%,transparent);}
+.dash-hero ~ .scrollbar-none .area-chip.chip-active{color:#fff !important;border-color:transparent;font-weight:700;
+  background:linear-gradient(135deg,var(--ac),color-mix(in srgb,var(--ac) 62%,#000)) !important;
+  box-shadow:0 10px 26px color-mix(in srgb,var(--ac) 45%,transparent),inset 0 1px 0 rgba(255,255,255,.28) !important;}
+.dash-hero ~ .scrollbar-none .area-dot{width:10px;height:10px;}
+html[data-theme="dark"] .dash-hero ~ .scrollbar-none .area-chip:not(.chip-active){background:#1c212b;color:#e5e7eb;}
+@media (max-width:640px){.dash-hero{padding-left:14px;}.dash-hero ~ .scrollbar-none .area-chip{padding:9px 16px;font-size:12px;}}
+</style>
 </head>
 <body>
 <div id="root"><div style="font-family:-apple-system,Segoe UI,sans-serif;text-align:center;padding:60px 20px;color:#6b5d63;font-size:14px">Memuat aplikasi…</div></div>
@@ -12324,10 +12349,12 @@ function AdminDashboard({
   return /*#__PURE__*/React.createElement("div", {
     className: "container-app"
   }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-hero",
     style: {
       marginBottom: 16
     }
   }, /*#__PURE__*/React.createElement("h1", {
+    className: "dash-hero-title",
     style: {
       fontSize: 24,
       fontWeight: 800,
