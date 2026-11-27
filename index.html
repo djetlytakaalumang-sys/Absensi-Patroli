@@ -3844,17 +3844,16 @@ function passCountsForTeam(userTeams, team, checkpointName) {
   if (inRoute(team)) return true;
   return !userTeams.some(inRoute);
 }
-// Petugas merangkap yang pada 1 tanggal melewati checkpoint KHAS rute minimal 2 timnya (mis. Aldo lewat STO
-// Manado-Centrum [Manado] dan STO Aermadidi [Minut]) dianggap menutup rute kedua tim: SEMUA lintasannya hari itu
+// Petugas merangkap yang pada 1 tanggal melewati checkpoint di rute minimal 2 timnya (mis. Aldo lewat STO
+// Manado-Centrum [Manado] dan STO Paniki [Manado & Minut]) dianggap menutup rute kedua tim: SEMUA lintasannya hari itu
 // dihitung ke semua timnya. Checkpoint di luar rute sebuah tim muncul sebagai "Rute Bantuan" di tim itu -> bonus.
 function userCoversMultipleRoutes(userId, userTeams, dateStr) {
   if (userTeams.length < 2) return false;
   const names = new Set(store.checkpointPasses.filter(p => p.date === dateStr && p.userId === userId).map(p => matchCheckpointNameLoose(p.checkpointName)));
   if (names.size === 0) return false;
-  const covered = userTeams.filter(t => (t.route || []).some(r => {
-    const k = matchCheckpointNameLoose(r);
-    return names.has(k) && !userTeams.some(o => o.id !== t.id && (o.route || []).some(x => matchCheckpointNameLoose(x) === k));
-  }));
+  // Cukup menyentuh (melewati) minimal 1 checkpoint di rute tiap timnya — checkpoint yang ada di rute kedua tim
+  // (mis. STO Paniki) juga dihitung sebagai menyentuh rute masing-masing.
+  const covered = userTeams.filter(t => (t.route || []).some(r => names.has(matchCheckpointNameLoose(r))));
   return covered.length >= 2;
 }
 function getTeamPassesForDate(team, dateStr) {
