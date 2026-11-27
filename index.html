@@ -3903,6 +3903,36 @@ function getRouteBonusTeamIdsOnDate(dateStr) {
       if (!routeSet.has(name)) { ids.add(t.id); break; }
     }
   });
+  // Bonus rute tercover: petugas sebuah tim yang melewati checkpoint milik rute tim LAIN di area yang sama
+  // (mis. Aldo melewati jalur Manado DAN Minahasa Utara) -> tim pemilik rute itu (mis. Tim Minut) juga dapat
+  // bonus, walau anggotanya sendiri tidak patroli di rute tersebut hari itu. Checkpoint yang juga ada di rute
+  // timnya sendiri (mis. STO Paniki, ada di kedua rute) tidak dihitung sebagai rute tim lain.
+  teams.forEach(a => {
+    if (!a.route || a.route.length === 0) return;
+    const ownRoute = new Set(a.route.map(matchCheckpointNameLoose));
+    const outside = [...sets.get(a.id)].filter(n => !ownRoute.has(n));
+    if (outside.length === 0) return;
+    teams.forEach(b => {
+      if (b.id === a.id || (a.areaId || null) !== (b.areaId || null)) return;
+      if (!b.route || b.route.length === 0) return;
+      const bRoute = new Set(b.route.map(matchCheckpointNameLoose));
+      if (outside.some(n => bRoute.has(n))) { ids.add(a.id); ids.add(b.id); }
+    });
+  });
+  // Petugas merangkap di >1 tim (mis. Aldo di Tim Manado & Tim Minut): bila pada tanggal itu ia melewati
+  // checkpoint KHAS rute minimal 2 timnya (bukan checkpoint yang ada di rute kedua tim, mis. STO Paniki),
+  // semua tim tsb dapat bonus. Berlaku walau area kedua tim berbeda.
+  getUsers().forEach(u => {
+    const uts = getUserRouteTeams(u);
+    if (uts.length < 2) return;
+    const names = new Set(store.checkpointPasses.filter(p => p.date === dateStr && p.userId === u.id).map(p => matchCheckpointNameLoose(p.checkpointName)));
+    if (names.size === 0) return;
+    const covered = uts.filter(t => (t.route || []).some(r => {
+      const k = matchCheckpointNameLoose(r);
+      return names.has(k) && !uts.some(o => o.id !== t.id && (o.route || []).some(x => matchCheckpointNameLoose(x) === k));
+    }));
+    if (covered.length >= 2) covered.forEach(t => ids.add(t.id));
+  });
   _routeBonusCache = { key, ids };
   return ids;
 }
@@ -5271,7 +5301,7 @@ function buildRitRecapExport({ mode, dateStr, monthStr, checkpointId, nameQuery,
       };
       teamCompare = cmpTeams.length >= 1 ? {
         teams: cmpTeams.map((t, i) => col(t, cmpMaps[i])),
-        bothPatrolled: cmpMaps.filter(m => m.size > 0).length >= 2,
+        bothPatrolled: cmpMaps.filter(m => m.size > 0).length >= 2 || cmpTeams.some(t => bonusIds.has(t.id)),
         bonus: cmpTeams.some(t => bonusIds.has(t.id))
       } : null;
     } catch (e) { teamCompare = null; }
@@ -8216,6 +8246,7 @@ function AdminLivePatrolMap({
   const fittedOnceRef = useRef(false);
   const chunkCacheRef = useRef({}); // { [patrolId]: { points: [] } } — diisi lewat listener onSnapshot (lihat effect di bawah), bukan diambil manual di sini
   const chunkListenersRef = useRef({}); // { [patrolId]: unsubscribeFn } — 1 listener onSnapshot per sesi patroli yang sedang tampil
+  const [trailErr, setTrailErr] = useState(false); // true = arsip jejak lama gagal dimuat (mis. ditolak aturan Firestore)
   const smoothCacheRef = useRef({}); // { [userId]: { frozen, frozenCount } } — cache penghalusan per-petugas, biar biaya hitung tidak membesar seiring rute makin panjang / makin banyak petugas aktif
   const redrawThrottleRef = useRef({ lastRun: 0, timeoutId: null }); // batasi frekuensi rebuild marker+garis, biar tidak rebutan CPU dgn gesture zoom
   const tileRef = useRef(null);
@@ -8265,6 +8296,7 @@ function AdminLivePatrolMap({
         points: []
       });
       listeners[p.id] = db.collection(`${COL.PATROLS}/${p.id}/pathChunks`).onSnapshot(snap => {
+        setTrailErr(false);
         let changed = false;
         snap.docChanges().forEach(change => {
           if (change.type === "added") {
@@ -8285,7 +8317,10 @@ function AdminLivePatrolMap({
           userLinesRef.current[p.userId].setLatLngs(_ll);
           if (userLinesRef.current[p.userId].__casing) userLinesRef.current[p.userId].__casing.setLatLngs(_ll);
         }
-      }, err => console.warn("Gagal memantau arsip jejak:", p.id, err));
+      }, err => {
+        console.warn("Gagal memantau arsip jejak:", p.id, err);
+        setTrailErr(true);
+      });
     });
     Object.keys(listeners).forEach(id => {
       if (!activeIds.has(id)) {
@@ -8488,7 +8523,7 @@ function AdminLivePatrolMap({
           opacity: .8,
           lineCap: "round",
           lineJoin: "round",
-          smoothFactor: 3,
+          smoothFactor: 1,
           interactive: false
         }).addTo(map);
         const core = window.L.polyline(latlngs, {
@@ -8497,7 +8532,7 @@ function AdminLivePatrolMap({
           opacity: 1,
           lineCap: "round",
           lineJoin: "round",
-          smoothFactor: 3 // simplifikasi titik saat render per level zoom — meringankan gambar ulang saat zoom
+          smoothFactor: 1 // toleransi kecil supaya jejak pendek tetap tergambar (3 membuat jejak <3px hilang saat zoom jauh)
         }).addTo(map);
         core.__casing = casing;
         userLinesRef.current[p.userId] = core;
@@ -8632,7 +8667,8 @@ function AdminLivePatrolMap({
         h("span", { className: "lpm-card-ico" }, h(Icon, { name: "radio", size: 20 })),
         h("div", null,
           h("div", { className: "lpm-card-t" }, activeForLegend.length > 0 ? "Patroli Aktif" : "Belum Ada Patroli Aktif"),
-          h("div", { className: "lpm-card-s" }, `${activeForLegend.length} petugas • ${cpDone}/${cpWithCoord.length} checkpoint terlewati`))),
+          h("div", { className: "lpm-card-s" }, `${activeForLegend.length} petugas • ${cpDone}/${cpWithCoord.length} checkpoint terlewati`),
+          trailErr && h("div", { className: "lpm-card-s", style: { color: "#DC2626", fontWeight: 600 } }, "Jejak lama gagal dimuat (cek aturan Firestore: pathChunks)"))),
       activeForLegend.length > 0 && h("div", { className: "lpm-legend lpm-legend-names" },
         activeForLegend.map(p => h("div", { key: p.userId, className: "lpm-leg-row" },
           h("span", { className: "lpm-dot", style: { background: colorMap[p.userId] || colorForUserId(p.userId), width: 9, height: 9 } }),
@@ -20118,7 +20154,7 @@ function RekapRitPage() {
     const cmpMaps = cmpTeams.map(t => getTeamCheckpointOriginalNamesForDate(t, dateFilter));
     const bonusIds = getRouteBonusTeamIdsOnDate(dateFilter);
     const bonus = cmpTeams.some(t => bonusIds.has(t.id));
-    const bothPatrolled = cmpMaps.filter(m => m.size > 0).length >= 2;
+    const bothPatrolled = cmpMaps.filter(m => m.size > 0).length >= 2 || bonus;
     function renderTeamColumn(team, map) {
       const routeLowerSet = new Set(team.route.map(matchCheckpointNameLoose));
       const known = team.route.filter(name => map.has(matchCheckpointNameLoose(name)));
