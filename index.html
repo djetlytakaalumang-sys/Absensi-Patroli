@@ -3844,13 +3844,30 @@ function passCountsForTeam(userTeams, team, checkpointName) {
   if (inRoute(team)) return true;
   return !userTeams.some(inRoute);
 }
+// Petugas merangkap yang pada 1 tanggal melewati checkpoint KHAS rute minimal 2 timnya (mis. Aldo lewat STO
+// Manado-Centrum [Manado] dan STO Aermadidi [Minut]) dianggap menutup rute kedua tim: SEMUA lintasannya hari itu
+// dihitung ke semua timnya. Checkpoint di luar rute sebuah tim muncul sebagai "Rute Bantuan" di tim itu -> bonus.
+function userCoversMultipleRoutes(userId, userTeams, dateStr) {
+  if (userTeams.length < 2) return false;
+  const names = new Set(store.checkpointPasses.filter(p => p.date === dateStr && p.userId === userId).map(p => matchCheckpointNameLoose(p.checkpointName)));
+  if (names.size === 0) return false;
+  const covered = userTeams.filter(t => (t.route || []).some(r => {
+    const k = matchCheckpointNameLoose(r);
+    return names.has(k) && !userTeams.some(o => o.id !== t.id && (o.route || []).some(x => matchCheckpointNameLoose(x) === k));
+  }));
+  return covered.length >= 2;
+}
 function getTeamPassesForDate(team, dateStr) {
   const teamsByUser = new Map();
+  const coverAll = new Set();
   getUsers().forEach(u => {
     const ts = getUserRouteTeams(u);
-    if (ts.some(t => t.id === team.id)) teamsByUser.set(u.id, ts);
+    if (ts.some(t => t.id === team.id)) {
+      teamsByUser.set(u.id, ts);
+      if (userCoversMultipleRoutes(u.id, ts, dateStr)) coverAll.add(u.id);
+    }
   });
-  return store.checkpointPasses.filter(p => p.date === dateStr && teamsByUser.has(p.userId) && passCountsForTeam(teamsByUser.get(p.userId), team, p.checkpointName));
+  return store.checkpointPasses.filter(p => p.date === dateStr && teamsByUser.has(p.userId) && (coverAll.has(p.userId) || passCountsForTeam(teamsByUser.get(p.userId), team, p.checkpointName)));
 }
 function getTeamCheckpointNamesForDate(team, dateStr) {
   const names = new Set();
