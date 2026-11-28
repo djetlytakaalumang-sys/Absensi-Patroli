@@ -432,6 +432,7 @@ main{min-width:0; max-width:100%;}
 .sidebar-rail{min-height:0; overflow-y:auto; scrollbar-width:none;}
 .sidebar-rail::-webkit-scrollbar{display:none;}
 @media (min-width:1100px){ .kejadian-list{display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start;} }
+@media (min-width:1600px){ .kejadian-list{grid-template-columns:repeat(3,minmax(0,1fr));} }
 /* Daftar pengajuan izin: kotak-kotak 2 kolom seperti daftar Laporan Kejadian */
 @media (min-width:700px){ .leave-grid{display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start;} }
 @media (min-width:760px){
@@ -6471,7 +6472,7 @@ const I18N_DICTS = { en: {
 "Lapor Kejadian":"Report Incident","Laporan Kejadian":"Incident Reports","Laporan Kejadian Saya":"My Incident Reports","Laporan Kejadian Tim":"Team Incident Reports","Kirim Laporan":"Submit Report","Judul":"Title","Kategori":"Category","Prioritas":"Priority","Rendah":"Low","Sedang":"Medium","Tinggi":"High","Darurat":"Emergency","Lainnya":"Other","Kronologi":"Chronology","Pelapor":"Reporter","Foto Kejadian":"Incident Photo","Tandai sebagai Darurat":"Mark as Emergency","Admin akan mendapat notifikasi prioritas.":"Admins will receive a priority notification.","Tandai Diproses":"Mark In Progress","Update Progres":"Update Progress","Selesaikan":"Complete","Simpan Update":"Save Update","Riwayat Penanganan":"Handling History","Detail Laporan Kejadian":"Incident Report Details","Laporan kejadian berhasil dikirim ke admin.":"Incident report sent to admin.","Hapus Laporan":"Delete Report","Lihat Detail":"View Details","Tanggal terbaru":"Newest date","Tanggal terlama":"Oldest date","Urutkan":"Sort",
 "Ajukan Izin/Cuti":"Request Leave","Dari tanggal":"From date","Sampai tanggal":"To date","Alasan":"Reason","Kirim Pengajuan":"Submit Request","Anda belum pernah mengajukan izin/cuti.":"You have not requested any leave yet.","Alasan izin/cuti wajib diisi.":"Leave reason is required.","Pengajuan Izin/Cuti":"Leave Requests","Setujui":"Approve","Tolak":"Reject","Batalkan Persetujuan":"Cancel Approval","Hapus pengajuan":"Delete request","Lampiran":"Attachment","Lampiran (opsional)":"Attachment (optional)","Tidak ada pengajuan pada kategori ini.":"No requests in this category.",
 "Input Lembur":"Add Overtime","Input Lembur Karyawan":"Add Employee Overtime","Kirim Lembur":"Submit Overtime","Simpan Lembur":"Save Overtime","Tanggal lembur":"Overtime date","Jam mulai":"Start time","Jam selesai":"End time","Keterangan pekerjaan":"Work description","Foto Pekerjaan":"Work Photo","Detail Lembur":"Overtime Details","Catat jam lembur kamu dan pantau persetujuannya.":"Log your overtime hours and track their approval.","Total lembur disetujui":"Total approved overtime","Menunggu persetujuan":"Awaiting approval","Belum ada data lembur di bulan ini.":"No overtime data this month.","Lembur Karyawan":"Employee Overtime","Rekap per Karyawan":"Summary per Employee","Batalkan pengajuan":"Cancel request","Batalkan pengajuan lembur ini?":"Cancel this overtime request?","Pengajuan lembur ditolak: Anda memiliki jadwal Piket Malam pada tanggal tersebut. Karyawan dengan jadwal Piket Malam tidak dapat mengajukan lembur di tanggal yang sama.":"Overtime request rejected: you are scheduled for Night Duty on that date. Employees with a Night Duty schedule cannot request overtime on the same date.","Ada jadwal Piket Malam pada tanggal ini. Lembur tidak dapat diajukan di tanggal yang sama.":"There is a Night Duty schedule on this date. Overtime cannot be requested on the same date.","Tanggal lembur hanya boleh dari 31 hari lalu sampai hari ini.":"Overtime date must be within the last 31 days up to today.","Durasi lembur minimal 15 menit.":"Minimum overtime duration is 15 minutes.","Durasi lembur maksimal 16 jam per input.":"Maximum overtime duration is 16 hours per entry.","Keterangan pekerjaan wajib diisi.":"Work description is required.","Foto pekerjaan wajib dilampirkan (minimal 1).":"A work photo is required (at least 1).","Tanggal lembur wajib diisi.":"Overtime date is required.","Jam mulai dan jam selesai wajib diisi.":"Start and end times are required.","Tinjau Lembur":"Review Overtime","Tinjau & Putuskan":"Review & Decide","Riwayat peninjauan":"Review history","Catatan peninjauan (wajib jika ditolak)":"Review note (required if rejected)","Alasan penolakan wajib diisi.":"A rejection reason is required.","Tanpa foto bukti":"No photo evidence","Durasi > 8 jam":"Duration > 8 hours","Lewat tengah malam":"Past midnight","Diinput admin":"Entered by admin",
-"Jadwal Saya":"My Schedule","Jadwal Bulan Ini":"This Month's Schedule","Jadwal hari ini":"Today's schedule","Jadwal Masuk":"In Schedule","Jadwal Piket Malam":"Night Duty Schedule","Jadwal Standby / Libur":"Standby / Off Schedule","Grid Jadwal Bulanan":"Monthly Schedule Grid","Urutan Awal":"Default Order","Nama A-Z":"Name A-Z","Nama Z-A":"Name Z-A","Jadwal & Presensi Hari Ini":"Today's Schedule & Attendance","Import Jadwal dari Excel":"Import Schedule from Excel","Unduh Template":"Download Template","Belum ada jadwal untuk hari ini.":"No schedule for today.","Jadwal belum diinput admin untuk bulan ini.":"Admin has not entered the schedule for this month.",
+"Jadwal Saya":"My Schedule","Jadwal Bulan Ini":"This Month's Schedule","Jadwal hari ini":"Today's schedule","Jadwal Masuk":"In Schedule","Jadwal Piket Malam":"Night Duty Schedule","Jadwal Standby / Libur":"Standby / Off Schedule","Grid Jadwal Bulanan":"Monthly Schedule Grid","Jenis":"Type","Semua Laporan":"All Reports","Darurat":"Emergency","Biasa":"Regular","Urutan Awal":"Default Order","Nama A-Z":"Name A-Z","Nama Z-A":"Name Z-A","Jadwal & Presensi Hari Ini":"Today's Schedule & Attendance","Import Jadwal dari Excel":"Import Schedule from Excel","Unduh Template":"Download Template","Belum ada jadwal untuk hari ini.":"No schedule for today.","Jadwal belum diinput admin untuk bulan ini.":"Admin has not entered the schedule for this month.",
 "Edit Profil":"Edit Profile","Nama lengkap":"Full name","Nomor HP":"Phone number","Alamat":"Address","Simpan Perubahan":"Save Changes","Simpan":"Save","Menyimpan…":"Saving…","Ubah Kata Sandi":"Change Password","Kata sandi saat ini":"Current password","Kata sandi baru":"New password","Konfirmasi kata sandi baru":"Confirm new password","Kata sandi":"Password","Profil berhasil diperbarui.":"Profile updated successfully.","Kata sandi berhasil diubah.":"Password changed successfully.","Informasi akun dan kepegawaian Anda.":"Your account and employment information.",
 "Edit Pengguna":"Edit User","Tambah Karyawan":"Add Employee","Hapus karyawan?":"Delete employee?","Ya, Hapus":"Yes, Delete","Hak Akses Pengguna":"User Access Rights","Pengguna":"User","Ganti Foto":"Change Photo","Pilih Foto":"Choose Photo","Hapus":"Delete","Edit":"Edit","Batal":"Cancel","Tutup":"Close","Kembali":"Back","Coba lagi":"Try again","Coba Lagi":"Try Again","Ya":"Yes","Tidak":"No","Lihat":"View","Cari":"Search","Mengirim…":"Sending…","Memproses…":"Processing…","Menghapus…":"Deleting…","Membuat PDF…":"Generating PDF…",
 "Kamera":"Camera","Galeri":"Gallery","Ambil foto":"Take photo","Ambil ulang":"Retake","Gunakan foto":"Use photo","Ganti kamera":"Switch camera","Kamera Depan":"Front Camera","Kamera Belakang":"Rear Camera","Mengaktifkan kamera…":"Starting camera…","Posisikan wajah Anda di dalam bingkai":"Position your face inside the frame","Tidak dapat mengakses kamera.":"Cannot access the camera.","Perangkat ini tidak mendukung GPS.":"This device does not support GPS.","Harap matikan aplikasi fake GPS dan coba lagi.":"Please turn off any fake GPS app and try again.","Gunakan Lokasi Saat Ini":"Use Current Location",
@@ -7087,7 +7088,7 @@ const I18N_EXTRA = {
 "Tidak ada data kehadiran untuk bulan ini.": "No attendance data for this month.",
 "Tidak ada data presensi pada rentang bulan tersebut.": "No attendance data in that month range.",
 "Tidak ada laporan kejadian yang belum selesai.": "No unfinished incident reports.",
-"Tidak ada laporan pada kategori atau tanggal ini.": "No reports in this category or date.",
+"Tidak ada laporan pada kategori atau jenis ini.": "No reports in this category or type.",
 "Tidak ada petugas yang sedang patroli saat ini.": "No officers are on patrol right now.",
 "Tidak ada presensi sama sekali pada hari yang seharusnya kerja (dijadwalkan Masuk/Piket Malam, atau hari kerja biasa Senin–Jumat jika belum ada Jadwal). Tidak berlaku untuk hari Standby On Call/libur.": "No attendance at all on a day that should be a working day (scheduled Masuk/Night Duty, or a regular Monday–Friday working day if there is no Schedule). Does not apply to Standby On Call/off days.",
 "Tidak ada tombol tambah, ubah, hapus, setujui, atau tolak. Halaman Pengaturan tampil redup dengan keterangan \"Mode Lihat Saja\".": "No add, edit, delete, approve, or reject buttons. The Settings page appears dimmed with the note \"View Only Mode\".",
@@ -13462,7 +13463,17 @@ function AdminDashboard({
         if (r.synthetic && !realKeys.has(`${r.userId}__${r.date}`)) synthetic.push(r);
       });
     });
-    return [...real, ...synthetic].sort((a, b) => a.date < b.date ? 1 : -1);
+    // Urutan: tanggal terbaru dulu; di tanggal yang sama, yang absen masuk PALING AWAL tampil paling atas.
+    // Record tanpa jam masuk (Alpa/Izin/Standby sintetis) ditaruh paling bawah di tanggalnya.
+    const inKey = r => r.checkInTime ? formatTimeHM(r.checkInTime) : "";
+    return [...real, ...synthetic].sort((a, b) => {
+      if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+      const ka = inKey(a), kb = inKey(b);
+      if (ka && kb) return ka < kb ? -1 : ka > kb ? 1 : 0;
+      if (ka) return -1;
+      if (kb) return 1;
+      return 0;
+    });
   }, [users, mk, store.schedules, store.leaves]);
   const filtered = useMemo(() => allRecords.filter(r => {
     if (dateFilter && r.date !== dateFilter) return false;
@@ -16820,7 +16831,7 @@ function KejadianPage() {
   const [actionError, setActionError] = useState("");
   const [busyId, setBusyId] = useState(null);
   const [sortMode, setSortMode] = useState("status");
-  const [dateFilter, setDateFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all"); // "all" | "darurat" | "biasa"
   const [detailId, setDetailId] = useState(null);
   const [areaFilter, setAreaFilter] = useState("all");
   const all = useMemo(() => getKejadianReports().filter(k => inNotifScope(k.userId, user) && userInArea(k.userId, areaFilter)), [store.kejadian, store.records, store.settings, areaFilter]);
@@ -16839,7 +16850,7 @@ function KejadianPage() {
   }
   const detailK = detailId ? all.find(x => x.id === detailId) || null : null;
   const baruCount = all.filter(k => k.status === KEJADIAN_STATUS.BARU).length;
-  const filtered = dateFilter ? all.filter(k => todayDateStrWITA(new Date(k.createdAt)) === dateFilter) : all;
+  const filtered = typeFilter === "darurat" ? all.filter(k => k.darurat) : typeFilter === "biasa" ? all.filter(k => !k.darurat) : all;
   const aktif = sortKejadianReports(filtered.filter(k => k.status === KEJADIAN_STATUS.BARU || k.status === KEJADIAN_STATUS.DITANGANI), sortMode);
   const selesai = sortKejadianReports(filtered.filter(k => k.status === KEJADIAN_STATUS.SELESAI), sortMode);
   const list = tab === "aktif" ? aktif : tab === "selesai" ? selesai : sortKejadianReports(filtered, sortMode);
@@ -16999,25 +17010,16 @@ function KejadianPage() {
       fontSize: 12,
       color: "var(--t-faint)"
     }
-  }, "Tanggal", /*#__PURE__*/React.createElement("input", {
-    type: "date",
+  }, "Jenis", /*#__PURE__*/React.createElement("select", {
     className: "input",
-    value: dateFilter,
-    onChange: e => setDateFilter(e.target.value),
+    value: typeFilter,
+    onChange: e => setTypeFilter(e.target.value),
     style: {
       width: "auto",
       padding: "6px 10px",
       fontSize: 12
     }
-  })), dateFilter ? /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    onClick: () => setDateFilter(""),
-    style: {
-      fontSize: 12,
-      color: "var(--red)",
-      fontWeight: 600
-    }
-  }, "Reset tanggal") : null), list.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("option", { value: "all" }, "Semua Laporan"), /*#__PURE__*/React.createElement("option", { value: "darurat" }, "Darurat"), /*#__PURE__*/React.createElement("option", { value: "biasa" }, "Biasa")))), list.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: 40,
@@ -17028,7 +17030,7 @@ function KejadianPage() {
       color: "var(--t-faint)",
       fontSize: 14
     }
-  }, "Tidak ada laporan pada kategori atau tanggal ini.")) : /*#__PURE__*/React.createElement("div", {
+  }, "Tidak ada laporan pada kategori atau jenis ini.")) : /*#__PURE__*/React.createElement("div", {
     className: "kejadian-list",
     style: {
       display: "flex",
@@ -17038,158 +17040,38 @@ function KejadianPage() {
   }, list.map(k => {
     const expanded = expandedId === k.id;
     const isSelesai = k.status === KEJADIAN_STATUS.SELESAI;
-    return /*#__PURE__*/React.createElement("div", {
-      key: k.id,
-      className: "card",
-      style: {
-        padding: 16
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "flex",
-      style: {
-        alignItems: "flex-start",
-        justifyContent: "space-between",
-        gap: 12,
-        flexWrap: "wrap"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "flex",
-      style: {
-        gap: 12,
-        alignItems: "center",
-        cursor: "pointer",
-        flex: 1,
-        minWidth: 0
-      },
-      onClick: () => setExpandedId(expanded ? null : k.id)
-    }, k.photo ? /*#__PURE__*/React.createElement("img", {
-      src: k.photo,
-      alt: "",
-      style: {
-        width: 44,
-        height: 44,
-        borderRadius: 10,
-        objectFit: "cover",
-        flexShrink: 0
-      }
-    }) : /*#__PURE__*/React.createElement("div", {
-      style: {
-        width: 44,
-        height: 44,
-        borderRadius: 10,
-        background: "var(--slate-mist)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0
-      }
-    }, /*#__PURE__*/React.createElement(Icon, {
-      name: "file-text",
-      size: 18,
-      style: {
-        color: "var(--t-faint)"
-      }
-    })), /*#__PURE__*/React.createElement("div", {
-      style: {
-        minWidth: 0
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "flex",
-      style: {
-        alignItems: "center",
-        gap: 8
-      }
-    }, /*#__PURE__*/React.createElement("p", {
-      style: {
-        fontWeight: 600,
-        color: "var(--navy-900)",
-        fontSize: 14
-      }
-    }, k.userName), k.darurat && /*#__PURE__*/React.createElement("span", {
-      className: "badge badge-alpha"
-    }, "Darurat")), /*#__PURE__*/React.createElement("p", {
-      style: {
-        fontSize: 12,
-        color: "var(--t-faint)"
-      }
-    }, k.ticketId ? k.ticketId + " · " : "", formatDateShortID(k.createdAt.slice(0, 10)), " · ", formatClock(new Date(k.createdAt))), kejadianTicketChips(k))), /*#__PURE__*/React.createElement("div", {
-      className: "flex",
-      style: {
-        alignItems: "center",
-        gap: 6,
-        flexWrap: "wrap",
-        justifyContent: "flex-end"
-      }
-    }, kejadianContinueBadge(k), /*#__PURE__*/React.createElement("span", {
-      className: `badge ${KEJADIAN_STATUS_CLASS[k.status]}`
-    }, KEJADIAN_STATUS_LABEL[k.status]))), k.title && /*#__PURE__*/React.createElement("p", {
-      style: {
-        fontSize: 14,
-        fontWeight: 700,
-        color: "var(--navy-900)",
-        marginTop: 10,
-        overflowWrap: "anywhere"
-      }
-    }, k.title), /*#__PURE__*/React.createElement("p", {
-      style: {
-        fontSize: 13,
-        color: "var(--t-muted)",
-        marginTop: k.title ? 4 : 10,
-        whiteSpace: expanded ? "pre-wrap" : "normal",
-        overflow: expanded ? "visible" : "hidden",
-        display: expanded ? "block" : "-webkit-box",
-        WebkitLineClamp: expanded ? undefined : 2,
-        WebkitBoxOrient: "vertical",
-        overflowWrap: "anywhere"
-      }
-    }, k.note), !expanded && kejadianLastUpdateLine(k), /*#__PURE__*/React.createElement("div", {
-      style: {
-        marginTop: 10
-      }
-    }, /*#__PURE__*/React.createElement(Button, {
-      variant: "outline",
-      size: "sm",
-      onClick: () => setDetailId(k.id)
-    }, /*#__PURE__*/React.createElement(Icon, {
-      name: "eye",
-      size: 14
-    }), " Lihat Detail")), expanded && /*#__PURE__*/React.createElement("div", {
-      style: {
-        marginTop: 12
-      }
-    }, k.photo && /*#__PURE__*/React.createElement("img", {
-      src: k.photo,
-      alt: "Foto kejadian",
-      style: {
-        width: "100%",
-        maxWidth: 320,
-        borderRadius: 12,
-        marginBottom: 10
-      }
-    }), /*#__PURE__*/React.createElement(MiniMap, {
-      lat: k.lat,
-      lng: k.lng,
-      height: 160,
-      label: `Lokasi laporan ${k.userName}`
-    }), k.address && /*#__PURE__*/React.createElement("p", {
-      style: {
-        fontSize: 12,
-        color: "var(--t-faint)",
-        marginTop: 6
-      }
-    }, k.address), kejadianUpdateBox(k), canEdit && /*#__PURE__*/React.createElement("div", {
-      style: {
-        marginTop: 12
-      }
-    }, /*#__PURE__*/React.createElement(Button, {
-      variant: "danger",
-      size: "sm",
-      disabled: busyId === k.id,
-      onClick: () => removeKejadian(k)
-    }, /*#__PURE__*/React.createElement(Icon, {
-      name: "trash-2",
-      size: 14
-    }), busyId === k.id ? " Menghapus\u2026" : " Hapus Laporan"))));
+    const h = React.createElement;
+    const pillStyle = { display: "inline-flex", alignItems: "center", background: "#fff", border: "1px solid var(--line)", borderRadius: 999, padding: "4px 12px", fontSize: 11, fontWeight: 600, color: "var(--navy-900)", whiteSpace: "nowrap" };
+    return h("div", { key: k.id, className: "card", style: { padding: 8 } },
+      // Panel dalam membulat di dalam kartu putih (model kartu daftar), warna tetap putih
+      h("div", { style: { border: "1px solid var(--line)", borderRadius: 16, padding: 14, background: "#fff" } },
+        h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" } },
+          h("span", { style: pillStyle }, formatDateShortID(k.createdAt.slice(0, 10)), " \u00b7 ", formatClock(new Date(k.createdAt))),
+          h("div", { className: "flex", style: { alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" } },
+            kejadianContinueBadge(k),
+            h("span", { className: `badge ${KEJADIAN_STATUS_CLASS[k.status]}` }, KEJADIAN_STATUS_LABEL[k.status]))),
+        h("div", { className: "flex", style: { alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginTop: 12, cursor: "pointer" }, onClick: () => setExpandedId(expanded ? null : k.id) },
+          h("div", { style: { minWidth: 0, flex: 1 } },
+            h("div", { className: "flex", style: { alignItems: "center", gap: 6, flexWrap: "wrap" } },
+              h("span", { style: { fontSize: 12, fontWeight: 500, color: "var(--t-muted)", lineHeight: 1.3 } }, k.userName),
+              k.darurat && h("span", { className: "badge badge-alpha", style: { padding: "1px 8px", lineHeight: 1.3 } }, "Darurat")),
+            k.ticketId && h("p", { style: { fontSize: 11, color: "var(--t-faint)", marginTop: 1, lineHeight: 1.3 } }, k.ticketId),
+            k.title && h("p", { style: { fontSize: 16, fontWeight: 700, color: "var(--navy-900)", marginTop: 4, lineHeight: 1.3, overflowWrap: "anywhere" } }, k.title)),
+          k.photo ? h("img", { src: k.photo, alt: "", style: { width: 44, height: 44, borderRadius: "50%", objectFit: "cover", flexShrink: 0 } }) : h("div", { style: { width: 44, height: 44, borderRadius: "50%", background: "var(--slate-mist)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 } }, h(Icon, { name: "file-text", size: 18, style: { color: "var(--t-faint)" } }))),
+        h("div", { style: { marginTop: 4 } }, kejadianTicketChips(k)),
+        h("p", { style: { fontSize: 13, color: "var(--t-muted)", marginTop: 10, whiteSpace: expanded ? "pre-wrap" : "normal", overflow: expanded ? "visible" : "hidden", display: expanded ? "block" : "-webkit-box", WebkitLineClamp: expanded ? undefined : 2, WebkitBoxOrient: "vertical", overflowWrap: "anywhere" } }, k.note)),
+      h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", padding: "10px 8px 4px" } },
+        h("div", { style: { minWidth: 0, flex: 1, marginTop: -6 } }, !expanded && kejadianLastUpdateLine(k)),
+        h("button", { type: "button", onClick: () => setDetailId(k.id), style: { background: "#111", color: "#fff", borderRadius: 999, padding: "8px 16px", fontSize: 12, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" } }, h(Icon, { name: "eye", size: 14 }), " Lihat Detail")),
+      expanded && h("div", { style: { padding: "4px 8px 8px" } },
+        k.photo && h("img", { src: k.photo, alt: "Foto kejadian", style: { width: "100%", maxWidth: 320, borderRadius: 12, marginBottom: 10 } }),
+        h(MiniMap, { lat: k.lat, lng: k.lng, height: 160, label: `Lokasi laporan ${k.userName}` }),
+        k.address && h("p", { style: { fontSize: 12, color: "var(--t-faint)", marginTop: 6 } }, k.address),
+        kejadianUpdateBox(k),
+        canEdit && h("div", { style: { marginTop: 12 } },
+          h(Button, { variant: "danger", size: "sm", disabled: busyId === k.id, onClick: () => removeKejadian(k) },
+            h(Icon, { name: "trash-2", size: 14 }), busyId === k.id ? " Menghapus\u2026" : " Hapus Laporan")))
+    );
   })), detailK && /*#__PURE__*/React.createElement(ModalGuard, { onClose: () => setDetailId(null) }, /*#__PURE__*/React.createElement(KejadianDetailModal, {
     k: detailK,
     onClose: () => setDetailId(null)
