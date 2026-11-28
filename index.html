@@ -1233,15 +1233,18 @@ function areaVisibleToAdminArea(areaId) {
   const ids = areaAdminAreaIds();
   return !ids || (!!areaId && ids.includes(areaId));
 }
-// Nomor tampilan lokasi kantor: Super Admin = urutan global; Admin Area = urutan di antara lokasi yang tampil untuknya (mulai dari 1).
-function officeLocDisplayNo(locs, idx, areaFilter) {
-  if (!isAreaAdmin(window.__activeUser)) return idx + 1;
+// Item (lokasi/checkpoint) tampil di daftar pengaturan jika terlihat oleh peran ini dan cocok dengan filter area (item umum tanpa area selalu ikut).
+function areaListItemVisible(item, areaFilter) {
+  return areaVisibleToAdminArea(item.areaId) && !(areaFilter && areaFilter !== "all" && item.areaId && item.areaId !== areaFilter);
+}
+// Nomor tampilan = urutan di antara item yang tampil (mulai dari 1), jadi memilih area menghitung ulang dari 1.
+function listDisplayNo(items, idx, areaFilter) {
   let n = 0;
-  for (let i = 0; i < idx; i++) {
-    const l = locs[i];
-    if (areaVisibleToAdminArea(l.areaId) && !(areaFilter && areaFilter !== "all" && l.areaId && l.areaId !== areaFilter)) n++;
-  }
+  for (let i = 0; i < idx; i++) if (areaListItemVisible(items[i], areaFilter)) n++;
   return n + 1;
+}
+function officeLocDisplayNo(locs, idx, areaFilter) {
+  return listDisplayNo(locs, idx, areaFilter);
 }
 // true = area ini milik area LAIN dan harus disembunyikan dari Admin Area (item umum tanpa area tidak dianggap area lain).
 function areaHiddenFromAdminArea(areaId) {
@@ -4353,9 +4356,10 @@ function CheckpointSettingsTabBar({ tab, onChange, areaFilter, onAreaFilter }) {
   const areas = getAreas().filter(a => !areaHiddenFromAdminArea(a.id));
   const locs = (getSettings().officeLocations || []).filter(l => areaVisibleToAdminArea(l.areaId));
   const cps = getCheckpoints().filter(c => areaVisibleToAdminArea(c.areaId));
+  const inAreaFilter = x => !areaFilter || areaFilter === "all" || !x.areaId || x.areaId === areaFilter;
   const tabs = [
-    { id: "lokasi", label: "Lokasi Kantor", icon: "building-2", count: locs.length, desc: "Titik presensi kantor per area. Karyawan hanya bisa presensi di lokasi areanya (ditambah lokasi umum)." },
-    { id: "checkpoint", label: "Checkpoint Patroli", icon: "map-pin", count: cps.length, desc: "Titik checkpoint patroli per area. Petugas hanya patroli di checkpoint areanya (ditambah checkpoint umum)." },
+    { id: "lokasi", label: "Lokasi Kantor", icon: "building-2", count: locs.filter(inAreaFilter).length, desc: "Titik presensi kantor per area. Karyawan hanya bisa presensi di lokasi areanya (ditambah lokasi umum)." },
+    { id: "checkpoint", label: "Checkpoint Patroli", icon: "map-pin", count: cps.filter(inAreaFilter).length, desc: "Titik checkpoint patroli per area. Petugas hanya patroli di checkpoint areanya (ditambah checkpoint umum)." },
     { id: "area", label: "Area", icon: "layers", count: areas.length, desc: "Kelompokkan karyawan per area (mis. jalur SEA-US dan jalur IGG), lalu pilih lokasi dan checkpoint tiap area." },
     { id: "rute", label: "Tim Rute", icon: "route", count: null, desc: "Atur anggota, area, dan urutan checkpoint tiap tim rute patroli beserta bonusnya." }
   ];
@@ -7132,6 +7136,8 @@ const I18N_EXTRA = {
 "Titik checkpoint patroli per area. Petugas hanya patroli di checkpoint areanya (ditambah checkpoint umum).": "Patrol checkpoint points per area. Officers only patrol at their area's checkpoints (plus general checkpoints).",
 "Titik presensi kantor per area. Karyawan hanya bisa presensi di lokasi areanya (ditambah lokasi umum).": "Office attendance points per area. Employees can only check in at their area's locations (plus general locations).",
 "Tombol Cetak PDF di halaman Penilaian Tim menghasilkan PDF dengan susunan seperti halamannya: kartu Rata-rata Skor dan Skor Tertinggi, dua grafik, lalu papan peringkat tiap karyawan lengkap dengan bar skornya.": "The Print PDF button on the Team Rating page produces a PDF laid out like the page: the Average Score and Highest Score cards, two charts, then the leaderboard of each employee complete with its score bar.",
+"Di halaman Penilaian Tim (tampilan lebar), kartu karyawan peringkat 1 di kiri tingginya disamakan dengan grafik Kehadiran vs Patroli per Karyawan di sebelahnya, lalu tabel Papan Peringkat tampil selebar penuh tepat di bawahnya.": "On the Team Rating page (wide layout), the rank 1 employee card on the left is the same height as the Attendance vs Patrol per Employee chart beside it, and the Leaderboard table is shown at full width right below them.",
+"Donat Distribusi Kehadiran menampilkan persentase tiap status (Hadir, Terlambat, Piket Malam, Alpa, Izin) langsung di irisannya, sedangkan daftar di sebelah kanannya hanya menampilkan jumlahnya.": "The Attendance Distribution donut shows each status's percentage (Present, Late, Night Duty, Absent, Leave) directly on its slice, while the list on its right shows only the counts.",
 "Tombol merah di bar filter halaman Rekap Checkpoint (CP), untuk membersihkan lintasan ganda yang terlanjur tercatat. Cakupannya mengikuti mode: Per Tanggal = tanggal yang dipilih, Per Bulan = bulan yang dipilih.": "A red button in the filter bar of the Checkpoint Recap (CP) page, to clean up duplicate passes that were already recorded. Its scope follows the mode: By Date = the selected date, By Month = the selected month.",
 "Total (jam & menit)": "Total (hours & minutes)",
 "Total Jam Disetujui": "Total Approved Hours",
@@ -19414,6 +19420,8 @@ function PanduanPage() {
         "Kalau tidak ada data kehadiran maupun patroli sama sekali, nilai tidak ditampilkan (dianggap belum ada data, bukan nilai jelek).",
         "Warna bar Kehadiran dan Patroli mengikuti nilainya: 100% hijau, 50% ke bawah merah, dan di antaranya berubah bertahap (oranye di sekitar 75%).",
         "Grafik \"Skor Kehadiran vs Patroli per Karyawan\" memakai warna yang sama. Batang Kehadiran berwarna penuh, batang Patroli versi lebih pucat supaya bisa dibedakan.",
+        "Di halaman Penilaian Tim (tampilan lebar), kartu karyawan peringkat 1 di kiri tingginya disamakan dengan grafik Kehadiran vs Patroli per Karyawan di sebelahnya, lalu tabel Papan Peringkat tampil selebar penuh tepat di bawahnya.",
+        "Donat Distribusi Kehadiran menampilkan persentase tiap status (Hadir, Terlambat, Piket Malam, Alpa, Izin) langsung di irisannya, sedangkan daftar di sebelah kanannya hanya menampilkan jumlahnya.",
         "Tombol Cetak PDF di halaman Penilaian Tim menghasilkan PDF dengan susunan seperti halamannya: kartu Rata-rata Skor dan Skor Tertinggi, dua grafik, lalu papan peringkat tiap karyawan lengkap dengan bar skornya."
       ]
     }),
@@ -22177,7 +22185,7 @@ function PatrolCheckpointSettings({ areaFilter = "all" } = {}) {
       fontSize: 13,
       flexShrink: 0
     }
-  }, idx + 1), /*#__PURE__*/React.createElement("input", {
+  }, listDisplayNo(checkpoints, idx, areaFilter)), /*#__PURE__*/React.createElement("input", {
     className: "input",
     style: {
       flex: 1
@@ -22186,7 +22194,7 @@ function PatrolCheckpointSettings({ areaFilter = "all" } = {}) {
     onChange: e => updateCheckpoint(cp.id, {
       name: e.target.value
     }).catch(err => showToast(err.message || "Gagal menyimpan nama checkpoint.")),
-    placeholder: `Nama checkpoint ${idx + 1}`
+    placeholder: `Nama checkpoint ${listDisplayNo(checkpoints, idx, areaFilter)}`
   }), /*#__PURE__*/React.createElement("span", {
     title: "Jumlah rit (lintasan) checkpoint ini hari ini",
     style: {
