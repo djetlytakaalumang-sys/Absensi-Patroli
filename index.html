@@ -5281,7 +5281,13 @@ function exportKejadianToPDF(reports, filenamePrefix = "laporan-kejadian", filte
 
 // ===== Ekspor Rekap Checkpoint (CP): Excel & PDF, per tanggal / per bulan =====
 // Mengikuti mode & filter yang sedang aktif di halaman Rekap Checkpoint (CP).
-function buildRitRecapExport({ mode, dateStr, monthStr, checkpointId, nameQuery, areaFilter = "all" }) {
+function buildRitRecapExport({ mode, dateStr, monthStr, checkpointId, nameQuery, areaFilter = "all", sortMode = "default" }) {
+  // Urutan nama sama dengan pilihan di halaman Rekap CP: default / A-Z / Z-A
+  const sortRows = arr => {
+    if (sortMode === "default") return arr;
+    const out = [...arr].sort((x, y) => String(x.name || "").localeCompare(String(y.name || ""), "id", { sensitivity: "base" }));
+    return sortMode === "za" ? out.reverse() : out;
+  };
   const allCps = getCheckpointsForArea(areaFilter);
   const cps = checkpointId ? allCps.filter(c => c.id === checkpointId) : allCps;
   const q = (nameQuery || "").toLowerCase();
@@ -5321,7 +5327,7 @@ function buildRitRecapExport({ mode, dateStr, monthStr, checkpointId, nameQuery,
         bonus: cmpTeams.some(t => bonusIds.has(t.id))
       } : null;
     } catch (e) { teamCompare = null; }
-    return { mode, periodLabel: formatDateShortID(dateStr), fileKey: dateStr, cps, cpLabel, rows, teamCompare };
+    return { mode, periodLabel: formatDateShortID(dateStr), fileKey: dateStr, cps, cpLabel, rows: sortRows(rows), teamCompare };
   }
   const [y, m] = monthStr.split("-").map(Number);
   const days = new Date(y, m, 0).getDate();
@@ -5344,7 +5350,7 @@ function buildRitRecapExport({ mode, dateStr, monthStr, checkpointId, nameQuery,
     datePills: r.days.map((c, i) => ({ date: monthStr + "-" + String(i + 1).padStart(2, "0"), count: c })).filter(x => x.count > 0)
   }));
   const label = new Date(monthStr + "-01T00:00:00").toLocaleDateString("id-ID", { month: "long", year: "numeric" });
-  return { mode, periodLabel: label, fileKey: monthStr, cps, cpLabel, rows, days };
+  return { mode, periodLabel: label, fileKey: monthStr, cps, cpLabel, rows: sortRows(rows), days };
 }
 function exportRitRecapToExcel(opts) {
   const d = buildRitRecapExport(opts);
@@ -5546,6 +5552,7 @@ function exportRitRecapToPDF(opts) {
   {
     const chips = [[harian ? "Tanggal" : "Bulan", d.periodLabel], ["Checkpoint", d.cpLabel]];
     if (opts.nameQuery) chips.push(["Nama", opts.nameQuery]);
+    if (opts.sortMode === "az" || opts.sortMode === "za") chips.push(["Urutan", opts.sortMode === "az" ? "Nama A-Z" : "Nama Z-A"]);
     if (y + 14 > BOTTOM) y = newPage();
     card(M, y, CW, 13);
     let cx = M + 5;
@@ -6464,7 +6471,7 @@ const I18N_DICTS = { en: {
 "Lapor Kejadian":"Report Incident","Laporan Kejadian":"Incident Reports","Laporan Kejadian Saya":"My Incident Reports","Laporan Kejadian Tim":"Team Incident Reports","Kirim Laporan":"Submit Report","Judul":"Title","Kategori":"Category","Prioritas":"Priority","Rendah":"Low","Sedang":"Medium","Tinggi":"High","Darurat":"Emergency","Lainnya":"Other","Kronologi":"Chronology","Pelapor":"Reporter","Foto Kejadian":"Incident Photo","Tandai sebagai Darurat":"Mark as Emergency","Admin akan mendapat notifikasi prioritas.":"Admins will receive a priority notification.","Tandai Diproses":"Mark In Progress","Update Progres":"Update Progress","Selesaikan":"Complete","Simpan Update":"Save Update","Riwayat Penanganan":"Handling History","Detail Laporan Kejadian":"Incident Report Details","Laporan kejadian berhasil dikirim ke admin.":"Incident report sent to admin.","Hapus Laporan":"Delete Report","Lihat Detail":"View Details","Tanggal terbaru":"Newest date","Tanggal terlama":"Oldest date","Urutkan":"Sort",
 "Ajukan Izin/Cuti":"Request Leave","Dari tanggal":"From date","Sampai tanggal":"To date","Alasan":"Reason","Kirim Pengajuan":"Submit Request","Anda belum pernah mengajukan izin/cuti.":"You have not requested any leave yet.","Alasan izin/cuti wajib diisi.":"Leave reason is required.","Pengajuan Izin/Cuti":"Leave Requests","Setujui":"Approve","Tolak":"Reject","Batalkan Persetujuan":"Cancel Approval","Hapus pengajuan":"Delete request","Lampiran":"Attachment","Lampiran (opsional)":"Attachment (optional)","Tidak ada pengajuan pada kategori ini.":"No requests in this category.",
 "Input Lembur":"Add Overtime","Input Lembur Karyawan":"Add Employee Overtime","Kirim Lembur":"Submit Overtime","Simpan Lembur":"Save Overtime","Tanggal lembur":"Overtime date","Jam mulai":"Start time","Jam selesai":"End time","Keterangan pekerjaan":"Work description","Foto Pekerjaan":"Work Photo","Detail Lembur":"Overtime Details","Catat jam lembur kamu dan pantau persetujuannya.":"Log your overtime hours and track their approval.","Total lembur disetujui":"Total approved overtime","Menunggu persetujuan":"Awaiting approval","Belum ada data lembur di bulan ini.":"No overtime data this month.","Lembur Karyawan":"Employee Overtime","Rekap per Karyawan":"Summary per Employee","Batalkan pengajuan":"Cancel request","Batalkan pengajuan lembur ini?":"Cancel this overtime request?","Pengajuan lembur ditolak: Anda memiliki jadwal Piket Malam pada tanggal tersebut. Karyawan dengan jadwal Piket Malam tidak dapat mengajukan lembur di tanggal yang sama.":"Overtime request rejected: you are scheduled for Night Duty on that date. Employees with a Night Duty schedule cannot request overtime on the same date.","Ada jadwal Piket Malam pada tanggal ini. Lembur tidak dapat diajukan di tanggal yang sama.":"There is a Night Duty schedule on this date. Overtime cannot be requested on the same date.","Tanggal lembur hanya boleh dari 31 hari lalu sampai hari ini.":"Overtime date must be within the last 31 days up to today.","Durasi lembur minimal 15 menit.":"Minimum overtime duration is 15 minutes.","Durasi lembur maksimal 16 jam per input.":"Maximum overtime duration is 16 hours per entry.","Keterangan pekerjaan wajib diisi.":"Work description is required.","Foto pekerjaan wajib dilampirkan (minimal 1).":"A work photo is required (at least 1).","Tanggal lembur wajib diisi.":"Overtime date is required.","Jam mulai dan jam selesai wajib diisi.":"Start and end times are required.","Tinjau Lembur":"Review Overtime","Tinjau & Putuskan":"Review & Decide","Riwayat peninjauan":"Review history","Catatan peninjauan (wajib jika ditolak)":"Review note (required if rejected)","Alasan penolakan wajib diisi.":"A rejection reason is required.","Tanpa foto bukti":"No photo evidence","Durasi > 8 jam":"Duration > 8 hours","Lewat tengah malam":"Past midnight","Diinput admin":"Entered by admin",
-"Jadwal Saya":"My Schedule","Jadwal Bulan Ini":"This Month's Schedule","Jadwal hari ini":"Today's schedule","Jadwal Masuk":"In Schedule","Jadwal Piket Malam":"Night Duty Schedule","Jadwal Standby / Libur":"Standby / Off Schedule","Grid Jadwal Bulanan":"Monthly Schedule Grid","Jadwal & Presensi Hari Ini":"Today's Schedule & Attendance","Import Jadwal dari Excel":"Import Schedule from Excel","Unduh Template":"Download Template","Belum ada jadwal untuk hari ini.":"No schedule for today.","Jadwal belum diinput admin untuk bulan ini.":"Admin has not entered the schedule for this month.",
+"Jadwal Saya":"My Schedule","Jadwal Bulan Ini":"This Month's Schedule","Jadwal hari ini":"Today's schedule","Jadwal Masuk":"In Schedule","Jadwal Piket Malam":"Night Duty Schedule","Jadwal Standby / Libur":"Standby / Off Schedule","Grid Jadwal Bulanan":"Monthly Schedule Grid","Urutan Awal":"Default Order","Nama A-Z":"Name A-Z","Nama Z-A":"Name Z-A","Jadwal & Presensi Hari Ini":"Today's Schedule & Attendance","Import Jadwal dari Excel":"Import Schedule from Excel","Unduh Template":"Download Template","Belum ada jadwal untuk hari ini.":"No schedule for today.","Jadwal belum diinput admin untuk bulan ini.":"Admin has not entered the schedule for this month.",
 "Edit Profil":"Edit Profile","Nama lengkap":"Full name","Nomor HP":"Phone number","Alamat":"Address","Simpan Perubahan":"Save Changes","Simpan":"Save","Menyimpan…":"Saving…","Ubah Kata Sandi":"Change Password","Kata sandi saat ini":"Current password","Kata sandi baru":"New password","Konfirmasi kata sandi baru":"Confirm new password","Kata sandi":"Password","Profil berhasil diperbarui.":"Profile updated successfully.","Kata sandi berhasil diubah.":"Password changed successfully.","Informasi akun dan kepegawaian Anda.":"Your account and employment information.",
 "Edit Pengguna":"Edit User","Tambah Karyawan":"Add Employee","Hapus karyawan?":"Delete employee?","Ya, Hapus":"Yes, Delete","Hak Akses Pengguna":"User Access Rights","Pengguna":"User","Ganti Foto":"Change Photo","Pilih Foto":"Choose Photo","Hapus":"Delete","Edit":"Edit","Batal":"Cancel","Tutup":"Close","Kembali":"Back","Coba lagi":"Try again","Coba Lagi":"Try Again","Ya":"Yes","Tidak":"No","Lihat":"View","Cari":"Search","Mengirim…":"Sending…","Memproses…":"Processing…","Menghapus…":"Deleting…","Membuat PDF…":"Generating PDF…",
 "Kamera":"Camera","Galeri":"Gallery","Ambil foto":"Take photo","Ambil ulang":"Retake","Gunakan foto":"Use photo","Ganti kamera":"Switch camera","Kamera Depan":"Front Camera","Kamera Belakang":"Rear Camera","Mengaktifkan kamera…":"Starting camera…","Posisikan wajah Anda di dalam bingkai":"Position your face inside the frame","Tidak dapat mengakses kamera.":"Cannot access the camera.","Perangkat ini tidak mendukung GPS.":"This device does not support GPS.","Harap matikan aplikasi fake GPS dan coba lagi.":"Please turn off any fake GPS app and try again.","Gunakan Lokasi Saat Ini":"Use Current Location",
@@ -15895,6 +15902,13 @@ function EmployeesPage() {
   const [loadingMonth, setLoadingMonth] = useState(null);
   const [monthLoadError, setMonthLoadError] = useState("");
   const employees = useMemo(() => getScopedEmployees(), [refreshKey, store.users, store.settings]);
+  // Urutan nama daftar karyawan: default (urutan awal) / A-Z / Z-A
+  const [sortMode, setSortMode] = useState("default");
+  const sortedEmployees = useMemo(() => {
+    if (sortMode === "default") return employees;
+    const arr = [...employees].sort((x, y) => String(x.name || "").localeCompare(String(y.name || ""), "id", { sensitivity: "base" }));
+    return sortMode === "za" ? arr.reverse() : arr;
+  }, [employees, sortMode]);
   const mk = monthKey;
   const todayStr = todayDateStrWITA(getTrustedNow());
   // Ringkasan tiap kartu karyawan mengikuti bulan yang dipilih. Data live cuma mencakup ~90 hari
@@ -15952,7 +15966,16 @@ function EmployeesPage() {
       fontSize: 14,
       marginTop: 2
     }
-  }, "Daftar karyawan terdaftar dan ringkasan kehadiran per bulan.")), /*#__PURE__*/React.createElement("input", {
+  }, "Daftar karyawan terdaftar dan ringkasan kehadiran per bulan.")), /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: { alignItems: "center", gap: 8, flexWrap: "wrap" }
+  }, /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    value: sortMode,
+    onChange: e => setSortMode(e.target.value),
+    "aria-label": "Urutkan nama karyawan",
+    style: { width: "auto" }
+  }, /*#__PURE__*/React.createElement("option", { value: "default" }, "Urutan Awal"), /*#__PURE__*/React.createElement("option", { value: "az" }, "Nama A-Z"), /*#__PURE__*/React.createElement("option", { value: "za" }, "Nama Z-A")), /*#__PURE__*/React.createElement("input", {
     type: "month",
     value: monthKey,
     onChange: e => setMonthKey(e.target.value),
@@ -15960,7 +15983,7 @@ function EmployeesPage() {
     style: {
       width: "auto"
     }
-  })), (loadingMonth === mk || monthLoadError) && /*#__PURE__*/React.createElement("div", {
+  }))), (loadingMonth === mk || monthLoadError) && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 16
     }
@@ -15997,7 +16020,7 @@ function EmployeesPage() {
     }
   }, "Belum ada karyawan terdaftar. Tambahkan melalui menu Pengaturan → Hak Akses.")), /*#__PURE__*/React.createElement("div", {
     className: "grid-cards"
-  }, employees.map(emp => {
+  }, sortedEmployees.map(emp => {
     const records = getRecordsByUser(emp.id).filter(r => r.date.startsWith(mk));
     const hadir = records.filter(r => r.status === "Hadir").length;
     const terlambat = records.filter(r => r.status === "Terlambat").length;
@@ -18709,6 +18732,13 @@ function JadwalAdminPage() {
   const [areaFilter, setAreaFilter] = useState("all");
   const [error, setError] = useState("");
   const employees = useMemo(() => getScopedEmployees().filter(u => userInArea(u.id, areaFilter)), [store.users, store.settings, areaFilter]);
+  // Urutan nama di grid jadwal: default (urutan awal) / A-Z / Z-A
+  const [sortMode, setSortMode] = useState("default");
+  const gridEmployees = useMemo(() => {
+    if (sortMode === "default") return employees;
+    const arr = [...employees].sort((x, y) => String(x.name || "").localeCompare(String(y.name || ""), "id", { sensitivity: "base" }));
+    return sortMode === "za" ? arr.reverse() : arr;
+  }, [employees, sortMode]);
   const todayStatus = useMemo(() => getTodayScheduleStatus().filter(x => userInArea(x.userId, areaFilter)), [store.schedules, store.leaves, store.records, store.users, store.settings, areaFilter]);
   const missingToday = todayStatus.filter(s => s.isMissing);
   // Penanda "hari ini" di grid: kolom tanggal disorot + ringkasan siapa saja yang bertugas hari ini
@@ -18997,11 +19027,20 @@ function JadwalAdminPage() {
       fontWeight: 700,
       color: "var(--navy-900)"
     }
-  }, "Grid Jadwal Bulanan"), /*#__PURE__*/React.createElement(MonthStepper, {
+  }, "Grid Jadwal Bulanan"), /*#__PURE__*/React.createElement("div", {
+    className: "flex",
+    style: { alignItems: "center", gap: 8, flexWrap: "wrap" }
+  }, /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    value: sortMode,
+    onChange: e => setSortMode(e.target.value),
+    "aria-label": "Urutkan nama karyawan",
+    style: { width: "auto", padding: "6px 10px", fontSize: 12 }
+  }, /*#__PURE__*/React.createElement("option", { value: "default" }, "Urutan Awal"), /*#__PURE__*/React.createElement("option", { value: "az" }, "Nama A-Z"), /*#__PURE__*/React.createElement("option", { value: "za" }, "Nama Z-A")), /*#__PURE__*/React.createElement(MonthStepper, {
     value: viewMonth,
     onChange: setViewMonth,
     auto: true
-  })), employees.length === 0 ? /*#__PURE__*/React.createElement("p", {
+  }))), employees.length === 0 ? /*#__PURE__*/React.createElement("p", {
     style: {
       color: "var(--t-faint)",
       fontSize: 13
@@ -19106,7 +19145,7 @@ function JadwalAdminPage() {
       letterSpacing: ".03em",
       marginTop: 2
     }
-  }, "HARI INI"))))), /*#__PURE__*/React.createElement("tbody", null, employees.map(u => {
+  }, "HARI INI"))))), /*#__PURE__*/React.createElement("tbody", null, gridEmployees.map(u => {
     const scheds = getSchedulesForUserMonth(u.id, viewMonth);
     const byDay = {};
     scheds.forEach(s => {
@@ -20029,6 +20068,12 @@ function RekapRitPage() {
   const [checkpointFilter, setCheckpointFilter] = useState("");
   const [nameFilter, setNameFilter] = useState("");
   const [areaFilter, setAreaFilter] = useState("all");
+  const [sortMode, setSortMode] = useState("default"); // "default" | "az" | "za"
+  const sortByName = rows => {
+    if (sortMode === "default") return rows;
+    const arr = [...rows].sort((x, y) => String(x.userName || "").localeCompare(String(y.userName || ""), "id", { sensitivity: "base" }));
+    return sortMode === "za" ? arr.reverse() : arr;
+  };
   useEffect(() => {
     const v = getVisibleAreas();
     if (areaFilter !== "all" && !v.some(a => a.id === areaFilter)) setAreaFilter("all");
@@ -20072,13 +20117,13 @@ function RekapRitPage() {
 
   // ---- Mode Harian (existing) ----
   const dailyRecap = useMemo(() => getRitRecap(dateFilter, checkpointFilter || null, areaFilter), [dateFilter, checkpointFilter, areaFilter, store.checkpointPasses, store.users, store.settings]);
-  const filteredDaily = useMemo(() => dailyRecap.filter(r => !nameFilter || r.userName.toLowerCase().includes(nameFilter.toLowerCase())), [dailyRecap, nameFilter]);
+  const filteredDaily = useMemo(() => sortByName(dailyRecap.filter(r => !nameFilter || r.userName.toLowerCase().includes(nameFilter.toLowerCase()))), [dailyRecap, nameFilter, sortMode]);
   const totalDaily = dailyRecap.reduce((sum, r) => sum + r.count, 0);
   const activeDailyCount = dailyRecap.filter(r => r.count > 0).length;
 
   // ---- Mode Bulanan (baru) ----
   const monthlyRecap = useMemo(() => getRitRecapMonthly(monthFilter, areaFilter), [monthFilter, areaFilter, store.checkpointPasses, store.users, store.checkpoints, store.settings]);
-  const filteredMonthly = useMemo(() => monthlyRecap.filter(r => !nameFilter || r.userName.toLowerCase().includes(nameFilter.toLowerCase())), [monthlyRecap, nameFilter]);
+  const filteredMonthly = useMemo(() => sortByName(monthlyRecap.filter(r => !nameFilter || r.userName.toLowerCase().includes(nameFilter.toLowerCase()))), [monthlyRecap, nameFilter, sortMode]);
   const totalMonthly = monthlyRecap.reduce((sum, r) => sum + r.total, 0);
   const activeMonthlyCount = monthlyRecap.filter(r => r.total > 0).length;
   const monthCheckpoints = checkpointFilter ? checkpoints.filter(cp => cp.id === checkpointFilter) : checkpoints;
@@ -20100,7 +20145,7 @@ function RekapRitPage() {
     return { days, byUser };
   }, [monthFilter, checkpointFilter, store.checkpointPasses]);
 
-  const exportOpts = { mode: mode === "matriks" ? "bulanan" : mode, dateStr: dateFilter, monthStr: monthFilter, checkpointId: checkpointFilter || null, nameQuery: nameFilter, areaFilter };
+  const exportOpts = { mode: mode === "matriks" ? "bulanan" : mode, dateStr: dateFilter, monthStr: monthFilter, checkpointId: checkpointFilter || null, nameQuery: nameFilter, areaFilter, sortMode };
   function clearFilters() {
     setDateFilter(todayDateStrWITA(getTrustedNow()));
     setMonthFilter(todayDateStrWITA(getTrustedNow()).slice(0, 7));
@@ -20236,6 +20281,17 @@ function RekapRitPage() {
       },
         React.createElement("option", { value: "" }, "Semua Checkpoint"),
         ...checkpoints.map(cp => React.createElement("option", { key: cp.id, value: cp.id }, cp.name))
+      ),
+      React.createElement("select", {
+        value: sortMode,
+        onChange: e => setSortMode(e.target.value),
+        "aria-label": "Urutkan nama karyawan",
+        className: "input",
+        style: { width: "auto", color: "var(--navy-700)" }
+      },
+        React.createElement("option", { value: "default" }, "Urutan Awal"),
+        React.createElement("option", { value: "az" }, "Nama A-Z"),
+        React.createElement("option", { value: "za" }, "Nama Z-A")
       ),
       React.createElement("div", { style: { position: "relative", flex: 1, minWidth: 180 } },
         React.createElement("span", { style: { position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--navy-700)" } },
