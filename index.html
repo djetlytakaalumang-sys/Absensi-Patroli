@@ -712,6 +712,8 @@ html:not([data-theme="dark"]) .login-top-tools button{color:#1e293b !important; 
 .lpm-leg-click:hover{background:rgba(0,0,0,.06);}
 .lpm-leg-click.on{background:rgba(79,70,229,.14);}
 .lpm-leg-click.on .lpm-leg-name{font-weight:800;}
+.lpm-leg-all{border-bottom:1px solid rgba(0,0,0,.08);border-radius:8px 8px 0 0;margin-bottom:2px;padding-bottom:5px;}
+html[data-theme="dark"] .lpm-leg-all{border-bottom-color:rgba(255,255,255,.12);}
 html[data-theme="dark"] .lpm-leg-click:hover{background:rgba(255,255,255,.08);}
 .lpm-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0;}
 .lpm-line{width:11px;height:3px;border-radius:2px;background:#4F46E5;flex-shrink:0;}
@@ -8333,6 +8335,9 @@ function AdminLivePatrolMap({
   const [trailUserId, setTrailUserId] = useState(null);
   const trailIdRef = useRef(null);
   trailIdRef.current = trailUserId;
+  const [showAllTrails, setShowAllTrails] = useState(false); // true = jejak semua petugas tampil sekaligus
+  const showAllRef = useRef(false);
+  showAllRef.current = showAllTrails;
   function applyTrailWeights() {
     const map = mapRef.current;
     if (!map) return;
@@ -8355,13 +8360,21 @@ function AdminLivePatrolMap({
     }
   }
   useEffect(() => {
-    Object.keys(userLinesRef.current).forEach(id => showTrailLayers(id, id === trailUserId));
-    const map = mapRef.current, line = trailUserId && userLinesRef.current[trailUserId];
-    if (line && map && !followUserId) {
-      const b = line.getBounds && line.getBounds();
-      if (b && b.isValid() && !map.getBounds().contains(b)) map.fitBounds(b.pad(0.2), { maxZoom: 17, animate: true });
+    Object.keys(userLinesRef.current).forEach(id => showTrailLayers(id, showAllTrails || id === trailUserId));
+    const map = mapRef.current;
+    if (!map || followUserId) return;
+    let b = null;
+    if (showAllTrails) {
+      Object.values(userLinesRef.current).forEach(l => {
+        const lb = l.getBounds && l.getBounds();
+        if (lb && lb.isValid()) b = b ? b.extend(lb) : window.L.latLngBounds(lb.getSouthWest(), lb.getNorthEast());
+      });
+    } else {
+      const line = trailUserId && userLinesRef.current[trailUserId];
+      b = line && line.getBounds && line.getBounds();
     }
-  }, [trailUserId]);
+    if (b && b.isValid() && !map.getBounds().contains(b)) map.fitBounds(b.pad(0.2), { maxZoom: 17, animate: true });
+  }, [trailUserId, showAllTrails]);
   // Memilih petugas di "Ikuti kamera ke" ikut menampilkan jejaknya.
   useEffect(() => { if (followUserId) setTrailUserId(followUserId); }, [followUserId]);
   const colorStoreRef = useRef({}); // warna yang sudah dipakai tiap petugas — dipertahankan selama petugas itu masih aktif, supaya tidak berganti-ganti
@@ -8647,7 +8660,7 @@ function AdminLivePatrolMap({
         });
         core.__casing = casing;
         userLinesRef.current[p.userId] = core;
-        if (trailIdRef.current === p.userId) showTrailLayers(p.userId, true);
+        if (showAllRef.current || trailIdRef.current === p.userId) showTrailLayers(p.userId, true);
       }
     });
     Object.keys(userMarkersRef.current).forEach(id => {
@@ -8782,6 +8795,12 @@ function AdminLivePatrolMap({
           h("div", { className: "lpm-card-s" }, `${activeForLegend.length} petugas • ${cpDone}/${cpWithCoord.length} checkpoint terlewati`),
           trailErr && h("div", { className: "lpm-card-s", style: { color: "#DC2626", fontWeight: 600 } }, "Jejak lama gagal dimuat (cek aturan Firestore: pathChunks)"))),
       activeForLegend.length > 0 && h("div", { className: "lpm-legend lpm-legend-names" },
+        h("div", {
+          className: "lpm-leg-row lpm-leg-click lpm-leg-all" + (showAllTrails ? " on" : ""),
+          role: "button",
+          title: showAllTrails ? "Klik untuk menyembunyikan semua jejak" : "Klik untuk menampilkan jejak semua petugas",
+          onClick: () => setShowAllTrails(v => !v)
+        }, h(Icon, { name: "route", size: 13 }), h("span", { className: "lpm-leg-name" }, "Semua jejak")),
         activeForLegend.map(p => h("div", {
           key: p.userId,
           className: "lpm-leg-row lpm-leg-click" + (trailUserId === p.userId ? " on" : ""),
