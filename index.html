@@ -708,6 +708,11 @@ html:not([data-theme="dark"]) .login-top-tools button{color:#1e293b !important; 
 .lpm-legend-names{padding:8px 12px;gap:5px;max-width:180px;}
 .lpm-leg-name{font-size:11px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .lpm-leg-row{display:flex;align-items:center;gap:9px;white-space:nowrap;}
+.lpm-leg-click{cursor:pointer;border-radius:8px;padding:3px 6px;margin:0 -6px;}
+.lpm-leg-click:hover{background:rgba(0,0,0,.06);}
+.lpm-leg-click.on{background:rgba(79,70,229,.14);}
+.lpm-leg-click.on .lpm-leg-name{font-weight:800;}
+html[data-theme="dark"] .lpm-leg-click:hover{background:rgba(255,255,255,.08);}
 .lpm-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0;}
 .lpm-line{width:11px;height:3px;border-radius:2px;background:#4F46E5;flex-shrink:0;}
 html[data-theme="dark"] .lpm-card,html[data-theme="dark"] .lpm-legend{background:rgba(22,26,40,.94);color:#e5e7eb;}
@@ -724,6 +729,14 @@ html[data-theme="dark"] .lpm-leg-row{color:#e5e7eb;}
 .lpm-ini{color:#fff;font-size:14px;font-weight:700;letter-spacing:-.3px;font-family:var(--font-body),sans-serif;}
 .lpm-pill{position:absolute;left:46px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:7px;background:var(--c);color:#fff;border:2px solid #fff;border-radius:999px;padding:3px 8px 3px 12px;font-size:12px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4);font-family:var(--font-body),sans-serif;}
 .lpm-pill i{width:10px;height:10px;border-radius:50%;border:2px solid #fff;display:block;flex-shrink:0;box-sizing:content-box;}
+.lpm-pin{position:relative;width:50px;height:62px;}
+.lpm-pin .lpm-pulse{inset:auto;left:50%;bottom:-3px;width:26px;height:12px;margin-left:-13px;border-radius:50%;}
+.lpm-pin-head{position:absolute;left:0;top:0;width:50px;height:50px;border-radius:50%;background:var(--c);padding:3px;box-sizing:border-box;box-shadow:0 3px 10px rgba(0,0,0,.4);z-index:2;}
+.lpm-pin-in{width:100%;height:100%;border-radius:50%;background:#fff;padding:2px;box-sizing:border-box;}
+.lpm-pin-face{width:100%;height:100%;border-radius:50%;overflow:hidden;background:var(--pc,var(--c));display:flex;align-items:center;justify-content:center;}
+.lpm-pin-face img{width:100%;height:100%;object-fit:cover;display:block;}
+.lpm-pin-tip{position:absolute;left:50%;top:46px;margin-left:-8px;width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-top:14px solid var(--c);filter:drop-shadow(0 2px 2px rgba(0,0,0,.3));z-index:1;}
+.lpm-pin .lpm-pill{left:58px;top:25px;}
 @media (max-width:640px){
   .lpm-sync{display:none;}
   .lpm-card{max-width:calc(100% - 24px);padding:7px 16px 7px 8px;}
@@ -8280,6 +8293,13 @@ function getAreaFocusPoints(patrols, checkpoints, areaKey) {
   }
   return pts;
 }
+// Ketebalan garis jejak mengikuti zoom: tipis saat peta diperkecil (supaya tidak menutupi peta), lebih tebal saat didekatkan.
+function trailWeightsForZoom(z) {
+  if (z <= 10) return { core: 2, casing: 3.5 };
+  if (z <= 12) return { core: 2.5, casing: 4.5 };
+  if (z <= 14) return { core: 3, casing: 5 };
+  return { core: 3.5, casing: 6 };
+}
 function AdminLivePatrolMap({
   patrols,
   checkpoints,
@@ -8309,6 +8329,41 @@ function AdminLivePatrolMap({
   }, []);
   const [mapType, setMapType] = useState("peta");
   const [layerMenu, setLayerMenu] = useState(false);
+  // Jejak (garis rute yang sudah dilewati) hanya tampil untuk petugas yang dipilih: klik nama di legenda / klik marker-nya.
+  const [trailUserId, setTrailUserId] = useState(null);
+  const trailIdRef = useRef(null);
+  trailIdRef.current = trailUserId;
+  function applyTrailWeights() {
+    const map = mapRef.current;
+    if (!map) return;
+    const w = trailWeightsForZoom(map.getZoom());
+    Object.values(userLinesRef.current).forEach(line => {
+      line.setStyle({ weight: w.core });
+      if (line.__casing) line.__casing.setStyle({ weight: w.casing });
+    });
+  }
+  function showTrailLayers(userId, on) {
+    const map = mapRef.current, line = userLinesRef.current[userId];
+    if (!map || !line) return;
+    const casing = line.__casing;
+    if (on) {
+      if (casing && !map.hasLayer(casing)) casing.addTo(map);
+      if (!map.hasLayer(line)) line.addTo(map);
+    } else {
+      if (casing && map.hasLayer(casing)) map.removeLayer(casing);
+      if (map.hasLayer(line)) map.removeLayer(line);
+    }
+  }
+  useEffect(() => {
+    Object.keys(userLinesRef.current).forEach(id => showTrailLayers(id, id === trailUserId));
+    const map = mapRef.current, line = trailUserId && userLinesRef.current[trailUserId];
+    if (line && map && !followUserId) {
+      const b = line.getBounds && line.getBounds();
+      if (b && b.isValid() && !map.getBounds().contains(b)) map.fitBounds(b.pad(0.2), { maxZoom: 17, animate: true });
+    }
+  }, [trailUserId]);
+  // Memilih petugas di "Ikuti kamera ke" ikut menampilkan jejaknya.
+  useEffect(() => { if (followUserId) setTrailUserId(followUserId); }, [followUserId]);
   const colorStoreRef = useRef({}); // warna yang sudah dipakai tiap petugas — dipertahankan selama petugas itu masih aktif, supaya tidak berganti-ganti
   const colorMap = useMemo(() => {
     // Palet khusus peta live: warna dipilih yang JAUH BEDA satu sama lain (hue & terang-gelap), tanpa hijau
@@ -8410,6 +8465,7 @@ function AdminLivePatrolMap({
       else if (_pts.length > 1) map.fitBounds(window.L.latLngBounds(_pts).pad(0.25), { maxZoom: 17 });
     }
     mapRef.current = map;
+    map.on("zoomend", () => applyTrailWeights());
     return () => {
       map.remove();
       mapRef.current = null;
@@ -8529,19 +8585,21 @@ function AdminLivePatrolMap({
       // HIJAU = sedang live/patroli (ada sinyal < 90 detik), MERAH = tidak ada sinyal / tidak bergerak (>= 90 detik).
       const _dot = _ageSec < 90 ? "#16A34A" : "#DC2626";
       const _firstName = _esc((p.userName || "").split(" ")[0] || "Petugas");
-      const _arrowPath = `<path d="M9 1 L16.5 15.5 L9 11.8 L1.5 15.5 Z" fill="${color}" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>`;
-      // Punya foto: foto dalam cincin putih + panah arah berwarna di luar cincin.
-      // Tanpa foto: panah navigasi besar berwarna (satu warna per petugas).
-      const _body = `<div class="lpm-dir lpm-dir-big" style="transform:rotate(${heading}deg);"><svg width="42" height="40" viewBox="0 0 18 17">${_arrowPath}</svg></div>`;
+      // Model pin: foto (atau inisial) dalam cincin putih + ekor runcing di bawah; ujung ekor = titik lokasi.
+      // Status ditunjukkan oleh warna pin: HIJAU = online (sinyal < 90 detik), MERAH = offline.
+      // Warna petugas tetap dipakai untuk latar inisial (dan garis jejaknya).
+      const _face = _photo
+        ? `<img src="${_photo}" alt="">`
+        : `<span class="lpm-ini">${_esc(initials)}</span>`;
       const icon = window.L.divIcon({
         className: "",
-        html: `<div class="lpm-off" style="--c:${color};--c2:${hexToRgba(color, .35)};">
-          <span class="lpm-pulse"></span>
-          ${_body}
-          <div class="lpm-pill">${_firstName}<i style="background:${_dot}"></i></div>
+        html: `<div class="lpm-pin" style="--c:${_dot};--c2:${hexToRgba(_dot, .35)};--pc:${color};">
+          ${_ageSec < 90 ? '<span class="lpm-pulse"></span>' : ''}
+          <div class="lpm-pin-head"><div class="lpm-pin-in"><div class="lpm-pin-face">${_face}</div></div></div>
+          <div class="lpm-pin-tip"></div>
         </div>`,
-        iconSize: [44, 44],
-        iconAnchor: [22, 22]
+        iconSize: [50, 62],
+        iconAnchor: [25, 62]
       });
       if (userMarkersRef.current[p.userId]) {
         animateMarkerMove(userMarkersRef.current[p.userId], [last.lat, last.lng]);
@@ -8553,8 +8611,8 @@ function AdminLivePatrolMap({
           zIndexOffset: 1000
         }).addTo(map).bindPopup(popupHtml, {
           closeButton: true,
-          offset: [0, -14]
-        });
+          offset: [0, -50]
+        }).on("click", () => setTrailUserId(cur => cur === p.userId ? null : p.userId));
       }
       if (followUserId === p.userId) {
         map.panTo([last.lat, last.lng], {
@@ -8569,25 +8627,27 @@ function AdminLivePatrolMap({
         if (userLinesRef.current[p.userId].__casing) userLinesRef.current[p.userId].__casing.setLatLngs(latlngs);
       } else {
         // Garis rute gaya navigasi: pinggir putih lebar di bawah + garis inti berwarna petugas di atasnya
+        const _w = trailWeightsForZoom(map.getZoom());
         const casing = window.L.polyline(latlngs, {
           color: "#ffffff",
-          weight: 9,
-          opacity: .8,
+          weight: _w.casing,
+          opacity: .75,
           lineCap: "round",
           lineJoin: "round",
           smoothFactor: 1,
           interactive: false
-        }).addTo(map);
+        });
         const core = window.L.polyline(latlngs, {
           color,
-          weight: 5,
+          weight: _w.core,
           opacity: 1,
           lineCap: "round",
           lineJoin: "round",
           smoothFactor: 1 // toleransi kecil supaya jejak pendek tetap tergambar (3 membuat jejak <3px hilang saat zoom jauh)
-        }).addTo(map);
+        });
         core.__casing = casing;
         userLinesRef.current[p.userId] = core;
+        if (trailIdRef.current === p.userId) showTrailLayers(p.userId, true);
       }
     });
     Object.keys(userMarkersRef.current).forEach(id => {
@@ -8722,7 +8782,13 @@ function AdminLivePatrolMap({
           h("div", { className: "lpm-card-s" }, `${activeForLegend.length} petugas • ${cpDone}/${cpWithCoord.length} checkpoint terlewati`),
           trailErr && h("div", { className: "lpm-card-s", style: { color: "#DC2626", fontWeight: 600 } }, "Jejak lama gagal dimuat (cek aturan Firestore: pathChunks)"))),
       activeForLegend.length > 0 && h("div", { className: "lpm-legend lpm-legend-names" },
-        activeForLegend.map(p => h("div", { key: p.userId, className: "lpm-leg-row" },
+        activeForLegend.map(p => h("div", {
+          key: p.userId,
+          className: "lpm-leg-row lpm-leg-click" + (trailUserId === p.userId ? " on" : ""),
+          role: "button",
+          title: trailUserId === p.userId ? "Klik untuk menyembunyikan jejak" : "Klik untuk melihat jejak yang sudah dilewati",
+          onClick: () => setTrailUserId(cur => cur === p.userId ? null : p.userId)
+        },
           h("span", { className: "lpm-dot", style: { background: colorMap[p.userId] || colorForUserId(p.userId), width: 9, height: 9 } }),
           h("span", { className: "lpm-leg-name" }, p.userName))))));
 }
