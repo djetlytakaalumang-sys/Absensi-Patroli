@@ -813,6 +813,79 @@ html[data-theme="dark"] .kj-seg{background:#232833}html[data-theme="dark"] .kj-s
 html[data-theme="dark"] .kj-pill,html[data-theme="dark"] .kj-av,html[data-theme="dark"] .kj-tag.n{background:#2b313d;color:#e6e9ef}
 html[data-theme="dark"] .kj-btn{background:#232833;color:#e6e9ef;border-color:#ffffff1a}
 </style>
+<style id="ot-table-css">
+/* Halaman Lembur Karyawan (admin): kartu ringkasan, tab berlencana, tabel zebra, pagination */
+.ot-stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin-bottom:16px;}
+.ot-stat{padding:16px 18px; border-radius:16px;}
+.ot-stat .t{font-size:13px; font-weight:600; color:var(--navy-800);}
+.ot-stat .n{font-size:30px; font-weight:600; line-height:1.1; margin-top:10px; color:var(--navy-900);}
+.ot-stat .s{font-size:11px; color:var(--t-muted); margin-top:6px;}
+.ot-panel{padding:20px; border-radius:18px; margin-bottom:18px;}
+.ot-panel-head{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:14px;}
+.ot-panel-head h2{font-size:18px; font-weight:700; color:var(--navy-900);}
+.ot-tabs{display:flex; gap:22px; border-bottom:1px solid var(--line); overflow-x:auto; margin-bottom:14px;}
+.ot-tab{display:flex; align-items:center; gap:6px; padding:8px 2px 10px; font-size:14px; font-weight:600; color:var(--t-muted); border-bottom:2px solid transparent; margin-bottom:-1px; white-space:nowrap; background:none; cursor:pointer;}
+.ot-tab.on{color:var(--navy-900); border-bottom-color:var(--accent-600);}
+.ot-badge{font-size:10.5px; font-weight:700; padding:1px 8px; border-radius:999px; line-height:1.6;}
+.ot-tools{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:12px;}
+.ot-tools-l, .ot-tools-r{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+.ot-show{display:flex; align-items:center; gap:8px; font-size:12px; color:var(--t-muted);}
+.ot-show select{width:auto; padding:6px 10px; border-radius:999px; font-size:13px;}
+.ot-search{position:relative; min-width:220px;}
+.ot-search input{padding-left:36px; border-radius:999px; width:100%;}
+.ot-search span{position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--t-faint); display:flex;}
+.ot-view{display:flex; gap:4px; padding:3px; border-radius:12px; background:var(--slate-mist);}
+.ot-view button{width:32px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center; color:var(--t-muted); background:none;}
+.ot-view button.on{background:var(--accent-600); color:#fff;}
+.ot-wrap{overflow-x:auto;}
+.ot-tbl{width:100%; min-width:780px; border-collapse:separate; border-spacing:0; font-size:13px;}
+.ot-tbl th{text-align:left; font-weight:600; color:var(--navy-800); padding:10px 12px; white-space:nowrap;}
+.ot-tbl td{padding:12px; color:var(--navy-900); vertical-align:middle;}
+.ot-tbl tbody tr:nth-child(odd) td{background:var(--slate-mist);}
+.ot-tbl tbody tr:nth-child(odd) td:first-child{border-radius:12px 0 0 12px;}
+.ot-tbl tbody tr:nth-child(odd) td:last-child{border-radius:0 12px 12px 0;}
+.ot-act{width:28px; height:28px; border-radius:50%; border:1px solid var(--line); background:var(--card, #fff); color:var(--navy-800); display:inline-flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0;}
+.ot-act:hover{border-color:var(--accent-600); color:var(--accent-600);}
+.ot-act.del{background:var(--red); border-color:var(--red); color:#fff;}
+.ot-act:disabled{opacity:.5; cursor:not-allowed;}
+.ot-foot{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-top:14px; font-size:12px; color:var(--t-muted);}
+.ot-pg{display:flex; align-items:center; gap:6px; flex-wrap:wrap;}
+.ot-pg button{min-width:32px; height:32px; padding:0 8px; border-radius:10px; background:var(--slate-mist); color:var(--navy-800); font-weight:600; font-size:13px; display:inline-flex; align-items:center; justify-content:center;}
+.ot-pg button.on{background:var(--accent-600); color:#fff;}
+.ot-pg button:disabled{opacity:.4; cursor:not-allowed;}
+.ot-pg .gap{min-width:24px; text-align:center; color:var(--t-faint);}
+</style>
+<style id="ra-table-css">
+/* Hak Akses: tabel pengguna bergaya daftar karyawan (status aktif/nonaktif, menu aksi, pagination) */
+.ra-tools{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px;}
+.ra-tools .ot-search{flex:1 1 240px; max-width:340px;}
+.ra-sel{width:auto !important; padding:8px 12px; border-radius:999px; font-size:13px;}
+.ra-tbl{width:100%; min-width:860px; border-collapse:collapse; font-size:13px;}
+.ra-tbl th{text-align:left; font-weight:600; color:var(--navy-800); padding:12px; white-space:nowrap; border-bottom:1px solid var(--line); background:var(--slate-mist);}
+.ra-tbl td{padding:12px; color:var(--navy-900); vertical-align:middle; border-bottom:1px solid var(--line);}
+.ra-tbl tbody tr:hover td{background:var(--accent-50);}
+.ra-sort{display:inline-flex; align-items:center; gap:6px; font-weight:600; color:inherit; background:none; cursor:pointer; padding:0;}
+.ra-sort:hover{color:var(--accent-600);}
+.ra-pill{display:inline-block; padding:3px 14px; border-radius:999px; font-size:12px; font-weight:600; border:1px solid;}
+.ra-pill.on{color:var(--green); border-color:var(--green); background:var(--green-soft);}
+.ra-pill.off{color:var(--red); border-color:var(--red); background:var(--red-soft);}
+.ra-kebab{width:32px; height:32px; border-radius:8px; border:1px solid var(--line); background:var(--card,#fff); color:var(--navy-800); font-size:18px; line-height:1; cursor:pointer;}
+.ra-kebab:hover{border-color:var(--accent-600); color:var(--accent-600);}
+.ra-menu{position:absolute; right:12px; top:calc(100% - 6px); z-index:40; min-width:190px; padding:6px; border-radius:12px; background:var(--navy-100,#fff); border:1px solid var(--line); box-shadow:0 12px 32px rgba(16,24,40,.18);}
+.ra-mi{width:100%; display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:8px; font-size:13px; font-weight:500; color:var(--navy-900); background:none; text-align:left; cursor:pointer;}
+.ra-mi:hover:not(:disabled){background:var(--accent-50); color:var(--accent-700);}
+.ra-mi.danger{color:var(--red);}
+.ra-mi.danger:hover:not(:disabled){background:var(--red-soft); color:var(--red);}
+.ra-mi:disabled{opacity:.45; cursor:not-allowed;}
+.ra-foot{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:14px;}
+.ra-rec select{width:auto; padding:8px 12px; border-radius:10px; font-size:13px;}
+.ra-pg{display:flex; align-items:center; gap:6px; flex-wrap:wrap;}
+.ra-pg button{min-width:34px; height:34px; padding:0 8px; border-radius:10px; border:1px solid var(--line); background:var(--card,#fff); color:var(--navy-800); font-weight:600; font-size:13px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer;}
+.ra-pg button.on{border-color:var(--accent-600); color:var(--accent-600); background:var(--accent-50);}
+.ra-pg button:disabled{opacity:.4; cursor:not-allowed;}
+.ra-pg .gap{min-width:24px; text-align:center; color:var(--t-faint);}
+.ra-range{padding:8px 14px; border:1px solid var(--line); border-radius:10px; font-size:13px; font-weight:600; color:var(--navy-800); background:var(--card,#fff);}
+</style>
 <style id="tema-merah-nit">
 /* Tema merah mengikuti contoh: sidebar abu muda, menu aktif pil merah, form abu lembut. Blok ini sengaja paling akhir supaya menimpa aksen biru. */
 :root{--accent-900:#1c4fb8; --accent-700:#2f78ee; --accent-600:#2f78ee; --accent-500:#5b9af5; --accent-100:#2f78ee26; --accent-50:#2f78ee12; --accent-ink:#ffffff; --cyan:#2f78ee; --page-bg:#eceff1; --card-line:#e4e7ea; --line:#e3e5e8;}
@@ -3233,7 +3306,7 @@ function parseScheduleExcelRows(rows, monthKey) {
 // Status jadwal + kehadiran hari ini untuk semua karyawan (dipakai di halaman Jadwal Admin)
 function getTodayScheduleStatus() {
   const todayStr = todayDateStrWITA(getTrustedNow());
-  const employees = getScopedEmployees();
+  const employees = getActiveScopedEmployees();
   return employees.map(u => {
     const sch = getScheduleFor(u.id, todayStr);
     const scheduledType = sch ? sch.type : null;
@@ -4098,6 +4171,10 @@ function userInScope(userId) {
   const scope = getScopeAreaIds();
   return !scope || scope.includes(getAreaIdOfUser(userId));
 }
+// Karyawan AKTIF saja (akun nonaktif tidak dihitung di dashboard/ringkasan/leaderboard).
+function getActiveScopedEmployees() {
+  return getScopedEmployees().filter(u => u.active !== false);
+}
 function getScopedEmployees() {
   return getUsers().filter(u => u.role === ROLES.EMPLOYEE && userInScope(u.id));
 }
@@ -4275,7 +4352,7 @@ function scoreGrade(score) {
   };
 }
 function getLeaderboard(monthKey, areaFilter = "all") {
-  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE && userInArea(u.id, areaFilter));
+  const employees = getUsers().filter(u => u.role === ROLES.EMPLOYEE && u.active !== false && userInArea(u.id, areaFilter));
   const rows = employees.map(u => {
     const attendance = computeAttendanceScore(u.id, monthKey);
     const patrol = computePatrolScore(u.id, monthKey);
@@ -6472,7 +6549,7 @@ const I18N_DICTS = { en: {
 "Lapor Kejadian":"Report Incident","Laporan Kejadian":"Incident Reports","Laporan Kejadian Saya":"My Incident Reports","Laporan Kejadian Tim":"Team Incident Reports","Kirim Laporan":"Submit Report","Judul":"Title","Kategori":"Category","Prioritas":"Priority","Rendah":"Low","Sedang":"Medium","Tinggi":"High","Darurat":"Emergency","Lainnya":"Other","Kronologi":"Chronology","Pelapor":"Reporter","Foto Kejadian":"Incident Photo","Tandai sebagai Darurat":"Mark as Emergency","Admin akan mendapat notifikasi prioritas.":"Admins will receive a priority notification.","Tandai Diproses":"Mark In Progress","Update Progres":"Update Progress","Selesaikan":"Complete","Simpan Update":"Save Update","Riwayat Penanganan":"Handling History","Detail Laporan Kejadian":"Incident Report Details","Laporan kejadian berhasil dikirim ke admin.":"Incident report sent to admin.","Hapus Laporan":"Delete Report","Lihat Detail":"View Details","Tanggal terbaru":"Newest date","Tanggal terlama":"Oldest date","Urutkan":"Sort",
 "Ajukan Izin/Cuti":"Request Leave","Dari tanggal":"From date","Sampai tanggal":"To date","Alasan":"Reason","Kirim Pengajuan":"Submit Request","Anda belum pernah mengajukan izin/cuti.":"You have not requested any leave yet.","Alasan izin/cuti wajib diisi.":"Leave reason is required.","Pengajuan Izin/Cuti":"Leave Requests","Setujui":"Approve","Tolak":"Reject","Batalkan Persetujuan":"Cancel Approval","Hapus pengajuan":"Delete request","Lampiran":"Attachment","Lampiran (opsional)":"Attachment (optional)","Tidak ada pengajuan pada kategori ini.":"No requests in this category.",
 "Input Lembur":"Add Overtime","Input Lembur Karyawan":"Add Employee Overtime","Kirim Lembur":"Submit Overtime","Simpan Lembur":"Save Overtime","Tanggal lembur":"Overtime date","Jam mulai":"Start time","Jam selesai":"End time","Keterangan pekerjaan":"Work description","Foto Pekerjaan":"Work Photo","Detail Lembur":"Overtime Details","Catat jam lembur kamu dan pantau persetujuannya.":"Log your overtime hours and track their approval.","Total lembur disetujui":"Total approved overtime","Menunggu persetujuan":"Awaiting approval","Belum ada data lembur di bulan ini.":"No overtime data this month.","Lembur Karyawan":"Employee Overtime","Rekap per Karyawan":"Summary per Employee","Batalkan pengajuan":"Cancel request","Batalkan pengajuan lembur ini?":"Cancel this overtime request?","Pengajuan lembur ditolak: Anda memiliki jadwal Piket Malam pada tanggal tersebut. Karyawan dengan jadwal Piket Malam tidak dapat mengajukan lembur di tanggal yang sama.":"Overtime request rejected: you are scheduled for Night Duty on that date. Employees with a Night Duty schedule cannot request overtime on the same date.","Ada jadwal Piket Malam pada tanggal ini. Lembur tidak dapat diajukan di tanggal yang sama.":"There is a Night Duty schedule on this date. Overtime cannot be requested on the same date.","Tanggal lembur hanya boleh dari 31 hari lalu sampai hari ini.":"Overtime date must be within the last 31 days up to today.","Durasi lembur minimal 15 menit.":"Minimum overtime duration is 15 minutes.","Durasi lembur maksimal 16 jam per input.":"Maximum overtime duration is 16 hours per entry.","Keterangan pekerjaan wajib diisi.":"Work description is required.","Foto pekerjaan wajib dilampirkan (minimal 1).":"A work photo is required (at least 1).","Tanggal lembur wajib diisi.":"Overtime date is required.","Jam mulai dan jam selesai wajib diisi.":"Start and end times are required.","Tinjau Lembur":"Review Overtime","Tinjau & Putuskan":"Review & Decide","Riwayat peninjauan":"Review history","Catatan peninjauan (wajib jika ditolak)":"Review note (required if rejected)","Alasan penolakan wajib diisi.":"A rejection reason is required.","Tanpa foto bukti":"No photo evidence","Durasi > 8 jam":"Duration > 8 hours","Lewat tengah malam":"Past midnight","Diinput admin":"Entered by admin",
-"Jadwal Saya":"My Schedule","Jadwal Bulan Ini":"This Month's Schedule","Jadwal hari ini":"Today's schedule","Jadwal Masuk":"In Schedule","Jadwal Piket Malam":"Night Duty Schedule","Jadwal Standby / Libur":"Standby / Off Schedule","Grid Jadwal Bulanan":"Monthly Schedule Grid","Jenis":"Type","Semua Laporan":"All Reports","Darurat":"Emergency","Biasa":"Regular","Urutan Awal":"Default Order","Nama A-Z":"Name A-Z","Nama Z-A":"Name Z-A","Jadwal & Presensi Hari Ini":"Today's Schedule & Attendance","Import Jadwal dari Excel":"Import Schedule from Excel","Unduh Template":"Download Template","Belum ada jadwal untuk hari ini.":"No schedule for today.","Jadwal belum diinput admin untuk bulan ini.":"Admin has not entered the schedule for this month.",
+"Jadwal Saya":"My Schedule","Jadwal Bulan Ini":"This Month's Schedule","Jadwal hari ini":"Today's schedule","Jadwal Masuk":"In Schedule","Jadwal Piket Malam":"Night Duty Schedule","Jadwal Standby / Libur":"Standby / Off Schedule","Grid Jadwal Bulanan":"Monthly Schedule Grid","Jadwal Hari Ini":"Today's Schedule","Belum dijadwalkan":"Not scheduled","Tidak ada karyawan yang cocok dengan filter.":"No employees match the filters.","Semua Area":"All Areas","Urutan":"Sort","Area":"Area","Jenis":"Type","Semua Laporan":"All Reports","Darurat":"Emergency","Biasa":"Regular","Urutan Awal":"Default Order","Nama A-Z":"Name A-Z","Nama Z-A":"Name Z-A","Jadwal & Presensi Hari Ini":"Today's Schedule & Attendance","Import Jadwal dari Excel":"Import Schedule from Excel","Unduh Template":"Download Template","Belum ada jadwal untuk hari ini.":"No schedule for today.","Jadwal belum diinput admin untuk bulan ini.":"Admin has not entered the schedule for this month.",
 "Edit Profil":"Edit Profile","Nama lengkap":"Full name","Nomor HP":"Phone number","Alamat":"Address","Simpan Perubahan":"Save Changes","Simpan":"Save","Menyimpan…":"Saving…","Ubah Kata Sandi":"Change Password","Kata sandi saat ini":"Current password","Kata sandi baru":"New password","Konfirmasi kata sandi baru":"Confirm new password","Kata sandi":"Password","Profil berhasil diperbarui.":"Profile updated successfully.","Kata sandi berhasil diubah.":"Password changed successfully.","Informasi akun dan kepegawaian Anda.":"Your account and employment information.",
 "Edit Pengguna":"Edit User","Tambah Karyawan":"Add Employee","Hapus karyawan?":"Delete employee?","Ya, Hapus":"Yes, Delete","Hak Akses Pengguna":"User Access Rights","Pengguna":"User","Ganti Foto":"Change Photo","Pilih Foto":"Choose Photo","Hapus":"Delete","Edit":"Edit","Batal":"Cancel","Tutup":"Close","Kembali":"Back","Coba lagi":"Try again","Coba Lagi":"Try Again","Ya":"Yes","Tidak":"No","Lihat":"View","Cari":"Search","Mengirim…":"Sending…","Memproses…":"Processing…","Menghapus…":"Deleting…","Membuat PDF…":"Generating PDF…",
 "Kamera":"Camera","Galeri":"Gallery","Ambil foto":"Take photo","Ambil ulang":"Retake","Gunakan foto":"Use photo","Ganti kamera":"Switch camera","Kamera Depan":"Front Camera","Kamera Belakang":"Rear Camera","Mengaktifkan kamera…":"Starting camera…","Posisikan wajah Anda di dalam bingkai":"Position your face inside the frame","Tidak dapat mengakses kamera.":"Cannot access the camera.","Perangkat ini tidak mendukung GPS.":"This device does not support GPS.","Harap matikan aplikasi fake GPS dan coba lagi.":"Please turn off any fake GPS app and try again.","Gunakan Lokasi Saat Ini":"Use Current Location",
@@ -6521,6 +6598,72 @@ const I18N_PAT = { en: [
 
 // ===== Terjemahan tambahan + mesin frasa (kalimat yang disisipi angka/nama ikut diterjemahkan) =====
 const I18N_EXTRA = {
+
+"Cari nama, username, atau jabatan…":"Search name, username, or position…",
+
+"Semua role":"All roles",
+
+"Semua status":"All statuses",
+
+"Aktif":"Active",
+
+"Nonaktif":"Inactive",
+
+"Nonaktifkan akun":"Deactivate account",
+
+"Aktifkan akun":"Activate account",
+
+"Bergabung":"Joined",
+
+"Menu aksi":"Action menu",
+
+"Tidak ada pengguna yang cocok.":"No matching users.",
+
+"Akun ini dinonaktifkan. Hubungi Super Admin.":"This account has been deactivated. Contact the Super Admin.",
+
+"Kamu tidak bisa menonaktifkan akun sendiri.":"You cannot deactivate your own account.",
+
+"Tidak bisa menonaktifkan — minimal harus ada 1 akun Super Admin yang aktif.":"Cannot deactivate — there must be at least 1 active Super Admin account.",
+
+"Kamu tidak punya izin untuk mengubah status akun.":"You do not have permission to change the account status.",
+
+"Gagal menyimpan status akun ke server. Coba lagi.":"Failed to save the account status to the server. Try again.",
+
+"10 baris":"10 rows",
+
+"25 baris":"25 rows",
+
+"50 baris":"50 rows",
+
+
+"Jam Mulai":"Start Time","Jam Selesai":"End Time",
+"Daftar Lembur":"Overtime List",
+"Total Pengajuan":"Total Requests",
+"Perlu ditinjau":"Needs review",
+"Bulan ini":"This month",
+"Tampilkan":"Show",
+"data":"entries",
+"Menampilkan":"Showing",
+"dari":"of",
+"Cari nama karyawan…":"Search employee name…",
+"Tampilan tabel":"Table view",
+"Tampilan kartu":"Card view",
+"Halaman sebelumnya":"Previous page",
+"Halaman berikutnya":"Next page",
+"Keterangan":"Description",
+"Aksi":"Action",
+"Waktu":"Time",
+"Tanggal":"Date",
+"Durasi":"Duration",
+"Karyawan":"Employee",
+"Status":"Status",
+"Tinjau & Putuskan":"Review & Decide",
+"Lihat detail lembur":"View overtime details",
+"Kembalikan ke Menunggu":"Return to Pending",
+"Total jam: ":"Total hours: ",
+"Tidak ada data lembur pada kategori dan bulan ini.":"No overtime data for this category and month.",
+
+"Sabtu & Minggu dalam rentang tanggal tidak dihitung sebagai hari izin.":"Saturdays & Sundays within the date range are not counted as leave days.",
 "Bersihkan Data Orphan": "Clean Up Orphan Data",
 "Excel (Semua)": "Excel (All)",
 "Gunakan GPS Saat Ini": "Use Current GPS",
@@ -8739,6 +8882,8 @@ function AuthProvider({
         if (session.loginDateWITA && session.loginDateWITA !== trustedDateNow) {
           clearSession();
           if (u) recordAutoLogoutLog(u.name);
+        } else if (u && u.active === false) {
+          clearSession(); // akun dinonaktifkan — sesi lama tidak boleh dipakai lagi
         } else if (u) {
           setUser(u);
         }
@@ -8763,7 +8908,8 @@ function AuthProvider({
     if (!user) return;
     const fn = () => {
       const u = getUserById(user.id);
-      if (u) setUser(u);
+      if (u && u.active === false) { clearSession(); setUser(null); } // dinonaktifkan saat sedang login → keluar otomatis
+      else if (u) setUser(u);
     };
     _storeListeners.add(fn);
     return () => _storeListeners.delete(fn);
@@ -8828,6 +8974,10 @@ function AuthProvider({
     if (!found) return {
       ok: false,
       message: "Username atau kata sandi salah."
+    };
+    if (found.active === false) return {
+      ok: false,
+      message: "Akun ini dinonaktifkan. Hubungi Super Admin."
     };
     setSession(found.id);
     setUser(found);
@@ -11850,9 +12000,9 @@ function LeaveRequestModal({
     className: "modal-backdrop",
     onClick: onClose
   }, /*#__PURE__*/React.createElement("div", {
-    className: "modal-box compact-form fade-up",
+    className: "modal-box fade-up",
     style: {
-      maxWidth: 440
+      maxWidth: 460
     },
     onClick: e => e.stopPropagation()
   }, /*#__PURE__*/React.createElement("form", {
@@ -11920,20 +12070,32 @@ function LeaveRequestModal({
     className: "label"
   }, "Alasan"), /*#__PURE__*/React.createElement("textarea", {
     className: "input",
-    rows: 2,
+    rows: 4,
     value: form.reason,
     onChange: e => update("reason", e.target.value),
     placeholder: "mis. sakit, acara keluarga, urusan mendesak…",
     maxLength: 300,
     style: {
-      resize: "none",
+      resize: "vertical",
       fontFamily: "inherit"
-    }
+    },
+    autoFocus: true
   })), /*#__PURE__*/React.createElement(LeaveAttachmentField, {
     attachment: attachment,
     onChange: setAttachment,
     disabled: saving
-  })), /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 11,
+      color: "var(--t-faint)"
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "calendar-plus",
+    size: 12,
+    style: {
+      verticalAlign: -2
+    }
+  }), " Sabtu & Minggu dalam rentang tanggal tidak dihitung sebagai hari izin.")), /*#__PURE__*/React.createElement("div", {
     className: "flex form-foot",
     style: {
       gap: 10,
@@ -11954,7 +12116,14 @@ function LeaveRequestModal({
     style: {
       flex: 1
     }
-  }, saving ? "Mengirim…" : "Kirim Pengajuan")))));
+  }, saving ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Icon, {
+    name: "loader-2",
+    size: 15,
+    className: "spin"
+  }), " Mengirim…") : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Icon, {
+    name: "send",
+    size: 15
+  }), " Kirim Pengajuan"))))));
 }
 function EmployeeLeavePage({
   user
@@ -13452,7 +13621,7 @@ function AdminDashboard({
   const [areaFilter, setAreaFilter] = useState("all");
   const dashScope = getDashboardAreaIds();
   const inDashArea = uid => (dashScope === null || dashScope.includes(getAreaIdOfUser(uid))) && (areaFilter === "all" || getAreaIdOfUser(uid) === areaFilter);
-  const users = useMemo(() => getScopedEmployees().filter(u => inDashArea(u.id)), [store.users, store.settings, areaFilter]);
+  const users = useMemo(() => getActiveScopedEmployees().filter(u => inDashArea(u.id)), [store.users, store.settings, areaFilter]);
   const mk = currentMonthKey();
   const allRecords = useMemo(() => {
     const real = getRecords().filter(r => inDashArea(r.userId)).map(withEffectiveStatus);
@@ -15913,13 +16082,25 @@ function EmployeesPage() {
   const [loadingMonth, setLoadingMonth] = useState(null);
   const [monthLoadError, setMonthLoadError] = useState("");
   const employees = useMemo(() => getScopedEmployees(), [refreshKey, store.users, store.settings]);
-  // Urutan nama daftar karyawan: default (urutan awal) / A-Z / Z-A
-  const [sortMode, setSortMode] = useState("default");
+  // Filter & urutan daftar karyawan (panel filter di bawah judul)
+  const [sortMode, setSortMode] = useState("default"); // "default" | "az" | "za"
+  const [areaFilter, setAreaFilter] = useState("all");
+  const [nameQuery, setNameQuery] = useState("");
+  const [schedFilter, setSchedFilter] = useState("all"); // "all" | jenis jadwal hari ini | "none"
   const sortedEmployees = useMemo(() => {
-    if (sortMode === "default") return employees;
-    const arr = [...employees].sort((x, y) => String(x.name || "").localeCompare(String(y.name || ""), "id", { sensitivity: "base" }));
+    const q = nameQuery.trim().toLowerCase();
+    const todayD = todayDateStrWITA(getTrustedNow());
+    const schedOk = u => {
+      if (schedFilter === "all") return true;
+      const sc = getScheduleFor(u.id, todayD);
+      const t = sc ? sc.type : null;
+      return schedFilter === "none" ? !t : t === schedFilter;
+    };
+    let arr = employees.filter(u => userInArea(u.id, areaFilter) && (!q || String(u.name || "").toLowerCase().includes(q)) && schedOk(u));
+    if (sortMode === "default") return arr;
+    arr = [...arr].sort((x, y) => String(x.name || "").localeCompare(String(y.name || ""), "id", { sensitivity: "base" }));
     return sortMode === "za" ? arr.reverse() : arr;
-  }, [employees, sortMode]);
+  }, [employees, sortMode, areaFilter, nameQuery, schedFilter, store.schedules, store.leaves, store.settings]);
   const mk = monthKey;
   const todayStr = todayDateStrWITA(getTrustedNow());
   // Ringkasan tiap kartu karyawan mengikuti bulan yang dipilih. Data live cuma mencakup ~90 hari
@@ -15954,6 +16135,36 @@ function EmployeesPage() {
     refresh();
   }
   const activeEditEmployee = formTarget && formTarget !== "new" ? employees.find(e => e.id === formTarget.id) || formTarget : formTarget;
+  // ===== Panel filter: Nama, Urutan, Bulan, Area, Jadwal Hari Ini =====
+  const hh = React.createElement;
+  const __au = window.__activeUser;
+  const areaOpts = getVisibleAreas();
+  const showAreaField = areaOpts.length > 0 && !(__au && __au.role === ROLES.STAFF_ADMIN && areaOpts.length <= 1);
+  const bareInput = { border: "none", background: "transparent", boxShadow: "none", outline: "none", padding: "2px 0", fontSize: 14, fontWeight: 600, color: "var(--navy-900)", width: "100%", fontFamily: "inherit" };
+  const field = (label, control, first) => hh("div", { key: label, style: { flex: "1 1 150px", minWidth: 0, padding: "4px 16px", display: "flex", flexDirection: "column", gap: 2, borderLeft: first ? "none" : "1px solid var(--line)" } },
+    hh("span", { style: { fontSize: 11, color: "var(--t-faint)" } }, label), control);
+  const filtersActive = sortMode !== "default" || areaFilter !== "all" || nameQuery !== "" || schedFilter !== "all" || monthKey !== currentMonthKey();
+  function resetFilters() {
+    setSortMode("default");
+    setAreaFilter("all");
+    setNameQuery("");
+    setSchedFilter("all");
+    setMonthKey(currentMonthKey());
+  }
+  const filterBarEl = hh("div", { className: "card", style: { padding: "12px 8px", marginBottom: 20, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", borderRadius: 18 } },
+    field("Nama", hh("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
+      hh(Icon, { name: "search", size: 14, style: { color: "var(--t-faint)", flexShrink: 0 } }),
+      hh("input", { type: "text", value: nameQuery, onChange: e => setNameQuery(e.target.value), placeholder: "Cari nama karyawan\u2026", "aria-label": "Cari nama karyawan", style: bareInput })), true),
+    field("Urutan", hh("select", { value: sortMode, onChange: e => setSortMode(e.target.value), "aria-label": "Urutkan nama karyawan", style: bareInput },
+      hh("option", { value: "default" }, "Urutan Awal"), hh("option", { value: "az" }, "Nama A-Z"), hh("option", { value: "za" }, "Nama Z-A"))),
+    field("Bulan", hh("input", { type: "month", value: monthKey, onChange: e => setMonthKey(e.target.value), "aria-label": "Pilih bulan", style: bareInput })),
+    showAreaField ? field("Area", hh("select", { value: areaFilter, onChange: e => setAreaFilter(e.target.value), "aria-label": "Filter area", style: bareInput },
+      hh("option", { value: "all" }, "Semua Area"), ...areaOpts.map(a => hh("option", { key: a.id, value: a.id }, a.name)))) : null,
+    field("Jadwal Hari Ini", hh("select", { value: schedFilter, onChange: e => setSchedFilter(e.target.value), "aria-label": "Filter jadwal hari ini", style: bareInput },
+      hh("option", { value: "all" }, "Semua"),
+      ...[SCHEDULE_TYPE.MASUK, SCHEDULE_TYPE.PIKET_MALAM, SCHEDULE_TYPE.OFF, SCHEDULE_TYPE.IZIN].map(t => hh("option", { key: t, value: t }, displayStatusLabel(t))),
+      hh("option", { value: "none" }, "Belum dijadwalkan"))),
+    hh("button", { type: "button", onClick: resetFilters, disabled: !filtersActive, title: "Reset filter", "aria-label": "Reset filter", style: { width: 48, height: 48, borderRadius: 14, background: "var(--slate-mist)", color: "var(--navy-700)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 8px", flexShrink: 0, opacity: filtersActive ? 1 : 0.45, cursor: filtersActive ? "pointer" : "default" } }, hh(Icon, { name: "x", size: 18 })));
   return /*#__PURE__*/React.createElement("div", {
     className: "container-app"
   }, /*#__PURE__*/React.createElement("div", {
@@ -15977,24 +16188,7 @@ function EmployeesPage() {
       fontSize: 14,
       marginTop: 2
     }
-  }, "Daftar karyawan terdaftar dan ringkasan kehadiran per bulan.")), /*#__PURE__*/React.createElement("div", {
-    className: "flex",
-    style: { alignItems: "center", gap: 8, flexWrap: "wrap" }
-  }, /*#__PURE__*/React.createElement("select", {
-    className: "input",
-    value: sortMode,
-    onChange: e => setSortMode(e.target.value),
-    "aria-label": "Urutkan nama karyawan",
-    style: { width: "auto" }
-  }, /*#__PURE__*/React.createElement("option", { value: "default" }, "Urutan Awal"), /*#__PURE__*/React.createElement("option", { value: "az" }, "Nama A-Z"), /*#__PURE__*/React.createElement("option", { value: "za" }, "Nama Z-A")), /*#__PURE__*/React.createElement("input", {
-    type: "month",
-    value: monthKey,
-    onChange: e => setMonthKey(e.target.value),
-    className: "input",
-    style: {
-      width: "auto"
-    }
-  }))), (loadingMonth === mk || monthLoadError) && /*#__PURE__*/React.createElement("div", {
+  }, "Daftar karyawan terdaftar dan ringkasan kehadiran per bulan."))), filterBarEl, (loadingMonth === mk || monthLoadError) && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 16
     }
@@ -16029,7 +16223,7 @@ function EmployeesPage() {
       color: "var(--navy-700)",
       fontSize: 14
     }
-  }, "Belum ada karyawan terdaftar. Tambahkan melalui menu Pengaturan → Hak Akses.")), /*#__PURE__*/React.createElement("div", {
+  }, "Belum ada karyawan terdaftar. Tambahkan melalui menu Pengaturan → Hak Akses.")), employees.length > 0 && sortedEmployees.length === 0 && hh("div", { className: "card", style: { padding: 40, textAlign: "center" } }, hh("p", { style: { color: "var(--navy-700)", fontSize: 14 } }, "Tidak ada karyawan yang cocok dengan filter.")), /*#__PURE__*/React.createElement("div", {
     className: "grid-cards"
   }, sortedEmployees.map(emp => {
     const records = getRecordsByUser(emp.id).filter(r => r.date.startsWith(mk));
@@ -16038,250 +16232,47 @@ function EmployeesPage() {
     const pikMalam = records.filter(r => r.status === "Piket Malam").length;
     const alpha = getEffectiveRecordsForUserMonth(emp.id, emp.name, mk).filter(r => r.status === STATUS.ALPHA).length;
     const todaySched = getScheduleFor(emp.id, todayStr);
-    return /*#__PURE__*/React.createElement("div", {
-      key: emp.id,
-      className: "card",
-      style: {
-        padding: 18,
-        position: "relative"
-      }
-    }, canEdit && /*#__PURE__*/React.createElement("div", {
-      className: "flex",
-      style: {
-        position: "absolute",
-        top: 10,
-        right: 10,
-        gap: 2
-      }
-    }, /*#__PURE__*/React.createElement("button", {
-      onClick: () => setFormTarget(emp),
-      "aria-label": "Edit karyawan",
-      title: "Edit",
-      style: {
-        width: 30,
-        height: 30,
-        borderRadius: 8,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        color: "var(--accent-700)"
-      },
-      onMouseEnter: e => e.currentTarget.style.background = "var(--accent-50)",
-      onMouseLeave: e => e.currentTarget.style.background = "transparent"
-    }, /*#__PURE__*/React.createElement(Icon, {
-      name: "pencil",
-      size: 14
-    })), /*#__PURE__*/React.createElement("button", {
-      onClick: () => setDeleteTarget(emp),
-      "aria-label": "Hapus karyawan",
-      title: "Hapus",
-      style: {
-        width: 30,
-        height: 30,
-        borderRadius: 8,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        color: "var(--red)"
-      },
-      onMouseEnter: e => e.currentTarget.style.background = "var(--red-soft)",
-      onMouseLeave: e => e.currentTarget.style.background = "transparent"
-    }, /*#__PURE__*/React.createElement(Icon, {
-      name: "trash-2",
-      size: 14
-    }))), /*#__PURE__*/React.createElement("div", {
-      style: {
-        textAlign: "center"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "flex",
-        justifyContent: "center",
-        marginBottom: 10
-      }
-    }, /*#__PURE__*/React.createElement(Avatar, {
-      name: emp.name,
-      color: emp.avatarColor,
-      src: emp.photo || undefined,
-      size: 56
-    })), /*#__PURE__*/React.createElement("p", {
-      style: {
-        fontWeight: 700,
-        color: "var(--navy-900)",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap"
-      }
-    }, emp.name), /*#__PURE__*/React.createElement("p", {
-      style: {
-        fontSize: 12,
-        color: "var(--navy-700)",
-        marginTop: 2,
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap"
-      }
-    }, emp.position, " · ", emp.department), /*#__PURE__*/React.createElement("div", {
-      style: {
-        marginTop: 8,
-        display: "flex",
-        justifyContent: "center"
-      }
-    }, /*#__PURE__*/React.createElement(ScheduleBadge, {
-      type: todaySched ? todaySched.type : null
-    })), emp.phone && /*#__PURE__*/React.createElement("p", {
-      style: {
-        fontSize: 12,
-        color: "var(--navy-700)",
-        marginTop: 8
-      }
-    }, /*#__PURE__*/React.createElement(Icon, {
-      name: "phone",
-      size: 11,
-      style: {
-        verticalAlign: "-1px",
-        marginRight: 4
-      }
-    }), emp.phone)), /*#__PURE__*/React.createElement("div", {
-      className: "grid-3",
-      style: {
-        gap: 8,
-        marginTop: 16,
-        gridTemplateColumns: "repeat(4,1fr)"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        border: "1px solid var(--line)",
-        borderRadius: 10,
-        padding: "10px 4px",
-        textAlign: "center"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        width: 26,
-        height: 26,
-        borderRadius: 8,
-        background: "var(--green-soft)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        margin: "0 auto 6px"
-      }
-    }, /*#__PURE__*/React.createElement(Icon, {
-      name: "calendar-check",
-      size: 13,
-      style: { color: "var(--green)" }
-    })), /*#__PURE__*/React.createElement("p", {
-      style: {
-        fontSize: 16,
-        fontWeight: 800,
-        color: "var(--navy-900)"
-      }
-    }, hadir), /*#__PURE__*/React.createElement("p", {
-      style: {
-        fontSize: 10,
-        color: "var(--navy-700)"
-      }
-    }, "Hadir")), /*#__PURE__*/React.createElement("div", {
-      style: {
-        border: "1px solid var(--line)",
-        borderRadius: 10,
-        padding: "10px 4px",
-        textAlign: "center"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        width: 26,
-        height: 26,
-        borderRadius: 8,
-        background: "var(--amber-soft)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        margin: "0 auto 6px"
-      }
-    }, /*#__PURE__*/React.createElement(Icon, {
-      name: "clock",
-      size: 13,
-      style: { color: "var(--amber)" }
-    })), /*#__PURE__*/React.createElement("p", {
-      style: {
-        fontSize: 16,
-        fontWeight: 800,
-        color: "var(--navy-900)"
-      }
-    }, terlambat), /*#__PURE__*/React.createElement("p", {
-      style: {
-        fontSize: 10,
-        color: "var(--navy-700)"
-      }
-    }, "Terlambat")), /*#__PURE__*/React.createElement("div", {
-      style: {
-        border: "1px solid var(--line)",
-        borderRadius: 10,
-        padding: "10px 4px",
-        textAlign: "center"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        width: 26,
-        height: 26,
-        borderRadius: 8,
-        background: "var(--indigo-soft)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        margin: "0 auto 6px"
-      }
-    }, /*#__PURE__*/React.createElement(Icon, {
-      name: "moon",
-      size: 13,
-      style: { color: "var(--indigo)" }
-    })), /*#__PURE__*/React.createElement("p", {
-      style: {
-        fontSize: 16,
-        fontWeight: 800,
-        color: "var(--navy-900)"
-      }
-    }, pikMalam), /*#__PURE__*/React.createElement("p", {
-      style: {
-        fontSize: 10,
-        color: "var(--navy-700)"
-      }
-    }, "Piket Malam")), /*#__PURE__*/React.createElement("div", {
-      style: {
-        border: "1px solid var(--line)",
-        borderRadius: 10,
-        padding: "10px 4px",
-        textAlign: "center"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        width: 26,
-        height: 26,
-        borderRadius: 8,
-        background: "var(--red-soft)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        margin: "0 auto 6px"
-      }
-    }, /*#__PURE__*/React.createElement(Icon, {
-      name: "x-circle",
-      size: 13,
-      style: { color: "var(--red)" }
-    })), /*#__PURE__*/React.createElement("p", {
-      style: {
-        fontSize: 16,
-        fontWeight: 800,
-        color: "var(--navy-900)"
-      }
-    }, alpha), /*#__PURE__*/React.createElement("p", {
-      style: {
-        fontSize: 10,
-        color: "var(--navy-700)"
-      }
-    }, "Alpa"))));
+    const h = React.createElement;
+    const ell = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+    const statChip = (label, value, dot) => h("span", { key: label, style: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 999, background: "var(--slate-mist)", color: "var(--navy-700)" } },
+      h("span", { style: { width: 6, height: 6, borderRadius: "50%", background: dot, flexShrink: 0 } }), label, h("b", { style: { color: "var(--navy-900)", fontWeight: 800 } }, value));
+    // Nilai gabungan bulan yang dipilih (presensi + patroli), sama dengan nilai di Peringkat Tim
+    const score = computeTeamScore(emp.id, mk);
+    const grade = scoreGrade(score);
+    return h("div", { key: emp.id, className: "card", style: { padding: 18, position: "relative" } },
+      canEdit && h("button", {
+        onClick: () => setDeleteTarget(emp),
+        "aria-label": "Hapus karyawan",
+        title: "Hapus",
+        style: { position: "absolute", top: 10, right: 10, width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--red)" },
+        onMouseEnter: e => e.currentTarget.style.background = "var(--red-soft)",
+        onMouseLeave: e => e.currentTarget.style.background = "transparent"
+      }, h(Icon, { name: "trash-2", size: 14 })),
+      // Header: foto di kiri, nama + jabatan di kanan
+      h("div", { className: "flex", style: { gap: 12, alignItems: "center", paddingRight: canEdit ? 28 : 0 } },
+        h(Avatar, { name: emp.name, color: emp.avatarColor, src: emp.photo || undefined, size: 52 }),
+        h("div", { style: { minWidth: 0, flex: 1 } },
+          h("p", { style: { fontWeight: 700, color: "var(--navy-900)", fontSize: 15, lineHeight: 1.3, ...ell } }, emp.name),
+          h("p", { style: { fontSize: 12, color: "var(--t-faint)", marginTop: 1, ...ell } }, emp.position))),
+      // Info singkat
+      h("div", { style: { marginTop: 12, display: "flex", flexDirection: "column", gap: 4, minHeight: 36 } },
+        h("div", { className: "flex", style: { alignItems: "center", gap: 8 } },
+          h("span", { style: { display: "inline-flex", alignItems: "center", gap: 4, background: grade.colorVar, color: "#fff", fontSize: 11, fontWeight: 800, padding: "2px 8px", borderRadius: 6 } }, "\u2605 ", score == null ? "-" : score),
+          h("span", { style: { fontSize: 11, color: "var(--t-faint)" } }, score == null ? "Belum ada nilai" : "Nilai bulan ini \u00b7 Grade " + grade.label)),
+        emp.department && h("p", { style: { fontSize: 12, color: "var(--navy-700)", ...ell } }, emp.department),
+        emp.phone && h("p", { style: { fontSize: 12, color: "var(--navy-700)", ...ell } }, h(Icon, { name: "phone", size: 11, style: { verticalAlign: "-1px", marginRight: 4 } }), emp.phone)),
+      // Ringkasan kehadiran bulan ini sebagai chip
+      h("div", { className: "flex", style: { gap: 6, flexWrap: "wrap", marginTop: 14 } },
+        statChip("Hadir", hadir, "var(--green)"),
+        statChip("Terlambat", terlambat, "var(--amber)"),
+        statChip("Piket Malam", pikMalam, "var(--indigo)"),
+        statChip("Alpa", alpha, "var(--red)")),
+      // Baris bawah: jadwal hari ini di kiri, tombol di kanan
+      h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 16 } },
+        h("div", { style: { minWidth: 0 } },
+          h("p", { style: { fontSize: 11, color: "var(--t-faint)", marginBottom: 4 } }, "Jadwal hari ini"),
+          h(ScheduleBadge, { type: todaySched ? todaySched.type : null })),
+        canEdit && h("button", { type: "button", onClick: () => setFormTarget(emp), style: { background: "#111", color: "#fff", borderRadius: 999, padding: "9px 20px", fontSize: 12, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" } }, h(Icon, { name: "pencil", size: 13 }), " Edit")));
   })), formTarget && /*#__PURE__*/React.createElement(EmployeeFormModal, {
     key: formTarget === "new" ? "new" : activeEditEmployee.id,
     employee: formTarget === "new" ? null : activeEditEmployee,
@@ -16307,13 +16298,14 @@ function leaveRangeText(lv) {
 // Gambar kecil di kartu, sama seperti thumbnail foto di daftar Laporan Kejadian
 function LeaveThumb({
   leave,
-  size
+  size,
+  round
 }) {
   const isImg = !!(leave.attachmentData && leave.attachmentType && leave.attachmentType.startsWith("image/"));
   const box = {
     width: size,
     height: size,
-    borderRadius: 10,
+    borderRadius: round ? "50%" : 10,
     flexShrink: 0
   };
   if (isImg) return _h("img", {
@@ -16342,6 +16334,22 @@ function LeaveThumb({
 }
 // Kartu ringkas pengajuan izin (gaya daftar Laporan Kejadian): thumbnail + nama/tanggal + status,
 // alasan 2 baris; ketuk untuk melihat detail & foto lampiran yang lebih besar.
+// Opsi urutan & helper untuk daftar pengajuan izin (admin)
+const LEAVE_SORT_OPTIONS = [["status", "Status (Menunggu di atas)"], ["terbaru", "Pengajuan terbaru"], ["terlama", "Pengajuan terlama"], ["nama", "Nama A-Z"]];
+function sortLeaveRequests(list, mode) {
+  const rank = { [LEAVE_STATUS.PENDING]: 0, [LEAVE_STATUS.APPROVED]: 1, [LEAVE_STATUS.REJECTED]: 2 };
+  const newest = (a, b) => String(a.createdAt || "") < String(b.createdAt || "") ? 1 : String(a.createdAt || "") > String(b.createdAt || "") ? -1 : 0;
+  const arr = [...list];
+  if (mode === "terlama") return arr.sort((a, b) => -newest(a, b));
+  if (mode === "terbaru") return arr.sort(newest);
+  if (mode === "nama") return arr.sort((a, b) => String(a.userName || "").localeCompare(String(b.userName || ""), "id", { sensitivity: "base" }));
+  return arr.sort((a, b) => {
+    const r = (rank[a.status] ?? 1) - (rank[b.status] ?? 1);
+    return r !== 0 ? r : newest(a, b);
+  });
+}
+// Kartu pengajuan izin: modelnya sama dengan kartu Laporan Kejadian (panel membulat di dalam kartu putih,
+// pil tanggal + status di atas, judul, chip, baris bawah dengan tombol hitam "Lihat Detail").
 function LeaveRequestCard({
   lv,
   showName,
@@ -16356,135 +16364,38 @@ function LeaveRequestCard({
   const [viewing, setViewing] = useState(false);
   const isImg = !!(lv.attachmentData && lv.attachmentType && lv.attachmentType.startsWith("image/"));
   const days = leaveDaysCount(lv);
-  return _h("div", {
-    className: "card",
-    style: {
-      padding: 16
-    }
-  }, _h("div", {
-    className: "flex",
-    style: {
-      alignItems: "flex-start",
-      justifyContent: "space-between",
-      gap: 12
-    }
-  }, _h("div", {
-    className: "flex",
-    style: {
-      gap: 12,
-      alignItems: "center",
-      cursor: "pointer",
-      flex: 1,
-      minWidth: 0
-    },
-    onClick: () => setExpanded(!expanded)
-  }, _h(LeaveThumb, {
-    leave: lv,
-    size: 44
-  }), _h("div", {
-    style: {
-      minWidth: 0
-    }
-  }, _h("p", {
-    style: {
-      fontWeight: 600,
-      color: "var(--navy-900)",
-      fontSize: 14
-    }
-  }, showName ? lv.userName : leaveRangeText(lv)), _h("p", {
-    style: {
-      fontSize: 12,
-      color: "var(--t-faint)"
-    }
-  }, showName ? leaveRangeText(lv) + " · " : "", days, " hari"), showName && _h(AreaTag, { userId: lv.userId }))), _h(LeaveStatusBadge, {
-    status: lv.status
-  })), _h("p", {
-    style: {
-      fontSize: 13,
-      color: "var(--t-muted)",
-      marginTop: 10,
-      whiteSpace: expanded ? "pre-wrap" : "normal",
-      overflow: expanded ? "visible" : "hidden",
-      display: expanded ? "block" : "-webkit-box",
-      WebkitLineClamp: expanded ? undefined : 2,
-      WebkitBoxOrient: "vertical",
-      overflowWrap: "anywhere"
-    }
-  }, lv.reason), expanded && lv.attachmentData && _h("div", {
-    style: {
-      marginTop: 10
-    }
-  }, isImg ? _h("img", {
-    src: lv.attachmentData,
-    alt: lv.attachmentName || "Lampiran",
-    title: "Ketuk untuk memperbesar",
-    onClick: () => setViewing(true),
-    style: {
-      width: "100%",
-      maxWidth: 360,
-      maxHeight: 240,
-      objectFit: "cover",
-      borderRadius: 10,
-      cursor: "zoom-in",
-      display: "block"
-    }
-  }) : _h(LeaveAttachmentChip, {
-    leave: lv
-  })), viewing && _h(LeaveAttachmentViewer, {
-    data: lv.attachmentData,
-    name: lv.attachmentName,
-    type: lv.attachmentType,
-    onClose: () => setViewing(false)
-  }), canDecide && lv.status === LEAVE_STATUS.PENDING && _h("div", {
-    className: "flex",
-    style: {
-      gap: 8,
-      marginTop: 12
-    }
-  }, _h(Button, {
-    variant: "success",
-    size: "sm",
-    disabled: busy,
-    onClick: () => onDecide(LEAVE_STATUS.APPROVED)
-  }, _h(Icon, {
-    name: "check",
-    size: 14
-  }), " Setujui"), _h(Button, {
-    variant: "outline",
-    size: "sm",
-    disabled: busy,
-    onClick: () => onDecide(LEAVE_STATUS.REJECTED)
-  }, _h(Icon, {
-    name: "x",
-    size: 14
-  }), " Tolak")), (canDecide || canEdit) && expanded && _h("div", {
-    className: "flex",
-    style: {
-      gap: 12,
-      marginTop: 12,
-      paddingTop: 10,
-      borderTop: "1px solid var(--line)",
-      alignItems: "center",
-      flexWrap: "wrap"
-    }
-  }, lv.status === LEAVE_STATUS.APPROVED && canDecide && _h(Button, {
-    variant: "outline",
-    size: "sm",
-    disabled: busy,
-    onClick: onRevoke
-  }, " Batalkan Persetujuan"), canEdit && _h("button", {
-    disabled: busy,
-    onClick: onRemove,
-    style: {
-      background: "none",
-      border: "none",
-      color: "var(--red)",
-      fontSize: 12,
-      fontWeight: 600,
-      cursor: "pointer",
-      padding: 0
-    }
-  }, "Hapus pengajuan")));
+  const pillStyle = { display: "inline-flex", alignItems: "center", background: "#fff", border: "1px solid var(--line)", borderRadius: 999, padding: "4px 12px", fontSize: 11, fontWeight: 600, color: "var(--navy-900)", whiteSpace: "nowrap" };
+  const chipBase = { fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: "var(--slate-mist)", color: "var(--navy-700)" };
+  const submitted = lv.createdAt ? formatDateShortID(lv.createdAt.slice(0, 10)) + " \u00b7 " + formatClock(new Date(lv.createdAt)) : "-";
+  const infoLine = lv.status === LEAVE_STATUS.PENDING ? "Menunggu keputusan" : (lv.status === LEAVE_STATUS.APPROVED ? "Disetujui" : "Ditolak") + (lv.decidedAt ? " " + timeAgoShortID(lv.decidedAt) : "") + (lv.decidedBy ? " oleh " + lv.decidedBy : "");
+  return _h("div", { className: "card", style: { padding: 8 } },
+    _h("div", { style: { border: "1px solid var(--line)", borderRadius: 16, padding: 14, background: "#fff" } },
+      _h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" } },
+        _h("span", { style: pillStyle }, "Diajukan " + submitted),
+        _h(LeaveStatusBadge, { status: lv.status })),
+      _h("div", { className: "flex", style: { alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginTop: 12, cursor: "pointer" }, onClick: () => setExpanded(!expanded) },
+        _h("div", { style: { minWidth: 0, flex: 1 } },
+          showName && _h("div", { className: "flex", style: { alignItems: "center", gap: 6, flexWrap: "wrap" } },
+            _h("span", { style: { fontSize: 12, fontWeight: 500, color: "var(--t-muted)", lineHeight: 1.3 } }, lv.userName),
+            _h(AreaTag, { userId: lv.userId })),
+          _h("p", { style: { fontSize: 16, fontWeight: 700, color: "var(--navy-900)", marginTop: showName ? 4 : 0, lineHeight: 1.3, overflowWrap: "anywhere" } }, leaveRangeText(lv))),
+        _h(LeaveThumb, { leave: lv, size: 44, round: true })),
+      _h("div", { className: "flex", style: { gap: 6, flexWrap: "wrap", marginTop: 8 } },
+        _h("span", { style: chipBase }, days + " hari"),
+        lv.attachmentData && _h("span", { style: chipBase }, "Ada lampiran")),
+      _h("p", { style: { fontSize: 13, color: "var(--t-muted)", marginTop: 10, whiteSpace: expanded ? "pre-wrap" : "normal", overflow: expanded ? "visible" : "hidden", display: expanded ? "block" : "-webkit-box", WebkitLineClamp: expanded ? undefined : 2, WebkitBoxOrient: "vertical", overflowWrap: "anywhere" } }, lv.reason)),
+    _h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", padding: "10px 8px 4px" } },
+      _h("p", { style: { fontSize: 12, color: "var(--t-faint)", minWidth: 0, flex: 1 } }, infoLine),
+      _h("button", { type: "button", onClick: () => setExpanded(!expanded), style: { background: "#111", color: "#fff", borderRadius: 999, padding: "8px 16px", fontSize: 12, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" } }, _h(Icon, { name: "eye", size: 14 }), expanded ? " Tutup Detail" : " Lihat Detail")),
+    canDecide && lv.status === LEAVE_STATUS.PENDING && _h("div", { className: "flex", style: { gap: 8, padding: "8px 8px 4px" } },
+      _h(Button, { variant: "success", size: "sm", disabled: busy, onClick: () => onDecide(LEAVE_STATUS.APPROVED) }, _h(Icon, { name: "check", size: 14 }), " Setujui"),
+      _h(Button, { variant: "outline", size: "sm", disabled: busy, onClick: () => onDecide(LEAVE_STATUS.REJECTED) }, _h(Icon, { name: "x", size: 14 }), " Tolak")),
+    expanded && lv.attachmentData && _h("div", { style: { padding: "8px 8px 4px" } },
+      isImg ? _h("img", { src: lv.attachmentData, alt: lv.attachmentName || "Lampiran", title: "Ketuk untuk memperbesar", onClick: () => setViewing(true), style: { width: "100%", maxWidth: 360, maxHeight: 240, objectFit: "cover", borderRadius: 10, cursor: "zoom-in", display: "block" } }) : _h(LeaveAttachmentChip, { leave: lv })),
+    viewing && _h(LeaveAttachmentViewer, { data: lv.attachmentData, name: lv.attachmentName, type: lv.attachmentType, onClose: () => setViewing(false) }),
+    (canDecide || canEdit) && expanded && _h("div", { className: "flex", style: { gap: 12, margin: "8px 8px 4px", paddingTop: 10, borderTop: "1px solid var(--line)", alignItems: "center", flexWrap: "wrap" } },
+      lv.status === LEAVE_STATUS.APPROVED && canDecide && _h(Button, { variant: "outline", size: "sm", disabled: busy, onClick: onRevoke }, " Batalkan Persetujuan"),
+      canEdit && _h("button", { disabled: busy, onClick: onRemove, style: { background: "none", border: "none", color: "var(--red)", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 } }, "Hapus pengajuan")));
 }
 function LeaveRequestsPage({
   onChanged
@@ -16501,7 +16412,11 @@ function LeaveRequestsPage({
   const [error, setError] = useState("");
   useStoreSync();
   const allRequests = useMemo(() => getLeaveRequests().filter(l => inNotifScope(l.userId, user) && userInAreaData(l.userId, areaFilter)), [refreshKey, store.leaves, store.settings, store.users, areaFilter]);
-  const filtered = tab === "all" ? allRequests : allRequests.filter(l => l.status === tab);
+  const [sortMode, setSortMode] = useState("status");
+  const [attFilter, setAttFilter] = useState("all"); // "all" | "ada" | "tanpa"
+  const byTab = tab === "all" ? allRequests : allRequests.filter(l => l.status === tab);
+  const byAtt = attFilter === "ada" ? byTab.filter(l => !!l.attachmentData) : attFilter === "tanpa" ? byTab.filter(l => !l.attachmentData) : byTab;
+  const filtered = sortLeaveRequests(byAtt, sortMode);
   const pendingCount = allRequests.filter(l => l.status === LEAVE_STATUS.PENDING).length;
   const areaCounts = countPendingByArea(getLeaveRequests().filter(l => inNotifScope(l.userId, user)));
   async function decide(id, decision) {
@@ -16559,6 +16474,13 @@ function LeaveRequestsPage({
     key: "all",
     label: "Semua"
   }];
+  const toolbarEl = _h("div", { className: "flex", style: { gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 16 } },
+    _h("label", { className: "flex", style: { alignItems: "center", gap: 6, fontSize: 12, color: "var(--t-faint)" } }, "Urutkan",
+      _h("select", { className: "input", value: sortMode, onChange: e => setSortMode(e.target.value), style: { width: "auto", padding: "6px 10px", fontSize: 12 } },
+        LEAVE_SORT_OPTIONS.map(([v, l]) => _h("option", { key: v, value: v }, l)))),
+    _h("label", { className: "flex", style: { alignItems: "center", gap: 6, fontSize: 12, color: "var(--t-faint)" } }, "Lampiran",
+      _h("select", { className: "input", value: attFilter, onChange: e => setAttFilter(e.target.value), style: { width: "auto", padding: "6px 10px", fontSize: 12 } },
+        _h("option", { value: "all" }, "Semua Pengajuan"), _h("option", { value: "ada" }, "Ada Lampiran"), _h("option", { value: "tanpa" }, "Tanpa Lampiran"))));
   return /*#__PURE__*/React.createElement("div", {
     className: "container-lg"
   }, /*#__PURE__*/React.createElement("div", {
@@ -16604,7 +16526,7 @@ function LeaveRequestsPage({
     key: t.key,
     onClick: () => setTab(t.key),
     className: `chip ${tab === t.key ? "chip-active" : "chip-inactive"}`
-  }, t.label, t.key === "pending" && pendingCount > 0 ? ` (${pendingCount})` : ""))), filtered.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }, t.label, t.key === "pending" && pendingCount > 0 ? ` (${pendingCount})` : ""))), toolbarEl, filtered.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: 40,
@@ -21899,7 +21821,45 @@ function RoleAccessCard() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const allUsers = useMemo(() => [...getUsers()].filter(userVisibleToAreaAdmin).sort((a, b) => a.name.localeCompare(b.name)), [store.users, store.settings]);
-  const adminCount = getUsers().filter(u => u.role === ROLES.ADMIN).length;
+  const adminCount = getUsers().filter(u => u.role === ROLES.ADMIN && u.active !== false).length;
+  const isActiveU = u => u.active !== false;
+  const [q, setQ] = useState("");
+  const [roleF, setRoleF] = useState("all");
+  const [statF, setStatF] = useState("all");
+  const [pageSize, setPageSize] = useState(10);
+  const [page, setPage] = useState(1);
+  const [sort, setSort] = useState({ key: "name", dir: "asc" });
+  const [menuId, setMenuId] = useState(null);
+  useEffect(() => {
+    if (!menuId) return;
+    const close = () => setMenuId(null);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [menuId]);
+  const qn = q.trim().toLowerCase();
+  const filteredU = allUsers.filter(u => (roleF === "all" || u.role === roleF) && (statF === "all" || (statF === "active") === isActiveU(u)) && (!qn || String(u.name || "").toLowerCase().includes(qn) || String(u.username || "").toLowerCase().includes(qn) || String(u.position || "").toLowerCase().includes(qn)));
+  const sortVal = (u, k) => k === "position" ? (u.position || "") : k === "role" ? roleLabel(u.role) : k === "join" ? (u.joinDate || "") : k === "status" ? (isActiveU(u) ? "a" : "b") : (u.name || "");
+  const sortedU = [...filteredU].sort((x, y) => { const c = String(sortVal(x, sort.key)).localeCompare(String(sortVal(y, sort.key))); return sort.dir === "asc" ? c : -c; });
+  const totalPages = Math.max(1, Math.ceil(sortedU.length / pageSize));
+  const pg = Math.min(page, totalPages);
+  const pageUsers = sortedU.slice((pg - 1) * pageSize, pg * pageSize);
+  const fromN = sortedU.length === 0 ? 0 : (pg - 1) * pageSize + 1;
+  const toN = Math.min(pg * pageSize, sortedU.length);
+  function toggleSort(k) { setSort(sv => sv.key === k ? { key: k, dir: sv.dir === "asc" ? "desc" : "asc" } : { key: k, dir: "asc" }); setPage(1); }
+  async function handleActiveToggle(target) {
+    setError("");
+    if (!canEdit) { setError("Kamu tidak punya izin untuk mengubah status akun."); return; }
+    const next = !isActiveU(target);
+    if (!next && target.id === currentUser.id) { setError("Kamu tidak bisa menonaktifkan akun sendiri."); return; }
+    if (!next && target.role === ROLES.ADMIN && adminCount <= 1) { setError("Tidak bisa menonaktifkan — minimal harus ada 1 akun Super Admin yang aktif."); return; }
+    if (!next && !window.confirm(`Nonaktifkan akun "${target.name}"? Akun ini tidak akan bisa login sampai diaktifkan lagi. Data presensi & patroli tetap tersimpan.`)) return;
+    try {
+      await updateUser(target.id, { active: next });
+      showToast(next ? `Akun "${target.name}" diaktifkan.` : `Akun "${target.name}" dinonaktifkan.`);
+    } catch (err) {
+      setError(err.message || "Gagal menyimpan status akun ke server. Coba lagi.");
+    }
+  }
   function handleAddSaved() {
     setShowAddModal(false);
     showToast("Pengguna baru berhasil ditambahkan.");
@@ -22019,106 +21979,61 @@ function RoleAccessCard() {
       fontSize: 13,
       marginBottom: 12
     }
-  }, error), /*#__PURE__*/React.createElement("div", {
-    style: {
-      overflowX: "auto"
-    }
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Nama"), /*#__PURE__*/React.createElement("th", null, "Username"), /*#__PURE__*/React.createElement("th", null, "Jabatan"), /*#__PURE__*/React.createElement("th", null, "Role"), /*#__PURE__*/React.createElement("th", null, "Area"), /*#__PURE__*/React.createElement("th", null, "Leader Team"), canEdit && /*#__PURE__*/React.createElement("th", null, "Aksi"))), /*#__PURE__*/React.createElement("tbody", null, allUsers.map(u => {
-    const roleCell = /*#__PURE__*/React.createElement("select", {
-      className: "input",
-      style: {
-        padding: "6px 10px",
-        fontSize: 13,
-        width: "auto"
-      },
-      value: u.role,
-      disabled: !canEdit || u.id === currentUser.id,
-      onChange: e => handleRoleChange(u, e.target.value)
-    }, /*#__PURE__*/React.createElement("option", {
-      value: ROLES.ADMIN
-    }, "Super Admin"), /*#__PURE__*/React.createElement("option", {
-      value: ROLES.STAFF_ADMIN
-    }, "Admin"), /*#__PURE__*/React.createElement("option", {
-      value: ROLES.VIEWER
-    }, "View Only"), /*#__PURE__*/React.createElement("option", {
-      value: ROLES.EMPLOYEE
-    }, "Karyawan"));
-    const actionCell = canEdit ? /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("div", {
-      className: "flex",
-      style: {
-        gap: 2
-      }
-    }, /*#__PURE__*/React.createElement("button", {
-      type: "button",
-      onClick: () => setEditTarget(u),
-      "aria-label": "Edit pengguna",
-      title: "Edit",
-      style: {
-        width: 28,
-        height: 28,
-        borderRadius: 8,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        color: "var(--accent-700)"
-      },
-      onMouseEnter: e => e.currentTarget.style.background = "var(--accent-50)",
-      onMouseLeave: e => e.currentTarget.style.background = "transparent"
-    }, /*#__PURE__*/React.createElement(Icon, {
-      name: "pencil",
-      size: 14
-    })), /*#__PURE__*/React.createElement("button", {
-      type: "button",
-      onClick: () => handleDeleteClick(u),
-      "aria-label": "Hapus pengguna",
-      title: "Hapus",
-      disabled: u.id === currentUser.id,
-      style: {
-        width: 28,
-        height: 28,
-        borderRadius: 8,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        color: u.id === currentUser.id ? "#cbd5e1" : "var(--red)",
-        cursor: u.id === currentUser.id ? "not-allowed" : "pointer"
-      },
-      onMouseEnter: e => {
-        if (u.id !== currentUser.id) e.currentTarget.style.background = "var(--red-soft)";
-      },
-      onMouseLeave: e => e.currentTarget.style.background = "transparent"
-    }, /*#__PURE__*/React.createElement(Icon, {
-      name: "trash-2",
-      size: 14
-    })))) : null;
-    return /*#__PURE__*/React.createElement("tr", {
-      key: u.id
-    }, /*#__PURE__*/React.createElement("td", null, u.name, u.id === currentUser.id && /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 11,
-        color: "var(--navy-700)",
-        marginLeft: 6
-      }
-    }, "(kamu)")), /*#__PURE__*/React.createElement("td", null, u.username), /*#__PURE__*/React.createElement("td", null, u.position || "-"), /*#__PURE__*/React.createElement("td", null, roleCell), /*#__PURE__*/React.createElement("td", { style: { fontSize: 12 } }, (() => {
-      const acc = Array.isArray(u.areaAccess) ? u.areaAccess.map(getAreaName).filter(Boolean) : [];
-      if (u.role === ROLES.ADMIN) return "Semua area";
-      if (u.role === ROLES.EMPLOYEE) { const home = getAreaName(getAreaIdOfUser(u.id)); return [home, ...acc.map(n => n + " (tambahan)")].filter(Boolean).join(", ") || "-"; }
-      return acc.length ? acc.join(", ") : "Semua area";
-    })()), /*#__PURE__*/React.createElement("td", null, u.role === ROLES.EMPLOYEE ? /*#__PURE__*/React.createElement("label", {
-      className: "flex",
-      style: {
-        alignItems: "center",
-        gap: 6,
-        fontSize: 13,
-        cursor: canEdit ? "pointer" : "default"
-      }
-    }, /*#__PURE__*/React.createElement("input", {
-      type: "checkbox",
-      checked: u.isTeamLeader === true,
-      disabled: !canEdit,
-      onChange: e => handleLeaderToggle(u, e.target.checked)
-    }), u.isTeamLeader === true ? "Leader" : "") : "-"), actionCell);
-  }))))), editTarget && /*#__PURE__*/React.createElement(EmployeeFormModal, {
+  }, error), (() => {
+  const h = React.createElement;
+  const th = (label, key) => h("th", { key: label }, key ? h("button", { type: "button", className: "ra-sort", onClick: () => toggleSort(key) }, label, h(Icon, { name: "chevrons-up-down", size: 13 })) : label);
+  const areaText = u => {
+    const acc = Array.isArray(u.areaAccess) ? u.areaAccess.map(getAreaName).filter(Boolean) : [];
+    if (u.role === ROLES.ADMIN) return "Semua area";
+    if (u.role === ROLES.EMPLOYEE) { const home = getAreaName(getAreaIdOfUser(u.id)); return [home, ...acc.map(n => n + " (tambahan)")].filter(Boolean).join(", ") || "-"; }
+    return acc.length ? acc.join(", ") : "Semua area";
+  };
+  const rows = pageUsers.map(u => {
+    const active = isActiveU(u);
+    const roleCell = h("select", { className: "input", style: { padding: "6px 10px", fontSize: 13, width: "auto" }, value: u.role, disabled: !canEdit || u.id === currentUser.id, onChange: e => handleRoleChange(u, e.target.value) },
+      h("option", { value: ROLES.ADMIN }, "Super Admin"), h("option", { value: ROLES.STAFF_ADMIN }, "Admin"), h("option", { value: ROLES.VIEWER }, "View Only"), h("option", { value: ROLES.EMPLOYEE }, "Karyawan"));
+    const menuItem = (label, icon, onClick, danger, disabled) => h("button", { type: "button", disabled, className: "ra-mi" + (danger ? " danger" : ""), onClick: e => { e.stopPropagation(); setMenuId(null); onClick(); } }, h(Icon, { name: icon, size: 14 }), label);
+    const actionCell = canEdit ? h("td", { style: { position: "relative", whiteSpace: "nowrap" } },
+      h("button", { type: "button", className: "ra-kebab", "aria-label": "Menu aksi", onClick: e => { e.stopPropagation(); setMenuId(menuId === u.id ? null : u.id); } }, "⋮"),
+      menuId === u.id && h("div", { className: "ra-menu", onClick: e => e.stopPropagation() },
+        menuItem("Edit", "pencil", () => setEditTarget(u)),
+        menuItem(active ? "Nonaktifkan akun" : "Aktifkan akun", active ? "user-x" : "user-check", () => handleActiveToggle(u), false, u.id === currentUser.id),
+        menuItem("Hapus", "trash-2", () => handleDeleteClick(u), true, u.id === currentUser.id))) : null;
+    return h("tr", { key: u.id, style: active ? null : { opacity: .72 } },
+      h("td", null, h("div", { className: "flex", style: { alignItems: "center", gap: 10 } },
+        h(Avatar, { name: u.name, size: 34 }),
+        h("div", { style: { minWidth: 0 } },
+          h("div", { style: { fontWeight: 600, color: "var(--navy-900)" } }, u.name, u.id === currentUser.id && h("span", { style: { fontSize: 11, color: "var(--navy-700)", marginLeft: 6, fontWeight: 400 } }, "(kamu)")),
+          h("div", { style: { fontSize: 12, color: "var(--t-muted)" } }, u.username)))),
+      h("td", null, u.position || "-"),
+      h("td", null, roleCell),
+      h("td", { style: { fontSize: 12, maxWidth: 220 } }, areaText(u)),
+      h("td", null, u.role === ROLES.EMPLOYEE ? h("label", { className: "flex", style: { alignItems: "center", gap: 6, fontSize: 13, cursor: canEdit ? "pointer" : "default" } },
+        h("input", { type: "checkbox", checked: u.isTeamLeader === true, disabled: !canEdit, onChange: e => handleLeaderToggle(u, e.target.checked) }), u.isTeamLeader === true ? "Leader" : "") : "-"),
+      h("td", { style: { whiteSpace: "nowrap" } }, u.joinDate ? formatDateShortID(u.joinDate) : "-"),
+      h("td", null, h("span", { className: "ra-pill " + (active ? "on" : "off") }, active ? "Aktif" : "Nonaktif")),
+      actionCell);
+  });
+  return h("div", null,
+    h("div", { className: "ra-tools" },
+      h("div", { className: "ot-search" }, h("span", null, h(Icon, { name: "search", size: 15 })),
+        h("input", { className: "input", value: q, placeholder: "Cari nama, username, atau jabatan…", onChange: e => { setQ(e.target.value); setPage(1); } })),
+      h("select", { className: "input ra-sel", value: roleF, onChange: e => { setRoleF(e.target.value); setPage(1); } },
+        h("option", { value: "all" }, "Semua role"), h("option", { value: ROLES.ADMIN }, "Super Admin"), h("option", { value: ROLES.STAFF_ADMIN }, "Admin"), h("option", { value: ROLES.VIEWER }, "View Only"), h("option", { value: ROLES.EMPLOYEE }, "Karyawan")),
+      h("select", { className: "input ra-sel", value: statF, onChange: e => { setStatF(e.target.value); setPage(1); } },
+        h("option", { value: "all" }, "Semua status"), h("option", { value: "active" }, "Aktif"), h("option", { value: "inactive" }, "Nonaktif"))),
+    h("div", { className: "ot-wrap", style: { paddingBottom: menuId ? 130 : 0 } },
+      h("table", { className: "ra-tbl" },
+        h("thead", null, h("tr", null, th("Nama", "name"), th("Jabatan", "position"), th("Role", "role"), th("Area"), th("Leader Team"), th("Bergabung", "join"), th("Status", "status"), canEdit ? th("Aksi") : null)),
+        h("tbody", null, rows.length ? rows : h("tr", null, h("td", { colSpan: 8, style: { textAlign: "center", padding: 28, color: "var(--t-faint)" } }, "Tidak ada pengguna yang cocok."))))),
+    sortedU.length > 0 && h("div", { className: "ra-foot" },
+      h("label", { className: "ra-rec" }, h("select", { className: "input", value: pageSize, onChange: e => { setPageSize(Number(e.target.value)); setPage(1); } }, [10, 25, 50].map(n => h("option", { key: n, value: n }, n + " baris"))),),
+      h("div", { className: "ra-pg" },
+        h("button", { type: "button", disabled: pg <= 1, "aria-label": "Halaman sebelumnya", onClick: () => setPage(pg - 1) }, h(Icon, { name: "chevron-left", size: 15 })),
+        otPageList(pg, totalPages).map((p, i) => p === "…" ? h("span", { key: "g" + i, className: "gap" }, "…") : h("button", { key: p, type: "button", className: p === pg ? "on" : "", onClick: () => setPage(p) }, p)),
+        h("button", { type: "button", disabled: pg >= totalPages, "aria-label": "Halaman berikutnya", onClick: () => setPage(pg + 1) }, h(Icon, { name: "chevron-right", size: 15 }))),
+      h("div", { className: "ra-range" }, fromN + " – " + toN + " / " + sortedU.length)));
+})()), editTarget && /*#__PURE__*/React.createElement(EmployeeFormModal, {
     employee: editTarget,
     onClose: () => setEditTarget(null),
     onSaved: handleEditSaved
@@ -23409,6 +23324,37 @@ function exportOvertimeToPDF(list, month, who) {
   }
   doc.save(`lembur${who ? "-" + String(who).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") : ""}-${month}-${overtimeFileStamp()}.pdf`);
 }
+function OvertimeTableRow({ ot, canDecide, canRemove, busy, onDecide, onRemove }) {
+  const h = React.createElement;
+  const [showDetail, setShowDetail] = useState(false);
+  const cross = timeToMinutes(ot.endTime) <= timeToMinutes(ot.startTime);
+  const pending = ot.status === LEAVE_STATUS.PENDING;
+  return h("tr", null,
+    h("td", null, h("div", { className: "flex", style: { alignItems: "center", gap: 10 } },
+      h(Avatar, { name: ot.userName, size: 30 }),
+      h("div", { style: { minWidth: 0 } }, h("div", { style: { fontWeight: 600 } }, ot.userName), h(AreaTag, { userId: ot.userId })))),
+    h("td", { style: { whiteSpace: "nowrap" } }, formatDateShortID(ot.date)),
+    h("td", { style: { whiteSpace: "nowrap" } }, ot.startTime),
+    h("td", { style: { whiteSpace: "nowrap" } }, ot.endTime, cross && h("span", { style: { marginLeft: 6, fontSize: 11, color: "var(--t-faint)" } }, "(+1 hari)")),
+    h("td", { style: { whiteSpace: "nowrap" } }, formatOvertimeDuration(ot.minutes)),
+    h("td", { style: { maxWidth: 260 } }, h("span", { style: { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere", color: "var(--t-muted)" } }, ot.task || "-")),
+    h("td", null, h(LeaveStatusBadge, { status: ot.status })),
+    h("td", { style: { whiteSpace: "nowrap" } },
+      h("div", { className: "flex", style: { gap: 6, alignItems: "center" } },
+        h("button", { type: "button", className: "ot-act", title: canDecide && pending ? "Tinjau & Putuskan" : "Lihat detail lembur", onClick: () => setShowDetail(true) }, h(Icon, { name: "chevron-right", size: 15 })),
+        canDecide && !pending && h("button", { type: "button", className: "ot-act", title: "Kembalikan ke Menunggu", disabled: busy, onClick: () => onDecide(LEAVE_STATUS.PENDING) }, h(Icon, { name: "undo-2", size: 14 })),
+        canRemove && h("button", { type: "button", className: "ot-act del", title: canDecide ? "Hapus" : "Batalkan pengajuan", disabled: busy, onClick: onRemove }, h(Icon, { name: "trash-2", size: 14 }))),
+      showDetail && h(ModalGuard, { onClose: () => setShowDetail(false) }, h(OvertimeDetailModal, { ot, canDecide, busy, onDecide, onClose: () => setShowDetail(false) }))));
+}
+function otPageList(pg, total) {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const out = [1];
+  if (pg > 3) out.push("…");
+  for (let p = Math.max(2, pg - 1); p <= Math.min(total - 1, pg + 1); p++) out.push(p);
+  if (pg < total - 2) out.push("…");
+  out.push(total);
+  return out;
+}
 function OvertimeAdminPage() {
   const h = React.createElement;
   const { user, canManage: canEdit, canDecide } = useAuth();
@@ -23417,6 +23363,10 @@ function OvertimeAdminPage() {
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
   const [areaFilter, setAreaFilter] = useState("all");
+  const [view, setView] = useState("table");
+  const [q, setQ] = useState("");
+  const [pageSize, setPageSize] = useState(10);
+  const [page, setPage] = useState(1);
   useStoreSync();
   const employees = getScopedEmployees().sort((a, b) => a.name.localeCompare(b.name));
   // Hanya Super Admin yang melihat lembur semua area; Admin Area / View Only hanya area aksesnya.
@@ -23466,7 +23416,20 @@ function OvertimeAdminPage() {
   function exportPdf() {
     try { exportOvertimeToPDF(inMonth, month); } catch (err) { setError("Gagal membuat file PDF: " + (err && err.message || err)); }
   }
-  const TABS = [{ key: "pending", label: "Menunggu" }, { key: "approved", label: "Disetujui" }, { key: "rejected", label: "Ditolak" }, { key: "all", label: "Semua" }];
+  const cntApproved = inMonth.filter(o => o.status === LEAVE_STATUS.APPROVED).length;
+  const cntRejected = inMonth.filter(o => o.status === LEAVE_STATUS.REJECTED).length;
+  const qn = q.trim().toLowerCase();
+  const searched = qn ? filtered.filter(o => String(o.userName || "").toLowerCase().includes(qn) || String(o.task || "").toLowerCase().includes(qn)) : filtered;
+  const sorted = [...searched].sort((x, y) => (String(y.date) + (y.startTime || "")).localeCompare(String(x.date) + (x.startTime || "")));
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const pg = Math.min(page, totalPages);
+  const pageItems = sorted.slice((pg - 1) * pageSize, pg * pageSize);
+  const fromN = sorted.length === 0 ? 0 : (pg - 1) * pageSize + 1;
+  const toN = Math.min(pg * pageSize, sorted.length);
+  const tabCount = { pending: pendingMonth, approved: cntApproved, rejected: cntRejected, all: inMonth.length };
+  const tabBadge = { pending: { background: "var(--amber-soft)", color: "var(--amber)" }, approved: { background: "var(--green-soft)", color: "var(--green)" }, rejected: { background: "var(--red-soft)", color: "var(--red)" }, all: { background: "var(--accent-50)", color: "var(--accent-700)" } };
+  const doRun = (ot, d, note) => run(ot.id, () => decideOvertime(ot.id, d, user && user.name, note), "Gagal menyimpan keputusan lembur. Coba lagi.");
+  const TABS = [{ key: "all", label: "Semua" }, { key: "pending", label: "Menunggu" }, { key: "approved", label: "Disetujui" }, { key: "rejected", label: "Ditolak" }];
   return h("div", { className: "container-lg" },
     h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 12, flexWrap: "wrap" } },
       h("div", null,
@@ -23476,14 +23439,58 @@ function OvertimeAdminPage() {
         h(Button, { variant: "outline", onClick: exportExcel, disabled: inMonth.length === 0 }, h(Icon, { name: "download", size: 16 }), " Unduh Excel"),
         h(Button, { variant: "outline", onClick: exportPdf, disabled: inMonth.length === 0 }, h(Icon, { name: "download", size: 16 }), " Unduh PDF"))),
     error && h("div", { style: { marginBottom: 16, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, error),
-    h(AreaFilterChips, { value: areaFilter, onChange: setAreaFilter, scopeIds: getDashboardAreaIds(user), counts: countPendingByArea(overtimesScoped) }),
+    h(AreaFilterChips, { value: areaFilter, onChange: v => { setAreaFilter(v); setPage(1); }, scopeIds: getDashboardAreaIds(user), counts: countPendingByArea(overtimesScoped) }),
     getDashboardAreaIds(user) && getDashboardAreaIds(user).length === 0 && h("p", { style: { fontSize: 13, color: "var(--red)", background: "var(--red-soft)", padding: "10px 14px", borderRadius: 10, marginBottom: 14 } }, "Akunmu belum punya area akses, jadi data lembur belum tampil. Hubungi Super Admin untuk mengatur area aksesmu."),
     h("div", { style: { marginBottom: 14 } },
       h("label", { className: "label" }, "Bulan"),
-      h("input", { className: "input", type: "month", value: month, onChange: e => e.target.value && setMonth(e.target.value), style: { maxWidth: 190 } })),
+      h("input", { className: "input", type: "month", value: month, onChange: e => { if (e.target.value) { setMonth(e.target.value); setPage(1); } }, style: { maxWidth: 190 } })),
     elsewhereMonths.length > 0 && h("div", { style: { marginBottom: 14, background: "var(--amber-soft)", color: "var(--amber)", fontSize: 13, padding: "10px 14px", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" } },
       h("span", { style: { fontWeight: 600 } }, "Ada pengajuan menunggu di bulan lain: " + elsewhereMonths.map(m => monthLabelID(m) + " (" + pendingElsewhere[m] + ")").join(", ")),
-      h("button", { type: "button", onClick: () => { setMonth(elsewhereMonths[0]); setTab("pending"); }, style: { fontWeight: 700, textDecoration: "underline", color: "inherit" } }, "Lihat")),
+      h("button", { type: "button", onClick: () => { setMonth(elsewhereMonths[0]); setTab("pending"); setPage(1); }, style: { fontWeight: 700, textDecoration: "underline", color: "inherit" } }, "Lihat")),
+    h("div", { className: "ot-stats" },
+      h("div", { className: "card ot-stat" }, h("div", { className: "t" }, "Total Pengajuan"), h("div", { className: "n" }, inMonth.length), h("div", { className: "s" }, "Bulan ini")),
+      h("div", { className: "card ot-stat" }, h("div", { className: "t" }, "Menunggu"), h("div", { className: "n", style: { color: "var(--amber)" } }, pendingMonth), h("div", { className: "s" }, "Perlu ditinjau")),
+      h("div", { className: "card ot-stat" }, h("div", { className: "t" }, "Disetujui"), h("div", { className: "n", style: { color: "var(--green)" } }, cntApproved), h("div", { className: "s" }, "Total jam: " + (totalMin ? formatOvertimeDuration(totalMin) : "0 jam"))),
+      h("div", { className: "card ot-stat" }, h("div", { className: "t" }, "Ditolak"), h("div", { className: "n", style: { color: "var(--red)" } }, cntRejected), h("div", { className: "s" }, "Bulan ini"))),
+    h("div", { className: "card ot-panel" },
+      h("div", { className: "ot-panel-head" }, h("h2", null, "Daftar Lembur")),
+      h("div", { className: "ot-tabs scrollbar-none" },
+        TABS.map(t => h("button", { key: t.key, type: "button", onClick: () => { setTab(t.key); setPage(1); }, className: "ot-tab" + (tab === t.key ? " on" : "") },
+          t.label, h("span", { className: "ot-badge", style: tabBadge[t.key] }, tabCount[t.key])))),
+      h("div", { className: "ot-tools" },
+        h("div", { className: "ot-tools-l" },
+          h("label", { className: "ot-show" }, h("span", null, "Tampilkan"),
+            h("select", { className: "input", value: pageSize, onChange: e => { setPageSize(Number(e.target.value)); setPage(1); } },
+              [10, 25, 50].map(n => h("option", { key: n, value: n }, n))),
+            h("span", null, "data"))),
+        h("div", { className: "ot-tools-r" },
+          h("div", { className: "ot-search" }, h("span", null, h(Icon, { name: "search", size: 15 })),
+            h("input", { className: "input", value: q, placeholder: "Cari nama karyawan…", onChange: e => { setQ(e.target.value); setPage(1); } })),
+          h("div", { className: "ot-view" },
+            h("button", { type: "button", className: view === "table" ? "on" : "", title: "Tampilan tabel", "aria-label": "Tampilan tabel", onClick: () => setView("table") }, h(Icon, { name: "list", size: 16 })),
+            h("button", { type: "button", className: view === "cards" ? "on" : "", title: "Tampilan kartu", "aria-label": "Tampilan kartu", onClick: () => setView("cards") }, h(Icon, { name: "layout-grid", size: 16 }))))),
+      sorted.length === 0 ? h("div", { style: { padding: "36px 12px", textAlign: "center" } },
+        h("p", { style: { color: "var(--t-faint)", fontSize: 14 } }, "Tidak ada data lembur pada kategori dan bulan ini.")) :
+      view === "cards" ? h("div", { className: "leave-grid", style: { display: "flex", flexDirection: "column", gap: 12 } },
+        pageItems.map(ot => h(OvertimeCard, {
+          key: ot.id, ot, showName: true, canDecide: canDecide, canRemove: canEdit, busy: busyId === ot.id,
+          onDecide: (d, note) => doRun(ot, d, note),
+          onRemove: () => remove(ot)
+        }))) :
+      h("div", { className: "ot-wrap" },
+        h("table", { className: "ot-tbl" },
+          h("thead", null, h("tr", null, ["Karyawan", "Tanggal", "Jam Mulai", "Jam Selesai", "Durasi", "Keterangan", "Status", "Aksi"].map(c => h("th", { key: c }, c)))),
+          h("tbody", null, pageItems.map(ot => h(OvertimeTableRow, {
+            key: ot.id, ot, canDecide: canDecide, canRemove: canEdit, busy: busyId === ot.id,
+            onDecide: (d, note) => doRun(ot, d, note),
+            onRemove: () => remove(ot)
+          }))))),
+      sorted.length > 0 && h("div", { className: "ot-foot" },
+        h("div", null, h("span", null, "Menampilkan"), " " + fromN + "–" + toN + " ", h("span", null, "dari"), " " + sorted.length + " ", h("span", null, "data")),
+        h("div", { className: "ot-pg" },
+          h("button", { type: "button", disabled: pg <= 1, "aria-label": "Halaman sebelumnya", onClick: () => setPage(pg - 1) }, h(Icon, { name: "chevron-left", size: 15 })),
+          otPageList(pg, totalPages).map((p, i) => p === "…" ? h("span", { key: "g" + i, className: "gap" }, "…") : h("button", { key: p, type: "button", className: p === pg ? "on" : "", onClick: () => setPage(p) }, p)),
+          h("button", { type: "button", disabled: pg >= totalPages, "aria-label": "Halaman berikutnya", onClick: () => setPage(pg + 1) }, h(Icon, { name: "chevron-right", size: 15 }))))),
     h("div", { className: "card", style: { padding: 16, marginBottom: 18 } },
       h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: recap.length ? 10 : 0, flexWrap: "wrap" } },
         h("p", { style: { fontSize: 14, fontWeight: 700, color: "var(--navy-900)" } }, "Rekap lembur disetujui bulan ini"),
@@ -23496,16 +23503,7 @@ function OvertimeAdminPage() {
               h("span", { style: { color: "var(--navy-900)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, r.name),
               h("span", { style: { color: "var(--t-muted)", whiteSpace: "nowrap", fontWeight: 600 } }, formatOvertimeDuration(r.minutes) + " · " + r.count + "x")),
             h("div", { className: "ot-bar" }, h("i", { style: { width: Math.max(6, Math.round(r.minutes / (recap[0].minutes || 1) * 100)) + "%" } }))))))),
-    h("div", { className: "flex scrollbar-none", style: { gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 16 } },
-      TABS.map(t => h("button", { key: t.key, onClick: () => setTab(t.key), className: `chip ${tab === t.key ? "chip-active" : "chip-inactive"}` },
-        t.label, t.key === "pending" && pendingMonth > 0 ? ` (${pendingMonth})` : ""))),
-    filtered.length === 0 ? h("div", { className: "card", style: { padding: 40, textAlign: "center" } },
-      h("p", { style: { color: "var(--t-faint)", fontSize: 14 } }, "Tidak ada data lembur pada kategori dan bulan ini.")) : h("div", { className: "leave-grid", style: { display: "flex", flexDirection: "column", gap: 12 } },
-      filtered.map(ot => h(OvertimeCard, {
-        key: ot.id, ot, showName: true, canDecide: canDecide, canRemove: canEdit, busy: busyId === ot.id,
-        onDecide: (d, note) => run(ot.id, () => decideOvertime(ot.id, d, user && user.name, note), "Gagal menyimpan keputusan lembur. Coba lagi."),
-        onRemove: () => remove(ot)
-      }))),
+
     null);
 }
 
