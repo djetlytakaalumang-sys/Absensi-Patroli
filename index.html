@@ -8335,7 +8335,7 @@ function AdminLivePatrolMap({
   const [trailUserId, setTrailUserId] = useState(null);
   const trailIdRef = useRef(null);
   trailIdRef.current = trailUserId;
-  const [showAllTrails, setShowAllTrails] = useState(false); // true = jejak semua petugas tampil sekaligus
+  const [showAllTrails, setShowAllTrails] = useState(true); // true = jejak semua petugas tampil sekaligus (default saat peta dibuka)
   const showAllRef = useRef(false);
   showAllRef.current = showAllTrails;
   function applyTrailWeights() {
