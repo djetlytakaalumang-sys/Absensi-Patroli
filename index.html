@@ -854,6 +854,51 @@ html[data-theme="dark"] .kj-btn{background:#232833;color:#e6e9ef;border-color:#f
 .ot-pg button.on{background:var(--accent-600); color:#fff;}
 .ot-pg button:disabled{opacity:.4; cursor:not-allowed;}
 .ot-pg .gap{min-width:24px; text-align:center; color:var(--t-faint);}
+/* ===== Penilaian Tim (admin): tata letak dashboard bergaya teal ===== */
+.pn-root{--pn-track:rgba(15,23,42,.07);}
+html[data-theme="dark"] .pn-root{--pn-track:rgba(255,255,255,.09);}
+.pn-grid{display:grid; grid-template-columns:minmax(270px,330px) minmax(0,1fr); gap:18px; align-items:start;}
+.pn-left,.pn-right{display:flex; flex-direction:column; gap:14px; min-width:0;}
+.pn-right{gap:18px;}
+.pn-top2{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px;}
+.pn-card{padding:20px; border-radius:16px;}
+.pn-head{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px;}
+.pn-head h2{font-size:17px; font-weight:700; color:var(--navy-900);}
+.pn-hero{background:linear-gradient(160deg,#0b6e65,#06534d); color:#fff; border-radius:16px; padding:22px;}
+.pn-hero h2{font-size:20px; font-weight:600;}
+.pn-hero-row{display:flex; align-items:center; gap:12px; margin-top:14px;}
+.pn-big{font-size:46px; font-weight:700; line-height:1; color:#f5b800;}
+.pn-hero-sub{font-size:12px; line-height:1.3; opacity:.85; flex:1;}
+.pn-hero-chip{display:flex; align-items:center; gap:6px; background:rgba(255,255,255,.14); padding:8px 12px; border-radius:999px; font-size:14px;}
+.pn-hero-meta{display:flex; gap:14px; flex-wrap:wrap; font-size:12px; margin-top:16px; opacity:.92;}
+.pn-hero-top{font-size:12px; margin-top:8px; opacity:.85;}
+.pn-search{position:relative; margin-top:16px;}
+.pn-search input{width:100%; border:none; border-radius:10px; background:#fff; color:#1c1418; padding:10px 12px 10px 36px; font-size:13px; outline:none; box-sizing:border-box;}
+.pn-search span{position:absolute; left:12px; top:50%; transform:translateY(-50%); color:#8a949e; display:flex;}
+.pn-emp{padding:16px; border-radius:14px;}
+.pn-emp-top{display:flex; align-items:center; gap:10px;}
+.pn-emp-name{font-size:14px; font-weight:700; color:var(--navy-900); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.pn-emp-pos{font-size:11.5px; color:var(--t-faint);}
+.pn-rank{font-size:12px; font-weight:700; padding:3px 10px; border-radius:999px; background:var(--slate-mist); color:var(--navy-800); flex-shrink:0;}
+.pn-emp-mid{display:flex; align-items:center; justify-content:space-between; margin:12px 0 10px;}
+.pn-emp-score{font-size:34px; font-weight:700; line-height:1;}
+.pn-emp-cap{font-size:11.5px; color:var(--t-faint); margin-top:4px;}
+.pn-emp-bars{display:grid; grid-template-columns:1fr; gap:8px;}
+.pn-leg{display:inline-flex; align-items:center; gap:6px; font-size:12.5px; color:var(--t-muted);}
+.pn-leg i{width:8px; height:8px; border-radius:50%; display:inline-block;}
+.pn-leg-row{display:flex; gap:14px; flex-wrap:wrap; margin-bottom:12px;}
+.pn-pie{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+.pn-pie-chart{flex:1 1 150px; min-width:150px;}
+.pn-pie-leg{flex:1 1 130px; display:flex; flex-direction:column; gap:10px;}
+.pn-pie-row{display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:13px; color:var(--navy-900);}
+.pn-pie-row small{font-weight:500; color:var(--t-faint); font-size:11px;}
+.pn-rings{display:flex; justify-content:space-around; align-items:center; gap:8px; padding:8px 0 4px; flex-wrap:wrap;}
+.pn-note{font-size:12.5px; color:var(--t-muted); margin-top:14px;}
+.pn-note b{color:var(--navy-900);}
+.pn-score-pill{font-weight:700; font-size:14px;}
+.pn-score-pill small{font-weight:500; font-size:11px; color:var(--t-faint);}
+@media (max-width:1060px){.pn-grid{grid-template-columns:1fr;}}
+@media (max-width:720px){.pn-top2{grid-template-columns:1fr;}}
 </style>
 <style id="ra-table-css">
 /* Hak Akses: tabel pengguna bergaya daftar karyawan (status aktif/nonaktif, menu aksi, pagination) */
@@ -6637,7 +6682,7 @@ const I18N_EXTRA = {
 
 
 "Jam Mulai":"Start Time","Jam Selesai":"End Time",
-"Daftar Lembur":"Overtime List",
+"History Lembur":"Overtime History",
 "Total Pengajuan":"Total Requests",
 "Perlu ditinjau":"Needs review",
 "Bulan ini":"This month",
@@ -6661,7 +6706,7 @@ const I18N_EXTRA = {
 "Lihat detail lembur":"View overtime details",
 "Kembalikan ke Menunggu":"Return to Pending",
 "Total jam: ":"Total hours: ",
-"Tidak ada data lembur pada kategori dan bulan ini.":"No overtime data for this category and month.",
+"Tidak ada data lembur pada kategori ini.":"No overtime data for this category and month.",
 
 "Sabtu & Minggu dalam rentang tanggal tidak dihitung sebagai hari izin.":"Saturdays & Sundays within the date range are not counted as leave days.",
 "Bersihkan Data Orphan": "Clean Up Orphan Data",
@@ -7005,7 +7050,7 @@ const I18N_EXTRA = {
 "Kamu tidak punya izin untuk menghapus pengguna.": "You do not have permission to delete users.",
 "Kamu tidak punya izin untuk mengubah Leader Team.": "You do not have permission to change the Team Leader.",
 "Kamu tidak punya izin untuk mengubah role pengguna.": "You do not have permission to change user roles.",
-"Kartu \"Rekap lembur disetujui bulan ini\" menampilkan total jam seluruh karyawan dan rincian per karyawan (total jam dan berapa kali lembur). Hanya lembur berstatus Disetujui yang dihitung.": "The \"Approved overtime recap this month\" card shows the total hours of all employees and a breakdown per employee (total hours and number of overtimes). Only overtime with Approved status is counted.",
+"Di bawah nama tiap karyawan pada daftar lembur tampil total jam lembur disetujui bulan itu dan berapa kali lembur. Hanya lembur berstatus Disetujui yang dihitung.": "The \"Approved overtime recap this month\" card shows the total hours of all employees and a breakdown per employee (total hours and number of overtimes). Only overtime with Approved status is counted.",
 "Karyawan Dinilai": "Employees Rated",
 "Karyawan ini ada di area lain yang bukan kamu kelola.": "This employee is in another area that you do not manage.",
 "Karyawan juga punya tombol Excel dan PDF di halaman Lembur untuk mengunduh data lemburnya sendiri pada bulan yang dipilih.": "Employees also have Excel and PDF buttons on the Overtime page to download their own overtime data for the selected month.",
@@ -14245,62 +14290,17 @@ function AdminDashboard({
       textDecoration: "underline"
     }
   }, "Reset filter"))), /*#__PURE__*/React.createElement("div", {
-    className: "card",
+    className: "card ot-panel",
     style: {
       overflow: "hidden"
     }
   }, /*#__PURE__*/React.createElement("div", {
-    className: "flex",
-    style: {
-      alignItems: "center",
-      justifyContent: "space-between",
-      padding: "14px 20px",
-      borderBottom: "1px solid var(--line)"
-    }
-  }, /*#__PURE__*/React.createElement("h2", {
-    style: {
-      fontSize: 14,
-      fontWeight: 700,
-      color: "var(--navy-900)"
-    }
-  }, "Aktivitas Terkini"), /*#__PURE__*/React.createElement("div", {
-    className: "flex",
-    style: {
-      alignItems: "center",
-      gap: 10
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 12,
-      color: "var(--navy-700)"
-    }
-  }, filtered.length === 0 ? "0" : `${(safePage - 1) * PAGE_SIZE + 1}-${Math.min(safePage * PAGE_SIZE, filtered.length)}`, " dari ", filtered.length), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setPage(p => Math.max(1, p - 1)),
-    disabled: safePage <= 1,
-    style: {
-      width: 26,
-      height: 26,
-      borderRadius: 7,
-      border: "1px solid var(--line)",
-      background: "var(--navy-50)",
-      color: "var(--navy-900)",
-      opacity: safePage <= 1 ? .4 : 1
-    }
-  }, "‹"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setPage(p => Math.min(totalPages, p + 1)),
-    disabled: safePage >= totalPages,
-    style: {
-      width: 26,
-      height: 26,
-      borderRadius: 7,
-      border: "1px solid var(--line)",
-      background: "var(--navy-50)",
-      color: "var(--navy-900)",
-      opacity: safePage >= totalPages ? .4 : 1
-    }
-  }, "›"))), /*#__PURE__*/React.createElement("div", {
-    className: "table-wrap"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Karyawan"), /*#__PURE__*/React.createElement("th", null, "Tanggal"), /*#__PURE__*/React.createElement("th", null, "Masuk"), /*#__PURE__*/React.createElement("th", null, "Pulang"), /*#__PURE__*/React.createElement("th", null, "Status"), /*#__PURE__*/React.createElement("th", null, "Lokasi"), /*#__PURE__*/React.createElement("th", null))), /*#__PURE__*/React.createElement("tbody", null, paged.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    className: "ot-panel-head"
+  }, /*#__PURE__*/React.createElement("h2", null, "Aktivitas Terkini")), /*#__PURE__*/React.createElement("div", {
+    className: "table-wrap ot-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "ot-tbl"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Karyawan"), /*#__PURE__*/React.createElement("th", null, "Tanggal"), /*#__PURE__*/React.createElement("th", null, "Masuk"), /*#__PURE__*/React.createElement("th", null, "Pulang"), /*#__PURE__*/React.createElement("th", null, "Status"), /*#__PURE__*/React.createElement("th", null, "Lokasi"), /*#__PURE__*/React.createElement("th", null))), /*#__PURE__*/React.createElement("tbody", null, paged.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
     colSpan: 7,
     style: {
       textAlign: "center",
@@ -14324,15 +14324,12 @@ function AdminDashboard({
       size: 30
     }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
       style: {
-        fontWeight: 500,
+        fontWeight: 600,
         color: "var(--navy-900)"
       }
-    }, r.userName), /*#__PURE__*/React.createElement("p", {
-      style: {
-        fontSize: 12,
-        color: "var(--navy-700)"
-      }
-    }, u && u.position)))), /*#__PURE__*/React.createElement("td", {
+    }, r.userName), /*#__PURE__*/React.createElement(AreaTag, {
+      userId: r.userId
+    })))), /*#__PURE__*/React.createElement("td", {
       style: {
         color: "var(--navy-700)"
       }
@@ -14391,14 +14388,43 @@ function AdminDashboard({
         flexShrink: 0
       }
     }))), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("button", {
-      onClick: () => setDetailRecord(r),
-      style: {
-        fontSize: 12,
-        fontWeight: 700,
-        color: "var(--accent-700)",
-        textDecoration: "underline"
-      }
-    }, "Detail")));
+      type: "button",
+      className: "ot-act",
+      title: "Detail",
+      "aria-label": "Detail",
+      onClick: () => setDetailRecord(r)
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "chevron-right",
+      size: 15
+    }))));
+  })))), filtered.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "ot-foot"
+  }, /*#__PURE__*/React.createElement("div", null, `Menampilkan ${(safePage - 1) * PAGE_SIZE + 1}–${Math.min(safePage * PAGE_SIZE, filtered.length)} dari ${filtered.length} data`), /*#__PURE__*/React.createElement("div", {
+    className: "ot-pg"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    disabled: safePage <= 1,
+    "aria-label": "Halaman sebelumnya",
+    onClick: () => setPage(safePage - 1)
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "chevron-left",
+    size: 15
+  })), otPageList(safePage, totalPages).map((pn, i) => pn === "…" ? /*#__PURE__*/React.createElement("span", {
+    key: "g" + i,
+    className: "gap"
+  }, "…") : /*#__PURE__*/React.createElement("button", {
+    key: pn,
+    type: "button",
+    className: pn === safePage ? "on" : "",
+    onClick: () => setPage(pn)
+  }, pn)), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    disabled: safePage >= totalPages,
+    "aria-label": "Halaman berikutnya",
+    onClick: () => setPage(safePage + 1)
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "chevron-right",
+    size: 15
   }))))), detailRecord && /*#__PURE__*/React.createElement(AdminRecordDetail, {
     record: detailRecord,
     onClose: () => setDetailRecord(null)
@@ -17899,15 +17925,25 @@ function PenilaianPage({
     highlightUserId: user.id
   }));
 }
+function PnRing({ value, color, size = 74, stroke = 9, label }) {
+  const h = React.createElement;
+  const v = value == null ? 0 : Math.max(0, Math.min(100, value));
+  const r = (size - stroke) / 2, c = 2 * Math.PI * r;
+  return h("svg", { width: size, height: size, viewBox: `0 0 ${size} ${size}`, style: { flexShrink: 0 } },
+    h("circle", { cx: size / 2, cy: size / 2, r, fill: "none", stroke: "var(--pn-track)", strokeWidth: stroke }),
+    h("circle", { cx: size / 2, cy: size / 2, r, fill: "none", stroke: color, strokeWidth: stroke, strokeLinecap: "round", strokeDasharray: `${c * v / 100} ${c}`, transform: `rotate(-90 ${size / 2} ${size / 2})`, style: { transition: "stroke-dasharray .6s ease" } }),
+    h("text", { x: "50%", y: "50%", dominantBaseline: "central", textAnchor: "middle", style: { fontSize: size * 0.22, fontWeight: 700, fill: "var(--navy-900)" } }, label != null ? label : (value == null ? "-" : value + "%")));
+}
 function PenilaianAdminPage() {
+  const h = React.createElement;
   useStoreSync();
   const [monthKey, setMonthKey] = useState(currentMonthKey());
   const [areaFilter, setAreaFilter] = useState("all");
   const [loadingMonth, setLoadingMonth] = useState(null);
   const [monthLoadError, setMonthLoadError] = useState("");
-  // Bulan yang dipilih di sini bebas (input type="month", bisa tahun-tahun lalu), sedangkan data
-  // presensi yang dipantau live cuma ~90 hari terakhir (lihat initFirestore) — jadi kalau bulan
-  // yang dipilih sudah di luar jendela itu, ambil dulu datanya sekali-ambil dari server.
+  const [q, setQ] = useState("");
+  // Bulan yang dipilih bebas (bisa tahun lalu), sedangkan data presensi live hanya ~90 hari terakhir
+  // (lihat initFirestore) — kalau bulan di luar jendela itu, ambil dulu sekali-ambil dari server.
   const cutoffDateStr = useMemo(() => todayDateStrWITA(new Date(Date.now() - LIVE_RECORD_DAYS * 24 * 60 * 60 * 1000)), []);
   useEffect(() => {
     if (!monthKey) return;
@@ -17921,390 +17957,138 @@ function PenilaianAdminPage() {
     }).finally(() => {
       if (!cancelled) setLoadingMonth(null);
     });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [monthKey, cutoffDateStr]);
   const rows = useMemo(() => getLeaderboard(monthKey, areaFilter), [monthKey, areaFilter, store.records, store.leaves, store.patrols, store.users, store.checkpoints, store.settings]);
-  const scored = rows.filter(r => r.total != null);
-  const avgScore = scored.length ? Math.round(scored.reduce((s, r) => s + r.total, 0) / scored.length) : null;
-  const teamChartData = useMemo(() => {
-    const agg = {
-      hadir: 0,
-      terlambat: 0,
-      pikMalam: 0,
-      alpha: 0,
-      izin: 0
-    };
-    rows.forEach(r => {
-      if (!r.breakdown) return;
-      agg.hadir += r.breakdown.hadir;
-      agg.terlambat += r.breakdown.terlambat;
-      agg.pikMalam += r.breakdown.pikMalam;
-      agg.alpha += r.breakdown.alpha;
-      agg.izin += r.breakdown.izin;
-    });
-    return [{
-      name: "Hadir",
-      value: agg.hadir,
-      fill: "#16A34A"
-    }, {
-      name: "Terlambat",
-      value: agg.terlambat,
-      fill: "#D97706"
-    }, {
-      name: "Piket Malam",
-      value: agg.pikMalam,
-      fill: "#4338CA"
-    }, {
-      name: "Alpa",
-      value: agg.alpha,
-      fill: "#DC2626"
-    }, {
-      name: "Izin",
-      value: agg.izin,
-      fill: "#7c3aed"
-    }];
-  }, [rows]);
-  const compareData = useMemo(() => rows.map(r => ({
-    name: r.userName.split(" ")[0],
-    Kehadiran: r.attendance ?? 0,
-    Patroli: r.patrol ?? 0
-  })), [rows]);
-  const {
-    BarChart,
-    Bar,
-    Cell,
-    XAxis,
-    YAxis,
-    Tooltip,
-    Legend,
-    LabelList,
-    ResponsiveContainer,
-    CartesianGrid
-  } = Recharts;
-  return /*#__PURE__*/React.createElement("div", {
-    className: "container-app"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex",
-    style: {
-      alignItems: "flex-start",
-      justifyContent: "space-between",
-      gap: 12,
-      marginBottom: 16,
-      flexWrap: "wrap"
-    }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h1", {
-    style: {
-      fontSize: 20,
-      fontWeight: 700,
-      color: "var(--navy-900)"
-    }
-  }, "Penilaian Tim"), /*#__PURE__*/React.createElement("p", {
-    style: {
-      color: "var(--navy-700)",
-      fontSize: 14,
-      marginTop: 2
-    }
-  }, "Skor otomatis & papan peringkat seluruh karyawan.")), /*#__PURE__*/React.createElement("div", {
-    className: "flex",
-    style: {
-      gap: 8,
-      alignItems: "center",
-      flexWrap: "wrap"
-    }
-  }, /*#__PURE__*/React.createElement("input", {
-    type: "month",
-    value: monthKey,
-    onChange: e => setMonthKey(e.target.value),
-    className: "input",
-    style: {
-      width: "auto"
-    }
-  }), /*#__PURE__*/React.createElement(Button, {
-    variant: "outline",
-    size: "sm",
-    onClick: () => exportPenilaianToPDF(rows, monthKey)
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "file-badge",
-    size: 15
-  }), " Cetak PDF"))), /*#__PURE__*/React.createElement(AreaFilterChips, { value: areaFilter, onChange: setAreaFilter }), (loadingMonth === monthKey || monthLoadError) && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 16
-    }
-  }, loadingMonth === monthKey && /*#__PURE__*/React.createElement("div", {
-    className: "flex",
-    style: {
-      alignItems: "center",
-      gap: 8,
-      fontSize: 13,
-      color: "var(--t-muted)"
-    }
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "loader-2",
-    size: 14,
-    className: "spin"
-  }), "Mengambil riwayat bulan tersebut dari server…"), monthLoadError && /*#__PURE__*/React.createElement("div", {
-    style: {
-      background: "var(--red-soft)",
-      color: "var(--red)",
-      fontSize: 13,
-      padding: "10px 14px",
-      borderRadius: 10
-    }
-  }, monthLoadError)), /*#__PURE__*/React.createElement("div", {
-    className: "grid-2",
-    style: {
-      marginBottom: 20
-    }
-  }, /*#__PURE__*/React.createElement(StatCard, {
-    icon: "trending-up",
-    label: "Rata-rata Skor",
-    value: avgScore ?? "-",
-    colorVar: "var(--green)",
-    softVar: "var(--green-soft)"
-  }), /*#__PURE__*/React.createElement(StatCard, {
-    icon: "trophy",
-    label: "Skor Tertinggi",
-    value: rows[0]?.total ?? "-",
-    colorVar: "var(--amber)",
-    softVar: "var(--amber-soft)"
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "grid-charts stack",
-    style: {
-      marginBottom: 20
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "card chart-card",
-    style: {
-      padding: 20
-    }
-  }, /*#__PURE__*/React.createElement("h2", {
-    style: {
-      fontSize: 14,
-      fontWeight: 700,
-      color: "var(--navy-900)",
-      marginBottom: 16
-    }
-  }, "Distribusi Kehadiran Tim Bulan Ini"), /*#__PURE__*/React.createElement(ResponsiveContainer, {
-    width: "100%",
-    height: 270,
-    style: {
-      marginTop: "auto"
-    }
-  }, /*#__PURE__*/React.createElement(BarChart, {
-    data: teamChartData,
-    margin: {
-      top: 22,
-      right: 8,
-      left: 0,
-      bottom: 0
-    }
-  }, /*#__PURE__*/React.createElement(CartesianGrid, {
-    vertical: false,
-    stroke: "var(--line)",
-    strokeDasharray: "3 3"
-  }), /*#__PURE__*/React.createElement(XAxis, {
-    dataKey: "name",
-    tick: {
-      fontSize: 11,
-      fill: "var(--navy-700)"
-    },
-    axisLine: {
-      stroke: "var(--line)"
-    },
-    tickLine: false
-  }), /*#__PURE__*/React.createElement(YAxis, {
-    tick: {
-      fontSize: 11,
-      fill: "var(--navy-700)"
-    },
-    axisLine: false,
-    tickLine: false,
-    allowDecimals: false,
-    width: 28
-  }), /*#__PURE__*/React.createElement(Tooltip, {
-    cursor: {
-      fill: "var(--slate-mist)"
-    },
-    contentStyle: {
-      borderRadius: 10,
-      border: "1px solid var(--line)",
-      fontSize: 12,
-      boxShadow: "0 8px 24px rgba(28,20,24,.1)"
-    }
-  }), /*#__PURE__*/React.createElement(Bar, {
-    dataKey: "value",
-    radius: [6, 6, 0, 0],
-    maxBarSize: 44
-  }, teamChartData.map((entry, index) => /*#__PURE__*/React.createElement(Cell, {
-    key: `cell-${index}`,
-    fill: entry.fill
-  })), /*#__PURE__*/React.createElement(LabelList, {
-    dataKey: "value",
-    position: "top",
-    style: {
-      fontSize: 12,
-      fontWeight: 700,
-      fill: "var(--navy-900)",
-      stroke: "none"
-    }
-  }))))), compareData.length > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "card chart-card chart-compare",
-    style: {
-      padding: 20
-    }
-  }, /*#__PURE__*/React.createElement("h2", {
-    style: {
-      fontSize: 14,
-      fontWeight: 700,
-      color: "var(--navy-900)",
-      marginBottom: 16
-    }
-  }, "Skor Kehadiran vs Patroli per Karyawan"), /*#__PURE__*/React.createElement("div", {
-    className: "chart-strip"
-  }, [
-    ["Kehadiran", "Warna penuh", 1, "solid"],
-    ["Patroli", "Warna pucat", 0.45, "dashed"]
-  ].map(([name, hint, op, bs]) => /*#__PURE__*/React.createElement("div", {
-    key: name,
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 8
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      width: 26,
-      height: 14,
-      borderRadius: 4,
-      background: "linear-gradient(90deg, rgb(228,20,43), rgb(217,119,6), rgb(14,169,104))",
-      opacity: op,
-      border: op < 1 ? "1.5px dashed rgb(14,169,104)" : "none",
-      flexShrink: 0
-    }
-  }), /*#__PURE__*/React.createElement("span", null, name, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontWeight: 400,
-      color: "var(--navy-700)",
-      marginLeft: 5,
-      fontSize: 12
-    }
-  }, "(", hint, ")")))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 6,
-      fontSize: 12,
-      fontWeight: 400,
-      color: "var(--navy-700)"
-    }
-  }, /*#__PURE__*/React.createElement("span", null, "50 ke bawah"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      width: 60,
-      height: 8,
-      borderRadius: 4,
-      background: "linear-gradient(90deg, rgb(228,20,43), rgb(217,119,6), rgb(14,169,104))"
-    }
-  }), /*#__PURE__*/React.createElement("span", null, "100"))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      overflowX: "auto",
-      marginTop: "auto"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      minWidth: Math.max(280, compareData.length * 50)
-    }
-  }, /*#__PURE__*/React.createElement(ResponsiveContainer, {
-    width: "100%",
-    height: 320
-  }, /*#__PURE__*/React.createElement(BarChart, {
-    data: compareData,
-    barGap: 3,
-    barCategoryGap: "20%",
-    margin: {
-      top: 22,
-      right: 8,
-      left: 0,
-      bottom: 0
-    }
-  }, /*#__PURE__*/React.createElement(CartesianGrid, {
-    vertical: false,
-    stroke: "var(--line)",
-    strokeDasharray: "3 3"
-  }), /*#__PURE__*/React.createElement(XAxis, {
-    dataKey: "name",
-    tick: {
-      fontSize: 11,
-      fill: "var(--navy-700)"
-    },
-    axisLine: {
-      stroke: "var(--line)"
-    },
-    tickLine: false
-  }), /*#__PURE__*/React.createElement(YAxis, {
-    tick: {
-      fontSize: 11,
-      fill: "var(--navy-700)"
-    },
-    axisLine: false,
-    tickLine: false,
-    domain: [0, 100],
-    width: 28
-  }), /*#__PURE__*/React.createElement(Tooltip, {
-    cursor: {
-      fill: "var(--slate-mist)"
-    },
-    contentStyle: {
-      borderRadius: 10,
-      border: "1px solid var(--line)",
-      fontSize: 12,
-      boxShadow: "0 8px 24px rgba(28,20,24,.1)"
-    }
-  }), /*#__PURE__*/React.createElement(Bar, {
-    dataKey: "Kehadiran",
-    fill: "#64748b",
-    radius: [4, 4, 0, 0],
-    maxBarSize: 28
-  }, compareData.map((d, i) => /*#__PURE__*/React.createElement(Cell, {
-    key: `k-${i}`,
-    fill: `rgb(${scoreBarRGB(d.Kehadiran).join(",")})`
-  })), /*#__PURE__*/React.createElement(LabelList, {
-    dataKey: "Kehadiran",
-    position: "top",
-    style: {
-      fontSize: 10,
-      fontWeight: 700,
-      fill: "var(--navy-900)",
-      stroke: "none",
-      strokeDasharray: "none"
-    }
-  })), /*#__PURE__*/React.createElement(Bar, {
-    dataKey: "Patroli",
-    fill: "#b6bfcc",
-    radius: [4, 4, 0, 0],
-    maxBarSize: 28
-  }, compareData.map((d, i) => /*#__PURE__*/React.createElement(Cell, {
-    key: `p-${i}`,
-    fill: `rgb(${scoreBarRGB(d.Patroli).join(",")})`,
-    fillOpacity: 0.45,
-    stroke: `rgb(${scoreBarRGB(d.Patroli).join(",")})`,
-    strokeWidth: 1.2,
-    strokeDasharray: "3 2"
-  })), /*#__PURE__*/React.createElement(LabelList, {
-    dataKey: "Patroli",
-    position: "top",
-    style: {
-      fontSize: 10,
-      fontWeight: 600,
-      fill: "var(--navy-700)",
-      stroke: "none",
-      strokeDasharray: "none"
-    }
-  })))))))), /*#__PURE__*/React.createElement(Leaderboard, {
-    rows: rows,
-    highlightUserId: null
-  }));
+  const avg = key => {
+    const l = rows.filter(r => r[key] != null);
+    return l.length ? Math.round(l.reduce((s, r) => s + r[key], 0) / l.length) : null;
+  };
+  const avgScore = avg("total"), avgAtt = avg("attendance"), avgPat = avg("patrol");
+  const top = rows.find(r => r.total != null) || null;
+  const agg = { hadir: 0, terlambat: 0, pikMalam: 0, alpha: 0, izin: 0 };
+  rows.forEach(r => { if (!r.breakdown) return; Object.keys(agg).forEach(k => { agg[k] += r.breakdown[k] || 0; }); });
+  const PIE = [
+    { name: "Hadir", value: agg.hadir, fill: "#0b6b62" },
+    { name: "Terlambat", value: agg.terlambat, fill: "#f5b800" },
+    { name: "Piket Malam", value: agg.pikMalam, fill: "#2fb3a3" },
+    { name: "Alpa", value: agg.alpha, fill: "#f28b82" },
+    { name: "Izin", value: agg.izin, fill: "#9db0bd" }
+  ];
+  const pieTotal = PIE.reduce((s, d) => s + d.value, 0);
+  const compareData = rows.map(r => ({ name: r.userName.split(" ")[0], Kehadiran: r.attendance ?? 0, Patroli: r.patrol ?? 0 }));
+  const qn = q.trim().toLowerCase();
+  const shown = qn ? rows.filter(r => String(r.userName || "").toLowerCase().includes(qn)) : rows;
+  const { BarChart, Bar, XAxis, YAxis, Tooltip, PieChart, Pie, Cell, ResponsiveContainer, CartesianGrid } = Recharts;
+  const tip = { borderRadius: 10, border: "1px solid var(--line)", fontSize: 12, boxShadow: "0 8px 24px rgba(28,20,24,.1)" };
+  const panelHead = (title, right) => h("div", { className: "pn-head" }, h("h2", null, title), right || null);
+  const legendDot = (c, t, extra) => h("span", { className: "pn-leg" }, h("i", { style: { background: c } }), t, extra || null);
+
+  return h("div", { className: "container-app pn-root" },
+    h("div", { className: "flex", style: { alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 16, flexWrap: "wrap" } },
+      h("div", null,
+        h("h1", { style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Penilaian Tim"),
+        h("p", { style: { color: "var(--navy-700)", fontSize: 14, marginTop: 2 } }, "Skor otomatis & papan peringkat seluruh karyawan.")),
+      h("div", { className: "flex", style: { gap: 8, alignItems: "center", flexWrap: "wrap" } },
+        h("input", { type: "month", value: monthKey, onChange: e => e.target.value && setMonthKey(e.target.value), className: "input", style: { width: "auto" } }),
+        h(Button, { variant: "outline", size: "sm", onClick: () => exportPenilaianToPDF(rows, monthKey) }, h(Icon, { name: "file-badge", size: 15 }), " Cetak PDF"))),
+    h(AreaFilterChips, { value: areaFilter, onChange: setAreaFilter }),
+    (loadingMonth === monthKey || monthLoadError) && h("div", { style: { marginBottom: 16 } },
+      loadingMonth === monthKey && h("div", { className: "flex", style: { alignItems: "center", gap: 8, fontSize: 13, color: "var(--t-muted)" } }, h(Icon, { name: "loader-2", size: 14, className: "spin" }), "Mengambil riwayat bulan tersebut dari server…"),
+      monthLoadError && h("div", { style: { background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, monthLoadError)),
+
+    h("div", { className: "pn-grid" },
+      /* ===== KOLOM KIRI: ringkasan + kartu karyawan ===== */
+      h("div", { className: "pn-left" },
+        h("div", { className: "pn-hero" },
+          h("h2", null, "Ringkasan penilaian"),
+          h("div", { className: "pn-hero-row" },
+            h("div", { className: "pn-big" }, avgScore ?? "-"),
+            h("div", { className: "pn-hero-sub" }, "Rata-rata", h("br"), "skor tim"),
+            h("div", { className: "pn-hero-chip" }, h(Icon, { name: "trophy", size: 18 }), h("b", null, top ? top.total : "-"))),
+          h("div", { className: "pn-hero-meta" },
+            h("span", null, h("b", null, rows.length), " Karyawan"),
+            h("span", null, h("b", null, avgAtt ?? "-"), " Kehadiran"),
+            h("span", null, h("b", null, avgPat ?? "-"), " Patroli")),
+          top && h("div", { className: "pn-hero-top" }, "Tertinggi: ", h("b", null, top.userName)),
+          h("div", { className: "pn-search" }, h("span", null, h(Icon, { name: "search", size: 15 })),
+            h("input", { value: q, placeholder: "Cari nama karyawan…", onChange: e => setQ(e.target.value) }))),
+        rows.length === 0 ? h("div", { className: "card", style: { padding: 28, textAlign: "center" } }, h("p", { style: { color: "var(--t-faint)", fontSize: 14 } }, "Belum ada data karyawan.")) :
+        shown.length === 0 ? h("div", { className: "card", style: { padding: 28, textAlign: "center" } }, h("p", { style: { color: "var(--t-faint)", fontSize: 14 } }, "Karyawan tidak ditemukan.")) :
+        shown.map(r => {
+          const medal = RANK_MEDAL[r.rank];
+          const grade = scoreGrade(r.total);
+          return h("div", { key: r.userId, className: "card pn-emp" },
+            h("div", { className: "pn-emp-top" },
+              h(Avatar, { name: r.userName, color: r.avatarColor, size: 38 }),
+              h("div", { style: { flex: 1, minWidth: 0 } },
+                h("p", { className: "pn-emp-name" }, r.userName),
+                h("p", { className: "pn-emp-pos" }, r.position)),
+              h("span", { className: "pn-rank", style: medal ? { background: medal.bg, color: medal.color } : null }, medal ? medal.icon : "#" + r.rank)),
+            h("div", { className: "pn-emp-mid" },
+              h("div", null,
+                h("div", { className: "pn-emp-score", style: { color: grade.colorVar } }, r.total ?? "-"),
+                h("div", { className: "pn-emp-cap" }, "Skor total · Grade " + grade.label)),
+              h(PnRing, { value: r.total, color: "#0b6b62", size: 62, stroke: 8, label: grade.label })),
+            h("div", { className: "pn-emp-bars" },
+              h(ScoreBar, { label: "Kehadiran", value: r.attendance }),
+              h(ScoreBar, { label: "Patroli", value: r.patrol })));
+        })),
+
+      /* ===== KOLOM KANAN ===== */
+      h("div", { className: "pn-right" },
+        h("div", { className: "pn-top2" },
+          h("div", { className: "card pn-card" },
+            panelHead("Distribusi Kehadiran"),
+            pieTotal === 0 ? h("p", { style: { color: "var(--t-faint)", fontSize: 13, padding: "30px 0", textAlign: "center" } }, "Belum ada data kehadiran bulan ini.") :
+            h("div", { className: "pn-pie" },
+              h("div", { className: "pn-pie-chart" },
+                h(ResponsiveContainer, { width: "100%", height: 170 },
+                  h(PieChart, null,
+                    h(Pie, { data: PIE.filter(d => d.value > 0), dataKey: "value", nameKey: "name", innerRadius: 46, outerRadius: 80, paddingAngle: 2, stroke: "none" },
+                      PIE.filter(d => d.value > 0).map((d, i) => h(Cell, { key: i, fill: d.fill }))),
+                    h(Tooltip, { contentStyle: tip })))),
+              h("div", { className: "pn-pie-leg" },
+                PIE.map(d => h("div", { key: d.name, className: "pn-pie-row" },
+                  h("span", { className: "pn-leg" }, h("i", { style: { background: d.fill } }), d.name),
+                  h("b", null, d.value, h("small", null, pieTotal ? " · " + Math.round(d.value / pieTotal * 100) + "%" : ""))))))),
+          h("div", { className: "card pn-card" },
+            panelHead("Skor Rata-rata"),
+            h("div", { className: "pn-leg-row" }, legendDot("#0b6b62", "Total"), legendDot("#f5b800", "Kehadiran"), legendDot("#2fb3a3", "Patroli")),
+            h("div", { className: "pn-rings" },
+              [[avgScore, "#0b6b62"], [avgAtt, "#f5b800"], [avgPat, "#2fb3a3"]].map(([v, c], i) => h(PnRing, { key: i, value: v, color: c, size: 84, stroke: 10, label: v == null ? "-" : String(v) }))),
+            top && h("p", { className: "pn-note" }, "Skor tertinggi bulan ini: ", h("b", null, top.userName + " (" + top.total + ")")))),
+
+        compareData.length > 0 && h("div", { className: "card pn-card" },
+          panelHead("Kehadiran vs Patroli per Karyawan"),
+          h("div", { className: "pn-leg-row" }, legendDot("#0b6b62", "Kehadiran"), legendDot("#2fb3a3", "Patroli")),
+          h("div", { style: { overflowX: "auto" } },
+            h("div", { style: { minWidth: Math.max(280, compareData.length * 56) } },
+              h(ResponsiveContainer, { width: "100%", height: 280 },
+                h(BarChart, { data: compareData, barGap: 3, barCategoryGap: "24%", margin: { top: 10, right: 8, left: 0, bottom: 0 } },
+                  h(CartesianGrid, { vertical: false, stroke: "var(--line)", strokeDasharray: "3 3" }),
+                  h(XAxis, { dataKey: "name", tick: { fontSize: 11, fill: "var(--navy-700)" }, axisLine: false, tickLine: false }),
+                  h(YAxis, { tick: { fontSize: 11, fill: "var(--navy-700)" }, axisLine: false, tickLine: false, domain: [0, 100], width: 30 }),
+                  h(Tooltip, { cursor: { fill: "var(--slate-mist)" }, contentStyle: tip }),
+                  h(Bar, { dataKey: "Kehadiran", fill: "#0b6b62", radius: [5, 5, 0, 0], maxBarSize: 22, background: { fill: "var(--pn-track)", radius: 5 } }),
+                  h(Bar, { dataKey: "Patroli", fill: "#2fb3a3", radius: [5, 5, 0, 0], maxBarSize: 22 })))))),
+
+        h("div", { className: "card pn-card" },
+          panelHead("Papan Peringkat", h(Button, { variant: "outline", size: "sm", onClick: () => exportPenilaianToPDF(rows, monthKey) }, h(Icon, { name: "download", size: 14 }), " Export")),
+          shown.length === 0 ? h("p", { style: { color: "var(--t-faint)", fontSize: 14, textAlign: "center", padding: "24px 0" } }, "Tidak ada data karyawan.") :
+          h("div", { className: "ot-wrap" },
+            h("table", { className: "ot-tbl", style: { minWidth: 720 } },
+              h("thead", null, h("tr", null, ["No", "Karyawan", "Hadir", "Terlambat", "Piket Malam", "Alpa", "Izin", "Skor"].map(c => h("th", { key: c }, c)))),
+              h("tbody", null, shown.map(r => {
+                const b = r.breakdown || {};
+                const grade = scoreGrade(r.total);
+                const medal = RANK_MEDAL[r.rank];
+                return h("tr", { key: r.userId },
+                  h("td", { style: { whiteSpace: "nowrap", fontWeight: 600 } }, medal ? medal.icon : String(r.rank).padStart(2, "0")),
+                  h("td", null, h("div", { className: "flex", style: { alignItems: "center", gap: 10 } }, h(Avatar, { name: r.userName, color: r.avatarColor, size: 30 }), h("div", { style: { minWidth: 0 } }, h("div", { style: { fontWeight: 600 } }, r.userName), h(AreaTag, { userId: r.userId })))),
+                  h("td", null, b.hadir ?? "-"), h("td", null, b.terlambat ?? "-"), h("td", null, b.pikMalam ?? "-"), h("td", null, b.alpha ?? "-"), h("td", null, b.izin ?? "-"),
+                  h("td", { style: { whiteSpace: "nowrap" } }, h("span", { className: "pn-score-pill", style: { color: grade.colorVar } }, r.total ?? "-", h("small", null, " · " + grade.label))));
+              }))))))));
 }
 
 /* ======================= HALAMAN JADWAL KERJA ======================= */
@@ -19576,7 +19360,7 @@ function PanduanPage() {
         "Menu Pengajuan \u2192 Lembur menampilkan semua lembur dalam kartu ringkas dua kolom (ikon, nama, tanggal, jam, durasi, status, dan keterangan 2 baris). Pilih bulan di bagian atas, lalu saring dengan tab Menunggu, Disetujui, Ditolak, atau Semua. Angka pada menu menunjukkan jumlah pengajuan yang menunggu.",
         "Ketuk bagian atas kartu untuk membuka Detail Lembur: durasi dan jam, hari & tanggal, nama dan jabatan karyawan, waktu diajukan, keputusan (siapa, kapan, dan lama proses), keterangan pekerjaan, foto yang bisa diperbesar, serta rekap lembur karyawan itu pada bulan yang sama.",
         "Pengajuan Menunggu punya tombol \"Tinjau & Putuskan\" yang membuka layar Tinjau Lembur (seperti Laporan Kejadian): nomor referensi, penanda otomatis (tanpa foto, durasi lebih dari 8 jam, lewat tengah malam), foto, rekap bulan karyawan, dan riwayat peninjauan. Isi catatan peninjauan lalu tekan Setujui atau Tolak; catatan wajib diisi bila ditolak dan terlihat oleh karyawan. Setelah diputuskan, keputusan bisa dikembalikan lewat \"Kembalikan ke Menunggu\", dan data bisa dihapus lewat \"Hapus\" (hanya Admin).",
-        "Kartu \"Rekap lembur disetujui bulan ini\" menampilkan total jam seluruh karyawan dan rincian per karyawan (total jam dan berapa kali lembur). Hanya lembur berstatus Disetujui yang dihitung.",
+        "Di bawah nama tiap karyawan pada daftar lembur tampil total jam lembur disetujui bulan itu dan berapa kali lembur. Hanya lembur berstatus Disetujui yang dihitung.",
         "Tombol \"Unduh Excel\" dan \"Unduh PDF\" membuat laporan SEMUA lembur (semua status) pada bulan yang dipilih, tidak terpengaruh tab yang sedang aktif. Excel berisi dua sheet: \"Rekap per Karyawan\" (jumlah dan total jam disetujui, jumlah menunggu dan ditolak, serta baris TOTAL) dan \"Rincian Lembur\" (satu baris per lembur). PDF berisi tabel rekap lalu tabel rincian.",
         "Karyawan juga punya tombol Excel dan PDF di halaman Lembur untuk mengunduh data lemburnya sendiri pada bulan yang dipilih.",
         "Lembur lama yang dulu diinput oleh admin tetap tampil dengan keterangan \"Diinput oleh admin\" dan tetap dihitung di rekap."
@@ -23114,6 +22898,7 @@ function OvertimeFormModal({
 }
 function OvertimeCard({
   ot,
+  empTotal,
   showName,
   canDecide,
   canRemove,
@@ -23144,7 +22929,7 @@ function OvertimeCard({
           h(Icon, { name: "timer", size: 18, style: { color: "var(--t-faint)" } })),
         h("div", { style: { minWidth: 0 } },
           h("p", { style: { fontWeight: 600, color: "var(--navy-900)", fontSize: 14, overflowWrap: "anywhere" } }, showName ? ot.userName : formatDateID(ot.date)),
-          h("p", { style: { fontSize: 12, color: "var(--t-faint)" } }, subText), showName && h(AreaTag, { userId: ot.userId }))),
+          h("p", { style: { fontSize: 12, color: "var(--t-faint)" } }, subText), showName && h("p", { style: { fontSize: 12, color: "var(--t-faint)" } }, "Total disetujui: " + (empTotal ? formatOvertimeDuration(empTotal.minutes) + " · " + empTotal.count + "x" : "0 jam")), showName && h(AreaTag, { userId: ot.userId }))),
       h(LeaveStatusBadge, { status: ot.status })),
     h("p", { style: { fontSize: 13, color: "var(--t-muted)", marginTop: 10, whiteSpace: "normal", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflowWrap: "anywhere" } }, ot.task),
     ot.reviewNote && ot.status !== LEAVE_STATUS.PENDING && h("p", { style: { fontSize: 12, color: "var(--t-faint)", marginTop: 6, overflowWrap: "anywhere" } }, "Catatan peninjau: " + ot.reviewNote),
@@ -23206,6 +22991,8 @@ function EmployeeOvertimePage({
 /* ===== EKSPOR LEMBUR (Excel & PDF) ===== */
 const OVERTIME_STATUS_LABEL = { pending: "Menunggu", approved: "Disetujui", rejected: "Ditolak" };
 function overtimeMonthLabel(month) {
+  if (String(month).includes(",")) return String(month).split(",").map(overtimeMonthLabel).join(", ");
+  if (!/^\d{4}-\d{2}$/.test(String(month))) return "Semua periode";
   try {
     return new Date(month + "-01T00:00:00").toLocaleDateString("id-ID", { month: "long", year: "numeric" });
   } catch (e) {
@@ -23274,7 +23061,7 @@ function exportOvertimeToExcel(list, month, who) {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws2, "Rekap per Karyawan");
   XLSX.utils.book_append_sheet(wb, ws, "Rincian Lembur");
-  XLSX.writeFile(wb, `lembur${who ? "-" + String(who).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") : ""}-${month}-${overtimeFileStamp()}.xlsx`);
+  XLSX.writeFile(wb, `lembur${who ? "-" + String(who).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") : ""}-${String(month).replace(/,/g, "_")}-${overtimeFileStamp()}.xlsx`);
 }
 function exportOvertimeToPDF(list, month, who) {
   const sorted = overtimeSortedList(list);
@@ -23322,9 +23109,9 @@ function exportOvertimeToPDF(list, month, who) {
     doc.setTextColor(120, 130, 145);
     doc.text(`Halaman ${i} dari ${pages}`, doc.internal.pageSize.getWidth() - 14, doc.internal.pageSize.getHeight() - 8, { align: "right" });
   }
-  doc.save(`lembur${who ? "-" + String(who).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") : ""}-${month}-${overtimeFileStamp()}.pdf`);
+  doc.save(`lembur${who ? "-" + String(who).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") : ""}-${String(month).replace(/,/g, "_")}-${overtimeFileStamp()}.pdf`);
 }
-function OvertimeTableRow({ ot, canDecide, canRemove, busy, onDecide, onRemove }) {
+function OvertimeTableRow({ ot, empTotal, canDecide, canRemove, busy, onDecide, onRemove }) {
   const h = React.createElement;
   const [showDetail, setShowDetail] = useState(false);
   const cross = timeToMinutes(ot.endTime) <= timeToMinutes(ot.startTime);
@@ -23332,7 +23119,7 @@ function OvertimeTableRow({ ot, canDecide, canRemove, busy, onDecide, onRemove }
   return h("tr", null,
     h("td", null, h("div", { className: "flex", style: { alignItems: "center", gap: 10 } },
       h(Avatar, { name: ot.userName, size: 30 }),
-      h("div", { style: { minWidth: 0 } }, h("div", { style: { fontWeight: 600 } }, ot.userName), h(AreaTag, { userId: ot.userId })))),
+      h("div", { style: { minWidth: 0 } }, h("div", { style: { fontWeight: 600 } }, ot.userName), h("div", { style: { fontSize: 11.5, color: "var(--t-faint)", marginTop: 1 } }, "Total disetujui: " + (empTotal ? formatOvertimeDuration(empTotal.minutes) + " · " + empTotal.count + "x" : "0 jam")), h(AreaTag, { userId: ot.userId })))),
     h("td", { style: { whiteSpace: "nowrap" } }, formatDateShortID(ot.date)),
     h("td", { style: { whiteSpace: "nowrap" } }, ot.startTime),
     h("td", { style: { whiteSpace: "nowrap" } }, ot.endTime, cross && h("span", { style: { marginLeft: 6, fontSize: 11, color: "var(--t-faint)" } }, "(+1 hari)")),
@@ -23355,11 +23142,48 @@ function otPageList(pg, total) {
   out.push(total);
   return out;
 }
+function OvertimeExportModal({ list, fmt, onClose, onExport }) {
+  const h = React.createElement;
+  const MN = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+  const label = m => { const p = m.split("-"); return (MN[Number(p[1]) - 1] || p[1]) + " " + p[0]; };
+  const counts = {};
+  list.forEach(o => { const m = String(o.date).slice(0, 7); counts[m] = (counts[m] || 0) + 1; });
+  const months = Object.keys(counts).sort().reverse();
+  const [all, setAll] = useState(true);
+  const [picked, setPicked] = useState(() => months.slice(0, 1));
+  const toggle = m => setPicked(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m]);
+  const chosen = all ? months : months.filter(m => picked.includes(m));
+  const total = chosen.reduce((a, m) => a + counts[m], 0);
+  const rowStyle = { display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 10, background: "var(--slate-mist)", cursor: "pointer", fontSize: 14, color: "var(--navy-900)" };
+  function go() {
+    if (chosen.length === 0) return;
+    const sel = all ? list : list.filter(o => chosen.includes(String(o.date).slice(0, 7)));
+    onExport(sel, all ? "semua" : [...chosen].sort().join(","));
+  }
+  return h("div", { className: "modal-backdrop", onClick: onClose },
+    h("div", { className: "modal-box fade-up", style: { maxWidth: 460 }, onClick: e => e.stopPropagation() },
+      h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", padding: "18px 20px", borderBottom: "1px solid var(--line)" } },
+        h("div", null,
+          h("h3", { style: { fontSize: 16, fontWeight: 700, color: "var(--navy-900)" } }, "Unduh " + (fmt === "pdf" ? "PDF" : "Excel") + " Lembur"),
+          h("p", { style: { fontSize: 12, color: "var(--t-faint)", marginTop: 2 } }, "Pilih semua bulan atau bulan tertentu")),
+        h("button", { type: "button", onClick: onClose, "aria-label": "Tutup", style: { color: "var(--t-faint)", padding: 4 } }, h(Icon, { name: "x", size: 20 }))),
+      h("div", { style: { padding: 20, display: "flex", flexDirection: "column", gap: 8, maxHeight: "60vh", overflowY: "auto" } },
+        h("label", { style: { ...rowStyle, fontWeight: 700 } },
+          h("input", { type: "checkbox", checked: all, onChange: e => setAll(e.target.checked) }),
+          h("span", { style: { flex: 1 } }, "Semua bulan"), h("span", { style: { fontSize: 12, color: "var(--t-faint)", fontWeight: 500 } }, list.length + " data")),
+        months.map(m => h("label", { key: m, style: { ...rowStyle, opacity: all ? .55 : 1 } },
+          h("input", { type: "checkbox", checked: all || picked.includes(m), disabled: all, onChange: () => toggle(m) }),
+          h("span", { style: { flex: 1 } }, label(m)), h("span", { style: { fontSize: 12, color: "var(--t-faint)" } }, counts[m] + " data")))),
+      h("div", { className: "flex", style: { gap: 8, justifyContent: "flex-end", alignItems: "center", padding: "14px 20px", borderTop: "1px solid var(--line)" } },
+        h("span", { style: { fontSize: 12, color: "var(--t-faint)", marginRight: "auto" } }, chosen.length + " bulan · " + total + " data"),
+        h(Button, { variant: "outline", onClick: onClose }, "Batal"),
+        h(Button, { variant: "primary", onClick: go, disabled: chosen.length === 0 }, h(Icon, { name: "download", size: 16 }), " Unduh"))));
+}
 function OvertimeAdminPage() {
   const h = React.createElement;
   const { user, canManage: canEdit, canDecide } = useAuth();
   const [tab, setTab] = useState("pending");
-  const [month, setMonth] = useState(todayDateStrWITA(getTrustedNow()).slice(0, 7));
+  const month = "semua"; // history semua bulan (tanpa filter bulan)
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
   const [areaFilter, setAreaFilter] = useState("all");
@@ -23367,21 +23191,16 @@ function OvertimeAdminPage() {
   const [q, setQ] = useState("");
   const [pageSize, setPageSize] = useState(10);
   const [page, setPage] = useState(1);
+  const [exportFmt, setExportFmt] = useState(null);
   useStoreSync();
   const employees = getScopedEmployees().sort((a, b) => a.name.localeCompare(b.name));
   // Hanya Super Admin yang melihat lembur semua area; Admin Area / View Only hanya area aksesnya.
   const overtimesScoped = getOvertimes().filter(o => inNotifScope(o.userId, user));
   const overtimesInArea = overtimesScoped.filter(o => userInAreaData(o.userId, areaFilter));
-  const inMonth = overtimesInArea.filter(o => o.date.startsWith(month));
+  const inMonth = overtimesInArea; // semua bulan
   // Angka tab "Menunggu" mengikuti bulan yang dipilih (sama dengan isi daftar di bawahnya).
   const pendingMonth = inMonth.filter(o => o.status === LEAVE_STATUS.PENDING).length;
-  // Pengajuan menunggu yang jatuh di bulan LAIN dikelompokkan per bulan, supaya tidak "hilang".
-  const pendingElsewhere = {};
-  overtimesInArea.filter(o => o.status === LEAVE_STATUS.PENDING).forEach(o => {
-    const m = String(o.date).slice(0, 7);
-    if (m !== month) pendingElsewhere[m] = (pendingElsewhere[m] || 0) + 1;
-  });
-  const elsewhereMonths = Object.keys(pendingElsewhere).sort();
+  const elsewhereMonths = [];
   const MONTH_NAMES_ID = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
   const monthLabelID = m => { const p = m.split("-"); return (MONTH_NAMES_ID[Number(p[1]) - 1] || p[1]) + " " + p[0]; };
   const filtered = tab === "all" ? inMonth : inMonth.filter(o => o.status === tab);
@@ -23410,11 +23229,15 @@ function OvertimeAdminPage() {
     run(ot.id, () => deleteOvertime(ot.id), "Gagal menghapus data lembur. Coba lagi.");
   }
   // Ekspor mencakup SEMUA status (menunggu, disetujui, ditolak) pada bulan yang dipilih, tidak terpengaruh tab.
-  function exportExcel() {
-    try { exportOvertimeToExcel(inMonth, month); } catch (err) { setError("Gagal membuat file Excel: " + (err && err.message || err)); }
-  }
-  function exportPdf() {
-    try { exportOvertimeToPDF(inMonth, month); } catch (err) { setError("Gagal membuat file PDF: " + (err && err.message || err)); }
+  function exportExcel() { setExportFmt("excel"); }
+  function exportPdf() { setExportFmt("pdf"); }
+  function doExport(sel, monthKey) {
+    const fmt = exportFmt;
+    setExportFmt(null);
+    try {
+      if (fmt === "pdf") exportOvertimeToPDF(sel, monthKey);
+      else exportOvertimeToExcel(sel, monthKey);
+    } catch (err) { setError("Gagal membuat file " + (fmt === "pdf" ? "PDF" : "Excel") + ": " + (err && err.message || err)); }
   }
   const cntApproved = inMonth.filter(o => o.status === LEAVE_STATUS.APPROVED).length;
   const cntRejected = inMonth.filter(o => o.status === LEAVE_STATUS.REJECTED).length;
@@ -23434,26 +23257,20 @@ function OvertimeAdminPage() {
     h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 12, flexWrap: "wrap" } },
       h("div", null,
         h("h1", { className: "pg-h1", style: { fontSize: 20, fontWeight: 700, color: "var(--navy-900)" } }, "Lembur Karyawan"),
-        h("p", { style: { color: "var(--t-muted)", fontSize: 14, marginTop: 2 } }, "Tinjau pengajuan lembur dari karyawan dan lihat rekap jam per bulan.")),
+        h("p", { style: { color: "var(--t-muted)", fontSize: 14, marginTop: 2 } }, "Tinjau pengajuan lembur dari karyawan dan lihat history lembur serta total jam per karyawan.")),
       h("div", { className: "flex", style: { gap: 8, flexWrap: "wrap" } },
         h(Button, { variant: "outline", onClick: exportExcel, disabled: inMonth.length === 0 }, h(Icon, { name: "download", size: 16 }), " Unduh Excel"),
         h(Button, { variant: "outline", onClick: exportPdf, disabled: inMonth.length === 0 }, h(Icon, { name: "download", size: 16 }), " Unduh PDF"))),
     error && h("div", { style: { marginBottom: 16, background: "var(--red-soft)", color: "var(--red)", fontSize: 13, padding: "10px 14px", borderRadius: 10 } }, error),
     h(AreaFilterChips, { value: areaFilter, onChange: v => { setAreaFilter(v); setPage(1); }, scopeIds: getDashboardAreaIds(user), counts: countPendingByArea(overtimesScoped) }),
     getDashboardAreaIds(user) && getDashboardAreaIds(user).length === 0 && h("p", { style: { fontSize: 13, color: "var(--red)", background: "var(--red-soft)", padding: "10px 14px", borderRadius: 10, marginBottom: 14 } }, "Akunmu belum punya area akses, jadi data lembur belum tampil. Hubungi Super Admin untuk mengatur area aksesmu."),
-    h("div", { style: { marginBottom: 14 } },
-      h("label", { className: "label" }, "Bulan"),
-      h("input", { className: "input", type: "month", value: month, onChange: e => { if (e.target.value) { setMonth(e.target.value); setPage(1); } }, style: { maxWidth: 190 } })),
-    elsewhereMonths.length > 0 && h("div", { style: { marginBottom: 14, background: "var(--amber-soft)", color: "var(--amber)", fontSize: 13, padding: "10px 14px", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" } },
-      h("span", { style: { fontWeight: 600 } }, "Ada pengajuan menunggu di bulan lain: " + elsewhereMonths.map(m => monthLabelID(m) + " (" + pendingElsewhere[m] + ")").join(", ")),
-      h("button", { type: "button", onClick: () => { setMonth(elsewhereMonths[0]); setTab("pending"); setPage(1); }, style: { fontWeight: 700, textDecoration: "underline", color: "inherit" } }, "Lihat")),
     h("div", { className: "ot-stats" },
-      h("div", { className: "card ot-stat" }, h("div", { className: "t" }, "Total Pengajuan"), h("div", { className: "n" }, inMonth.length), h("div", { className: "s" }, "Bulan ini")),
+      h("div", { className: "card ot-stat" }, h("div", { className: "t" }, "Total Pengajuan"), h("div", { className: "n" }, inMonth.length), h("div", { className: "s" }, "Semua bulan")),
       h("div", { className: "card ot-stat" }, h("div", { className: "t" }, "Menunggu"), h("div", { className: "n", style: { color: "var(--amber)" } }, pendingMonth), h("div", { className: "s" }, "Perlu ditinjau")),
       h("div", { className: "card ot-stat" }, h("div", { className: "t" }, "Disetujui"), h("div", { className: "n", style: { color: "var(--green)" } }, cntApproved), h("div", { className: "s" }, "Total jam: " + (totalMin ? formatOvertimeDuration(totalMin) : "0 jam"))),
-      h("div", { className: "card ot-stat" }, h("div", { className: "t" }, "Ditolak"), h("div", { className: "n", style: { color: "var(--red)" } }, cntRejected), h("div", { className: "s" }, "Bulan ini"))),
+      h("div", { className: "card ot-stat" }, h("div", { className: "t" }, "Ditolak"), h("div", { className: "n", style: { color: "var(--red)" } }, cntRejected), h("div", { className: "s" }, "Semua bulan"))),
     h("div", { className: "card ot-panel" },
-      h("div", { className: "ot-panel-head" }, h("h2", null, "Daftar Lembur")),
+      h("div", { className: "ot-panel-head" }, h("h2", null, "History Lembur")),
       h("div", { className: "ot-tabs scrollbar-none" },
         TABS.map(t => h("button", { key: t.key, type: "button", onClick: () => { setTab(t.key); setPage(1); }, className: "ot-tab" + (tab === t.key ? " on" : "") },
           t.label, h("span", { className: "ot-badge", style: tabBadge[t.key] }, tabCount[t.key])))),
@@ -23465,15 +23282,12 @@ function OvertimeAdminPage() {
             h("span", null, "data"))),
         h("div", { className: "ot-tools-r" },
           h("div", { className: "ot-search" }, h("span", null, h(Icon, { name: "search", size: 15 })),
-            h("input", { className: "input", value: q, placeholder: "Cari nama karyawan…", onChange: e => { setQ(e.target.value); setPage(1); } })),
-          h("div", { className: "ot-view" },
-            h("button", { type: "button", className: view === "table" ? "on" : "", title: "Tampilan tabel", "aria-label": "Tampilan tabel", onClick: () => setView("table") }, h(Icon, { name: "list", size: 16 })),
-            h("button", { type: "button", className: view === "cards" ? "on" : "", title: "Tampilan kartu", "aria-label": "Tampilan kartu", onClick: () => setView("cards") }, h(Icon, { name: "layout-grid", size: 16 }))))),
+            h("input", { className: "input", value: q, placeholder: "Cari nama karyawan…", onChange: e => { setQ(e.target.value); setPage(1); } })))),
       sorted.length === 0 ? h("div", { style: { padding: "36px 12px", textAlign: "center" } },
-        h("p", { style: { color: "var(--t-faint)", fontSize: 14 } }, "Tidak ada data lembur pada kategori dan bulan ini.")) :
+        h("p", { style: { color: "var(--t-faint)", fontSize: 14 } }, "Tidak ada data lembur pada kategori ini.")) :
       view === "cards" ? h("div", { className: "leave-grid", style: { display: "flex", flexDirection: "column", gap: 12 } },
         pageItems.map(ot => h(OvertimeCard, {
-          key: ot.id, ot, showName: true, canDecide: canDecide, canRemove: canEdit, busy: busyId === ot.id,
+          key: ot.id, ot, empTotal: recapMap[ot.userId], showName: true, canDecide: canDecide, canRemove: canEdit, busy: busyId === ot.id,
           onDecide: (d, note) => doRun(ot, d, note),
           onRemove: () => remove(ot)
         }))) :
@@ -23481,7 +23295,7 @@ function OvertimeAdminPage() {
         h("table", { className: "ot-tbl" },
           h("thead", null, h("tr", null, ["Karyawan", "Tanggal", "Jam Mulai", "Jam Selesai", "Durasi", "Keterangan", "Status", "Aksi"].map(c => h("th", { key: c }, c)))),
           h("tbody", null, pageItems.map(ot => h(OvertimeTableRow, {
-            key: ot.id, ot, canDecide: canDecide, canRemove: canEdit, busy: busyId === ot.id,
+            key: ot.id, ot, empTotal: recapMap[ot.userId], canDecide: canDecide, canRemove: canEdit, busy: busyId === ot.id,
             onDecide: (d, note) => doRun(ot, d, note),
             onRemove: () => remove(ot)
           }))))),
@@ -23491,19 +23305,7 @@ function OvertimeAdminPage() {
           h("button", { type: "button", disabled: pg <= 1, "aria-label": "Halaman sebelumnya", onClick: () => setPage(pg - 1) }, h(Icon, { name: "chevron-left", size: 15 })),
           otPageList(pg, totalPages).map((p, i) => p === "…" ? h("span", { key: "g" + i, className: "gap" }, "…") : h("button", { key: p, type: "button", className: p === pg ? "on" : "", onClick: () => setPage(p) }, p)),
           h("button", { type: "button", disabled: pg >= totalPages, "aria-label": "Halaman berikutnya", onClick: () => setPage(pg + 1) }, h(Icon, { name: "chevron-right", size: 15 }))))),
-    h("div", { className: "card", style: { padding: 16, marginBottom: 18 } },
-      h("div", { className: "flex", style: { alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: recap.length ? 10 : 0, flexWrap: "wrap" } },
-        h("p", { style: { fontSize: 14, fontWeight: 700, color: "var(--navy-900)" } }, "Rekap lembur disetujui bulan ini"),
-        h("p", { style: { fontSize: 13, color: "var(--accent-700)", fontWeight: 700 } }, "Total " + (totalMin ? formatOvertimeDuration(totalMin) : "0 jam"))),
-      recap.length === 0 ? h("p", { style: { fontSize: 13, color: "var(--t-faint)", marginTop: 6 } }, "Belum ada lembur yang disetujui di bulan ini.") : h("div", { style: { display: "flex", flexDirection: "column" } },
-        recap.map((r, i) => h("div", { key: r.name + i, className: "ot-recap-row" },
-          h(Avatar, { name: r.name, size: 32 }),
-          h("div", { style: { flex: 1, minWidth: 0 } },
-            h("div", { className: "flex", style: { justifyContent: "space-between", gap: 10, fontSize: 13 } },
-              h("span", { style: { color: "var(--navy-900)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, r.name),
-              h("span", { style: { color: "var(--t-muted)", whiteSpace: "nowrap", fontWeight: 600 } }, formatOvertimeDuration(r.minutes) + " · " + r.count + "x")),
-            h("div", { className: "ot-bar" }, h("i", { style: { width: Math.max(6, Math.round(r.minutes / (recap[0].minutes || 1) * 100)) + "%" } }))))))),
-
+    exportFmt && h(ModalGuard, { onClose: () => setExportFmt(null) }, h(OvertimeExportModal, { list: inMonth, fmt: exportFmt, onClose: () => setExportFmt(null), onExport: doExport })),
     null);
 }
 
